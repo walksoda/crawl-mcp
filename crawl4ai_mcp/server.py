@@ -35,6 +35,8 @@ from crawl4ai.deep_crawling.filters import FilterChain, URLPatternFilter, Domain
 from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
 from .suppress_output import suppress_stdout_stderr
 from .file_processor import FileProcessor
+from .youtube_processor import YouTubeProcessor
+from .google_search_processor import GoogleSearchProcessor
 
 
 class CrawlRequest(BaseModel):
@@ -113,6 +115,87 @@ class FileProcessResponse(BaseModel):
     error: Optional[str] = None
 
 
+class YouTubeTranscriptRequest(BaseModel):
+    """Request model for YouTube transcript extraction."""
+    url: str = Field(..., description="YouTube video URL")
+    languages: Optional[List[str]] = Field(["ja", "en"], description="Preferred languages in order of preference")
+    translate_to: Optional[str] = Field(None, description="Target language for translation")
+    include_timestamps: bool = Field(True, description="Include timestamps in transcript")
+    preserve_formatting: bool = Field(True, description="Preserve original formatting")
+    include_metadata: bool = Field(True, description="Include video metadata")
+
+
+class YouTubeTranscriptResponse(BaseModel):
+    """Response model for YouTube transcript extraction."""
+    success: bool
+    url: Optional[str] = None
+    video_id: Optional[str] = None
+    transcript: Optional[Dict[str, Any]] = None
+    language_info: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    processing_method: Optional[str] = None
+    error: Optional[str] = None
+
+
+class YouTubeBatchRequest(BaseModel):
+    """Request model for batch YouTube transcript extraction."""
+    urls: List[str] = Field(..., description="List of YouTube video URLs")
+    languages: Optional[List[str]] = Field(["ja", "en"], description="Preferred languages in order of preference")
+    translate_to: Optional[str] = Field(None, description="Target language for translation")
+    include_timestamps: bool = Field(True, description="Include timestamps in transcript")
+    max_concurrent: int = Field(3, description="Maximum concurrent requests (1-10)")
+
+
+class YouTubeBatchResponse(BaseModel):
+    """Response model for batch YouTube transcript extraction."""
+    success: bool
+    total_urls: int
+    successful_extractions: int
+    failed_extractions: int
+    results: List[YouTubeTranscriptResponse]
+    processing_summary: Optional[Dict[str, Any]] = None
+
+
+class GoogleSearchRequest(BaseModel):
+    """Request model for Google search operations."""
+    query: str = Field(..., description="Search query")
+    num_results: int = Field(10, description="Number of results to return (1-100)")
+    language: str = Field("en", description="Search language (e.g., 'en', 'ja')")
+    region: str = Field("us", description="Search region (e.g., 'us', 'jp')")
+    search_genre: Optional[str] = Field(None, description="Search genre for content filtering (e.g., 'academic', 'news', 'technical')")
+    safe_search: bool = Field(True, description="Enable safe search filtering (always enabled for safety)")
+
+
+class GoogleSearchResponse(BaseModel):
+    """Response model for Google search operations."""
+    success: bool
+    query: Optional[str] = None
+    total_results: Optional[int] = None
+    results: Optional[List[Dict[str, Any]]] = None
+    search_metadata: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+class GoogleBatchSearchRequest(BaseModel):
+    """Request model for batch Google search operations."""
+    queries: List[str] = Field(..., description="List of search queries")
+    num_results_per_query: int = Field(10, description="Number of results per query (1-100)")
+    max_concurrent: int = Field(3, description="Maximum concurrent searches (1-5)")
+    language: str = Field("en", description="Search language (e.g., 'en', 'ja')")
+    region: str = Field("us", description="Search region (e.g., 'us', 'jp')")
+    search_genre: Optional[str] = Field(None, description="Search genre for content filtering")
+
+
+class GoogleBatchSearchResponse(BaseModel):
+    """Response model for batch Google search operations."""
+    success: bool
+    total_queries: int
+    successful_searches: int
+    failed_searches: int
+    results: List[GoogleSearchResponse]
+    analysis: Optional[Dict[str, Any]] = None
+
+
 
 
 class CrawlResponse(BaseModel):
@@ -146,6 +229,12 @@ mcp = FastMCP("Crawl4AI MCP Server")
 # Initialize FileProcessor for MarkItDown integration
 file_processor = FileProcessor()
 
+# Initialize YouTubeProcessor for transcript extraction
+youtube_processor = YouTubeProcessor()
+
+# Initialize GoogleSearchProcessor for search functionality
+google_search_processor = GoogleSearchProcessor()
+
 
 @mcp.tool
 async def crawl_url(request: CrawlRequest) -> CrawlResponse:
@@ -159,6 +248,60 @@ async def crawl_url(request: CrawlRequest) -> CrawlResponse:
         CrawlResponse with crawled content and metadata
     """
     try:
+        # Check if URL is a YouTube video
+        if youtube_processor.is_youtube_url(request.url):
+            # ⚠️ WARNING: YouTube transcript extraction is currently experiencing issues
+            # due to API specification changes. Attempting extraction but may fail.
+            try:
+                youtube_result = await youtube_processor.process_youtube_url(
+                    url=request.url,
+                    languages=["ja", "en"],  # Default language preferences
+                    include_timestamps=True,
+                    preserve_formatting=True,
+                    include_metadata=True
+                )
+                
+                if youtube_result['success']:
+                    transcript_data = youtube_result['transcript']
+                    return CrawlResponse(
+                        success=True,
+                        url=request.url,
+                        title=f"YouTube Video Transcript: {youtube_result['video_id']}",
+                        content=transcript_data.get('full_text'),
+                        markdown=transcript_data.get('clean_text'),
+                        extracted_data={
+                            "video_id": youtube_result['video_id'],
+                            "processing_method": "youtube_transcript_api",
+                            "language_info": youtube_result.get('language_info'),
+                            "transcript_stats": {
+                                "word_count": transcript_data.get('word_count'),
+                                "segment_count": transcript_data.get('segment_count'),
+                                "duration": transcript_data.get('duration_formatted')
+                            },
+                            "metadata": youtube_result.get('metadata')
+                        }
+                    )
+                else:
+                    # If YouTube transcript extraction fails, provide helpful error message
+                    error_msg = youtube_result.get('error', 'Unknown error')
+                    suggestion = youtube_result.get('suggestion', '')
+                    
+                    full_error = f"YouTube transcript extraction failed: {error_msg}"
+                    if suggestion:
+                        full_error += f"\n\nSuggestion: {suggestion}"
+                    
+                    return CrawlResponse(
+                        success=False,
+                        url=request.url,
+                        error=full_error
+                    )
+            except Exception as e:
+                return CrawlResponse(
+                    success=False,
+                    url=request.url,
+                    error=f"YouTube processing error: {str(e)}"
+                )
+        
         # Check if URL points to a file that should be processed with MarkItDown
         if file_processor.is_supported_file(request.url):
             # Redirect to file processing for supported file formats
@@ -1175,6 +1318,495 @@ async def get_supported_file_formats() -> Dict[str, Any]:
         return {
             "success": False,
             "error": f"Error retrieving format information: {str(e)}"
+        }
+
+
+@mcp.tool
+async def extract_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTubeTranscriptResponse:
+    """
+    [DEPRECATED] Extract transcript from a YouTube video with language preferences and translation options.
+    
+    ⚠️ WARNING: This feature is currently deprecated due to YouTube API specification changes.
+    Transcript extraction may fail intermittently. Please use with caution and consider 
+    alternative methods until the underlying API issues are resolved.
+    
+    Args:
+        request: YouTubeTranscriptRequest containing URL and extraction parameters
+        
+    Returns:
+        YouTubeTranscriptResponse with transcript content and metadata
+    """
+    try:
+        # Validate max_concurrent if it's somehow in request (shouldn't be for single requests)
+        
+        result = await youtube_processor.process_youtube_url(
+            url=request.url,
+            languages=request.languages,
+            translate_to=request.translate_to,
+            include_timestamps=request.include_timestamps,
+            preserve_formatting=request.preserve_formatting,
+            include_metadata=request.include_metadata
+        )
+        
+        if result['success']:
+            return YouTubeTranscriptResponse(
+                success=True,
+                url=result['url'],
+                video_id=result['video_id'],
+                transcript=result['transcript'],
+                language_info=result['language_info'],
+                metadata=result.get('metadata'),
+                processing_method=result['processing_method']
+            )
+        else:
+            return YouTubeTranscriptResponse(
+                success=False,
+                url=request.url,
+                error=result.get('error')
+            )
+            
+    except Exception as e:
+        return YouTubeTranscriptResponse(
+            success=False,
+            url=request.url,
+            error=f"YouTube transcript extraction error: {str(e)}"
+        )
+
+
+@mcp.tool
+async def batch_extract_youtube_transcripts(request: YouTubeBatchRequest) -> YouTubeBatchResponse:
+    """
+    [DEPRECATED] Extract transcripts from multiple YouTube videos in batch.
+    
+    ⚠️ WARNING: This feature is currently deprecated due to YouTube API specification changes.
+    Batch transcript extraction may fail for multiple videos. Please use with caution and consider 
+    alternative methods until the underlying API issues are resolved.
+    
+    Args:
+        request: YouTubeBatchRequest containing URLs and extraction parameters
+        
+    Returns:
+        YouTubeBatchResponse with batch processing results
+    """
+    try:
+        # Validate and limit max_concurrent
+        max_concurrent = max(1, min(10, request.max_concurrent))
+        
+        # Process all URLs
+        results = await youtube_processor.batch_extract_transcripts(
+            urls=request.urls,
+            languages=request.languages,
+            translate_to=request.translate_to,
+            include_timestamps=request.include_timestamps,
+            max_concurrent=max_concurrent
+        )
+        
+        # Convert results to response objects
+        response_results = []
+        successful = 0
+        failed = 0
+        
+        for result in results:
+            if result['success']:
+                successful += 1
+                response_results.append(YouTubeTranscriptResponse(
+                    success=True,
+                    url=result['url'],
+                    video_id=result['video_id'],
+                    transcript=result['transcript'],
+                    language_info=result['language_info'],
+                    metadata=result.get('metadata'),
+                    processing_method=result['processing_method']
+                ))
+            else:
+                failed += 1
+                response_results.append(YouTubeTranscriptResponse(
+                    success=False,
+                    url=result['url'],
+                    error=result.get('error')
+                ))
+        
+        # Calculate processing summary
+        total_words = sum(
+            r.transcript.get('word_count', 0) for r in response_results 
+            if r.success and r.transcript
+        )
+        total_duration = sum(
+            r.transcript.get('duration_seconds', 0) for r in response_results 
+            if r.success and r.transcript
+        )
+        
+        processing_summary = {
+            'total_videos': len(request.urls),
+            'successful_extractions': successful,
+            'failed_extractions': failed,
+            'success_rate': f"{(successful/len(request.urls)*100):.1f}%",
+            'total_words_extracted': total_words,
+            'total_duration_seconds': total_duration,
+            'average_words_per_video': total_words // successful if successful > 0 else 0
+        }
+        
+        return YouTubeBatchResponse(
+            success=True,
+            total_urls=len(request.urls),
+            successful_extractions=successful,
+            failed_extractions=failed,
+            results=response_results,
+            processing_summary=processing_summary
+        )
+        
+    except Exception as e:
+        return YouTubeBatchResponse(
+            success=False,
+            total_urls=len(request.urls),
+            successful_extractions=0,
+            failed_extractions=len(request.urls),
+            results=[],
+            processing_summary={"error": f"Batch processing failed: {str(e)}"}
+        )
+
+
+@mcp.tool
+async def get_youtube_video_info(video_url: str) -> Dict[str, Any]:
+    """
+    Get available transcript information for a YouTube video without extracting the full transcript.
+    
+    NOTE: This function typically continues to work despite YouTube API changes as it only 
+    retrieves metadata information rather than full transcript content.
+    
+    Args:
+        video_url: YouTube video URL
+        
+    Returns:
+        Dictionary with video transcript availability and language information
+    """
+    try:
+        if not youtube_processor.is_youtube_url(video_url):
+            return {
+                'success': False,
+                'error': 'URL is not a valid YouTube video URL',
+                'url': video_url
+            }
+        
+        video_id = youtube_processor.extract_video_id(video_url)
+        if not video_id:
+            return {
+                'success': False,
+                'error': 'Could not extract video ID from URL',
+                'url': video_url
+            }
+        
+        video_info = youtube_processor.get_video_info(video_id)
+        video_info['url'] = video_url
+        video_info['success'] = True
+        
+        return video_info
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'url': video_url,
+            'error': f"Failed to get video info: {str(e)}"
+        }
+
+
+@mcp.tool
+async def search_google(request: GoogleSearchRequest) -> GoogleSearchResponse:
+    """
+    Perform Google search and return structured results.
+    
+    Args:
+        request: GoogleSearchRequest with search query and parameters
+        
+    Returns:
+        GoogleSearchResponse with search results and metadata
+    """
+    try:
+        # Validate max_concurrent for individual searches (limit to reasonable range)
+        num_results = max(1, min(100, request.num_results))
+        
+        # Perform search
+        result = await google_search_processor.search_google(
+            query=request.query,
+            num_results=num_results,
+            language=request.language,
+            region=request.region,
+            safe_search=request.safe_search,
+            search_genre=request.search_genre
+        )
+        
+        if result['success']:
+            return GoogleSearchResponse(
+                success=True,
+                query=result['query'],
+                total_results=result['total_results'],
+                results=result['results'],
+                search_metadata=result['search_metadata']
+            )
+        else:
+            return GoogleSearchResponse(
+                success=False,
+                query=request.query,
+                error=result.get('error')
+            )
+            
+    except Exception as e:
+        return GoogleSearchResponse(
+            success=False,
+            query=request.query,
+            error=f"Google search error: {str(e)}"
+        )
+
+
+@mcp.tool
+async def batch_search_google(request: GoogleBatchSearchRequest) -> GoogleBatchSearchResponse:
+    """
+    Perform multiple Google searches in batch with analysis.
+    
+    Args:
+        request: GoogleBatchSearchRequest with multiple queries and parameters
+        
+    Returns:
+        GoogleBatchSearchResponse with batch results and analysis
+    """
+    try:
+        # Validate and limit parameters
+        max_concurrent = max(1, min(5, request.max_concurrent))  # Be respectful to Google
+        num_results = max(1, min(100, request.num_results_per_query))
+        
+        # Perform batch search
+        batch_results = await google_search_processor.batch_search(
+            queries=request.queries,
+            num_results_per_query=num_results,
+            max_concurrent=max_concurrent,
+            language=request.language,
+            region=request.region,
+            search_genre=request.search_genre
+        )
+        
+        # Convert results to response objects
+        response_results = []
+        successful = 0
+        failed = 0
+        
+        for result in batch_results:
+            if result['success']:
+                successful += 1
+                response_results.append(GoogleSearchResponse(
+                    success=True,
+                    query=result['query'],
+                    total_results=result['total_results'],
+                    results=result['results'],
+                    search_metadata=result['search_metadata']
+                ))
+            else:
+                failed += 1
+                response_results.append(GoogleSearchResponse(
+                    success=False,
+                    query=result['query'],
+                    error=result.get('error')
+                ))
+        
+        # Generate analysis
+        analysis = google_search_processor.analyze_search_results(batch_results)
+        
+        return GoogleBatchSearchResponse(
+            success=True,
+            total_queries=len(request.queries),
+            successful_searches=successful,
+            failed_searches=failed,
+            results=response_results,
+            analysis=analysis.get('analysis') if analysis.get('success') else None
+        )
+        
+    except Exception as e:
+        return GoogleBatchSearchResponse(
+            success=False,
+            total_queries=len(request.queries),
+            successful_searches=0,
+            failed_searches=len(request.queries),
+            results=[],
+            analysis={"error": f"Batch search failed: {str(e)}"}
+        )
+
+
+@mcp.tool
+async def search_and_crawl(
+    search_query: str,
+    num_search_results: int = 5,
+    crawl_top_results: int = 3,
+    extract_media: bool = False,
+    generate_markdown: bool = True,
+    search_genre: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Perform Google search and crawl the top results for comprehensive content analysis.
+    
+    Args:
+        search_query: Google search query
+        num_search_results: Number of search results to retrieve (1-20)
+        crawl_top_results: Number of top results to crawl (1-10)
+        extract_media: Whether to extract media from crawled pages
+        generate_markdown: Whether to generate markdown content
+        search_genre: Optional search genre for content filtering
+        
+    Returns:
+        Dictionary with search results and crawled content
+    """
+    try:
+        # Validate parameters
+        num_search_results = max(1, min(20, num_search_results))
+        crawl_top_results = max(1, min(10, min(crawl_top_results, num_search_results)))
+        
+        # Step 1: Perform Google search
+        search_result = await google_search_processor.search_google(
+            query=search_query,
+            num_results=num_search_results,
+            search_genre=search_genre
+        )
+        
+        if not search_result['success']:
+            return {
+                'success': False,
+                'error': f"Search failed: {search_result.get('error')}",
+                'search_query': search_query
+            }
+        
+        search_results = search_result['results']
+        if not search_results:
+            return {
+                'success': False,
+                'error': 'No search results found',
+                'search_query': search_query
+            }
+        
+        # Step 2: Crawl top results
+        top_urls = [result['url'] for result in search_results[:crawl_top_results]]
+        
+        crawl_results = []
+        for i, url in enumerate(top_urls):
+            try:
+                crawl_request = CrawlRequest(
+                    url=url,
+                    extract_media=extract_media,
+                    generate_markdown=generate_markdown,
+                    timeout=30
+                )
+                
+                crawl_result = await crawl_url(crawl_request)
+                
+                # Add search ranking to crawl result
+                crawl_data = {
+                    'search_rank': i + 1,
+                    'search_result': search_results[i],
+                    'crawl_result': {
+                        'success': crawl_result.success,
+                        'url': crawl_result.url,
+                        'title': crawl_result.title,
+                        'content_length': len(crawl_result.content or ''),
+                        'has_content': bool(crawl_result.content),
+                        'has_markdown': bool(crawl_result.markdown),
+                        'has_media': bool(crawl_result.media),
+                        'error': crawl_result.error
+                    }
+                }
+                
+                # Include full content for successful crawls
+                if crawl_result.success:
+                    crawl_data['content'] = {
+                        'title': crawl_result.title,
+                        'content': crawl_result.content,
+                        'markdown': crawl_result.markdown,
+                        'media': crawl_result.media if extract_media else None
+                    }
+                
+                crawl_results.append(crawl_data)
+                
+            except Exception as e:
+                crawl_results.append({
+                    'search_rank': i + 1,
+                    'search_result': search_results[i],
+                    'crawl_result': {
+                        'success': False,
+                        'url': url,
+                        'error': f"Crawling failed: {str(e)}"
+                    }
+                })
+        
+        # Step 3: Generate summary
+        successful_crawls = sum(1 for r in crawl_results if r['crawl_result']['success'])
+        total_content_length = sum(
+            r['crawl_result'].get('content_length', 0) 
+            for r in crawl_results 
+            if r['crawl_result']['success']
+        )
+        
+        return {
+            'success': True,
+            'search_query': search_query,
+            'search_metadata': search_result['search_metadata'],
+            'crawl_summary': {
+                'total_search_results': len(search_results),
+                'urls_crawled': len(crawl_results),
+                'successful_crawls': successful_crawls,
+                'failed_crawls': len(crawl_results) - successful_crawls,
+                'total_content_length': total_content_length,
+                'success_rate': f"{(successful_crawls/len(crawl_results)*100):.1f}%" if crawl_results else "0%"
+            },
+            'search_results': search_results,
+            'crawled_content': crawl_results,
+            'processing_method': 'search_and_crawl_integration'
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f"Search and crawl error: {str(e)}",
+            'search_query': search_query
+        }
+
+
+@mcp.tool
+async def get_search_genres() -> Dict[str, Any]:
+    """
+    Get list of available search genres for content filtering.
+    
+    Returns:
+        Dictionary with available genres and their descriptions
+    """
+    try:
+        genres = google_search_processor.get_available_genres()
+        
+        return {
+            "success": True,
+            "total_genres": len(genres),
+            "genres": genres,
+            "categories": {
+                "Academic & Educational": ["academic", "research", "education"],
+                "News & Media": ["news", "latest_news"],
+                "Technical & Development": ["technical", "programming", "documentation"],
+                "Commerce & Shopping": ["shopping", "reviews"],
+                "Social & Community": ["forum", "social"],
+                "Media & Entertainment": ["video", "images"],
+                "Government & Official": ["government", "legal"],
+                "File Types": ["pdf", "documents", "presentations", "spreadsheets"],
+                "Time-based": ["recent", "historical"],
+                "Language & Region": ["japanese", "english"],
+                "Content Quality": ["authoritative", "beginner", "advanced"]
+            },
+            "usage_examples": [
+                {"genre": "academic", "example": "Find academic papers about machine learning"},
+                {"genre": "programming", "example": "Search for Python programming tutorials and code examples"},
+                {"genre": "news", "example": "Get latest news articles from major news sources"},
+                {"genre": "pdf", "example": "Find PDF documents and research papers"},
+                {"genre": "beginner", "example": "Search for beginner-friendly tutorials and guides"}
+            ]
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to get search genres: {str(e)}"
         }
 
 

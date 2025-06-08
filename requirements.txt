@@ -4,3 +4,7 @@ pydantic>=2.0.0
 asyncio
 typing-extensions
 markitdown>=0.0.1a2
+googlesearch-python>=1.3.0
+aiohttp>=3.8.0
+beautifulsoup4>=4.12.0
+# youtube-transcript-api>=1.0.3  # DEPRECATED: YouTube API changes causing instability

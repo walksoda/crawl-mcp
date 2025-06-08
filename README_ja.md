@@ -12,6 +12,18 @@ crawl4aiライブラリの機能をModel Context Protocol (MCP)仕様に準拠�
   - PDF、Microsoft Office、ZIP等の各種ファイル形式サポート
   - 自動ファイル形式検出と最適な変換処理
   - ZIPアーカイブ内の複数ファイル一括処理
+- **🔍 Google検索統合機能**
+  - 31種類の検索ジャンル指定（学術、プログラミング、ニュース等）
+  - 検索結果からのタイトル・スニペット自動抽出
+  - セーフサーチ原則有効化でセキュリティ確保
+  - バッチ検索と結果分析機能
+  - 検索+クローリング統合処理
+- **📺 YouTube動画処理機能 [非推奨]**
+  - ⚠️ 現在、YouTubeのAPI仕様変更により非推奨
+  - YouTube動画のトランスクリプト（字幕）自動抽出（不安定）
+  - 多言語サポートと自動翻訳機能（制限あり）
+  - タイムスタンプ付きまたはクリーンテキスト出力
+  - バッチ処理による複数動画の一括処理（非推奨）
 - スクリーンショット撮影
 - メディア抽出（画像、音声、動画）
 - バッチクローリング機能
@@ -208,6 +220,99 @@ Windows環境でClaude Desktopから使用する場合：
 - 最大ファイルサイズ制限
 - 追加機能の説明
 
+#### `extract_youtube_transcript` [非推奨]
+**📺 YouTube動画処理**: YouTube動画からトランスクリプト（字幕）を抽出・変換
+
+**⚠️ 注意: YouTubeのAPI仕様変更により現在非推奨。使用は推奨されません。**
+
+**パラメータ:**
+- `url`: YouTube動画のURL
+- `languages`: 優先言語リスト（デフォルト：["ja", "en"]）
+- `translate_to`: 翻訳先言語（オプション）
+- `include_timestamps`: タイムスタンプを含めるか
+- `preserve_formatting`: 元の書式を保持するか
+- `include_metadata`: 動画メタデータを含めるか
+
+#### `batch_extract_youtube_transcripts` [非推奨]
+**📺 一括YouTube処理**: 複数のYouTube動画を並行処理でトランスクリプト抽出
+
+**⚠️ 注意: YouTubeのAPI仕様変更により現在非推奨。バッチ処理は特に不安定です。**
+
+**パラメータ:**
+- `urls`: YouTube動画URLのリスト
+- `languages`: 優先言語リスト
+- `translate_to`: 翻訳先言語（オプション）
+- `include_timestamps`: タイムスタンプを含めるか
+- `max_concurrent`: 最大並行処理数（1-10）
+
+#### `get_youtube_video_info`
+**📋 YouTube情報取得**: 動画の利用可能なトランスクリプト言語等の情報を取得
+
+**パラメータ:**
+- `video_url`: YouTube動画のURL
+
+**戻り値:**
+- 利用可能なトランスクリプト言語
+- 手動/自動生成の区別
+- 翻訳可能言語の情報
+
+#### `search_google`
+**🔍 Google検索**: ジャンル指定とメタデータ抽出付きGoogle検索
+
+**パラメータ:**
+- `query`: 検索クエリ文字列
+- `num_results`: 取得結果数 (1-100、デフォルト: 10)
+- `language`: 検索言語 (デフォルト: "en")
+- `region`: 検索地域 (デフォルト: "us")
+- `search_genre`: コンテンツジャンルフィルター（オプション）
+- `safe_search`: セーフサーチ有効（セキュリティのため常にTrue）
+
+**機能:**
+- 検索結果からのタイトル・スニペット自動抽出
+- 31種類の検索ジャンルによるコンテンツフィルタリング
+- URL分類とドメイン分析
+- セーフサーチをデフォルトで強制有効
+
+#### `batch_search_google`
+**🔍 バッチGoogle検索**: 複数Google検索と包括的分析
+
+**パラメータ:**
+- `queries`: 検索クエリのリスト
+- `num_results_per_query`: クエリ毎の結果数 (1-100、デフォルト: 10)
+- `max_concurrent`: 最大並行検索数 (1-5、デフォルト: 3)
+- `language`: 検索言語 (デフォルト: "en")
+- `region`: 検索地域 (デフォルト: "us")
+- `search_genre`: コンテンツジャンルフィルター（オプション）
+
+**戻り値:**
+- 各クエリの個別検索結果
+- クエリ横断分析と統計
+- ドメイン分布と結果タイプ分析
+
+#### `search_and_crawl`
+**🔍 検索+クローリング統合**: Google検索後に上位結果を自動クローリング
+
+**パラメータ:**
+- `search_query`: Google検索クエリ
+- `num_search_results`: 検索結果数 (1-20、デフォルト: 5)
+- `crawl_top_results`: クローリング対象の上位結果数 (1-10、デフォルト: 3)
+- `extract_media`: クローリングページからのメディア抽出
+- `generate_markdown`: Markdownコンテンツ生成
+- `search_genre`: コンテンツジャンルフィルター（オプション）
+
+**戻り値:**
+- 完全な検索メタデータとクローリングコンテンツ
+- 成功率と処理統計
+- 検索・クローリング結果の統合分析
+
+#### `get_search_genres`
+**📋 検索ジャンル一覧**: 利用可能な検索ジャンルとその詳細説明を取得
+
+**戻り値:**
+- 31種類の検索ジャンルと詳細説明
+- カテゴリ別ジャンルリスト（学術、技術、ニュース等）
+- 各ジャンルタイプの使用例
+
 ### リソース
 
 #### `uri://crawl4ai/config`
@@ -297,6 +402,54 @@ Windows環境でClaude Desktopから使用する場合：
 - **Best First**: スコアリング based で関連性の高いページ優先
 
 ## 🚀 高度な機能の使用例
+
+### 🔍 Google検索機能の使用例
+
+#### 基本Google検索
+```json
+{
+    "query": "python 機械学習 チュートリアル",
+    "num_results": 10,
+    "language": "ja",
+    "region": "jp"
+}
+```
+
+#### ジャンル指定検索
+```json
+{
+    "query": "機械学習 研究論文",
+    "num_results": 15,
+    "search_genre": "academic",
+    "language": "ja"
+}
+```
+
+#### バッチ検索と分析
+```json
+{
+    "queries": [
+        "Pythonプログラミング チュートリアル",
+        "ウェブ開発 ガイド",
+        "データサイエンス 入門"
+    ],
+    "num_results_per_query": 5,
+    "max_concurrent": 3,
+    "search_genre": "education"
+}
+```
+
+#### 検索+クローリング統合
+```json
+{
+    "search_query": "Python 公式ドキュメント",
+    "num_search_results": 10,
+    "crawl_top_results": 5,
+    "extract_media": false,
+    "generate_markdown": true,
+    "search_genre": "documentation"
+}
+```
 
 ### AI駆動コンテンツ抽出
 ```json
@@ -393,6 +546,59 @@ crawl_urlツールは自動的にファイル形式を検出し、適切な処�
 }
 ```
 
+## 📺 YouTube動画処理機能の使用例 [非推奨]
+
+**⚠️ 重要: 以下のYouTube機能は現在非推奨です。YouTubeのAPI仕様変更により不安定な状態です。**
+
+### 基本的なトランスクリプト抽出
+```json
+{
+    "url": "https://www.youtube.com/watch?v=VIDEO_ID",
+    "languages": ["ja", "en"],
+    "include_timestamps": true,
+    "include_metadata": true
+}
+```
+
+### 自動翻訳機能
+```json
+{
+    "url": "https://www.youtube.com/watch?v=VIDEO_ID",
+    "languages": ["en"],
+    "translate_to": "ja",
+    "include_timestamps": false
+}
+```
+
+### 複数動画の一括処理
+```json
+{
+    "urls": [
+        "https://www.youtube.com/watch?v=VIDEO_ID1",
+        "https://www.youtube.com/watch?v=VIDEO_ID2",
+        "https://youtu.be/VIDEO_ID3"
+    ],
+    "languages": ["ja", "en"],
+    "max_concurrent": 3
+}
+```
+
+### 自動YouTube検出とクローリング統合
+crawl_urlツールは自動的にYouTube URLを検出し、トランスクリプト抽出を実行：
+```json
+{
+    "url": "https://www.youtube.com/watch?v=VIDEO_ID",
+    "generate_markdown": true
+}
+```
+
+### 動画情報の事前確認
+```json
+{
+    "video_url": "https://www.youtube.com/watch?v=VIDEO_ID"
+}
+```
+
 ## 🎯 コンテンツフィルターの説明
 
 ### BM25フィルター
@@ -419,6 +625,8 @@ crawl/
 │   ├── server.py                # メインMCPサーバー
 │   ├── strategies.py            # 追加の抽出戦略
 │   ├── file_processor.py        # MarkItDownファイル処理モジュール
+│   ├── google_search_processor.py  # Google検索処理モジュール
+│   ├── youtube_processor.py     # YouTubeトランスクリプト処理モジュール [非推奨]
 │   └── suppress_output.py       # 出力抑制ユーティリティ
 ├── requirements.txt             # Python依存関係
 ├── setup.sh                     # Linux/macOSセットアップスクリプト
@@ -439,8 +647,17 @@ crawl/
 - `fastmcp>=0.1.0` - MCPサーバーフレームワーク
 - `pydantic>=2.0.0` - データ検証
 - `markitdown>=0.0.1a2` - ファイル処理・変換（Microsoft製）
+- `googlesearch-python>=1.3.0` - Google検索機能
+- `aiohttp>=3.8.0` - メタデータ抽出用非同期HTTPクライアント
+- `beautifulsoup4>=4.12.0` - タイトル・スニペット抽出用HTMLパーサー
+- `youtube-transcript-api>=1.0.3` - YouTubeトランスクリプト抽出 [非推奨]
 - `asyncio` - 非同期処理
 - `typing-extensions` - 型ヒント拡張
+
+**⚠️ YouTube機能に関する注意事項:**
+- YouTubeのAPI仕様変更により、一時的にトランスクリプト抽出が失敗する場合があります
+- その場合は別の動画で試すか、時間をおいて再試行してください
+- 動画情報の取得は通常通り機能します
 
 ## エラーハンドリング
 
