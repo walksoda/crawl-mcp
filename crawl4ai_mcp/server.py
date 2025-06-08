@@ -34,6 +34,7 @@ from crawl4ai.deep_crawling import BFSDeepCrawlStrategy, DFSDeepCrawlStrategy, B
 from crawl4ai.deep_crawling.filters import FilterChain, URLPatternFilter, DomainFilter
 from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
 from .suppress_output import suppress_stdout_stderr
+from .file_processor import FileProcessor
 
 
 class CrawlRequest(BaseModel):
@@ -89,6 +90,29 @@ class StructuredExtractionRequest(BaseModel):
     llm_model: Optional[str] = Field("gpt-3.5-turbo", description="LLM model name")
 
 
+class FileProcessRequest(BaseModel):
+    """Request model for file processing operations."""
+    url: str = Field(..., description="URL of the file to process (PDF, Office, ZIP)")
+    max_size_mb: int = Field(100, description="Maximum file size in MB")
+    extract_all_from_zip: bool = Field(True, description="Whether to extract all files from ZIP archives")
+    include_metadata: bool = Field(True, description="Whether to include file metadata")
+
+
+class FileProcessResponse(BaseModel):
+    """Response model for file processing operations."""
+    success: bool
+    url: Optional[str] = None
+    filename: Optional[str] = None
+    file_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    is_archive: bool = False
+    content: Optional[str] = None
+    title: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    archive_contents: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
 
 
 class CrawlResponse(BaseModel):
@@ -119,6 +143,9 @@ for logger_name in ["crawl4ai", "playwright", "asyncio", "urllib3"]:
 # Initialize FastMCP server
 mcp = FastMCP("Crawl4AI MCP Server")
 
+# Initialize FileProcessor for MarkItDown integration
+file_processor = FileProcessor()
+
 
 @mcp.tool
 async def crawl_url(request: CrawlRequest) -> CrawlResponse:
@@ -132,6 +159,44 @@ async def crawl_url(request: CrawlRequest) -> CrawlResponse:
         CrawlResponse with crawled content and metadata
     """
     try:
+        # Check if URL points to a file that should be processed with MarkItDown
+        if file_processor.is_supported_file(request.url):
+            # Redirect to file processing for supported file formats
+            try:
+                file_result = await file_processor.process_file_from_url(
+                    request.url,
+                    max_size_mb=100  # Default size limit
+                )
+                
+                if file_result['success']:
+                    return CrawlResponse(
+                        success=True,
+                        url=request.url,
+                        title=file_result.get('title'),
+                        content=file_result.get('content'),
+                        markdown=file_result.get('content'),  # MarkItDown already provides markdown
+                        extracted_data={
+                            "file_type": file_result.get('file_type'),
+                            "size_bytes": file_result.get('size_bytes'),
+                            "is_archive": file_result.get('is_archive', False),
+                            "metadata": file_result.get('metadata'),
+                            "archive_contents": file_result.get('archive_contents'),
+                            "processing_method": "markitdown"
+                        }
+                    )
+                else:
+                    return CrawlResponse(
+                        success=False,
+                        url=request.url,
+                        error=f"File processing failed: {file_result.get('error')}"
+                    )
+            except Exception as e:
+                return CrawlResponse(
+                    success=False,
+                    url=request.url,
+                    error=f"File processing error: {str(e)}"
+                )
+        
         # Setup deep crawling strategy if max_depth is specified
         deep_crawl_strategy = None
         if request.max_depth is not None and request.max_depth > 0:
@@ -210,20 +275,26 @@ async def crawl_url(request: CrawlRequest) -> CrawlResponse:
                 "overlap_rate": request.overlap_rate
             }
 
-        # Update config with advanced features
-        config = CrawlerRunConfig(
-            css_selector=request.css_selector,
-            screenshot=request.take_screenshot,
-            wait_for=request.wait_for_selector,
-            page_timeout=request.timeout * 1000,
-            exclude_all_images=not request.extract_media,
-            verbose=False,
-            log_console=False,
-            deep_crawl_strategy=deep_crawl_strategy,
-            content_filter=content_filter_strategy,
-            cache_mode=cache_mode,
+        # Create config without content_filter (will be applied separately)
+        config_params = {
+            "css_selector": request.css_selector,
+            "screenshot": request.take_screenshot,
+            "wait_for": request.wait_for_selector,
+            "page_timeout": request.timeout * 1000,
+            "exclude_all_images": not request.extract_media,
+            "verbose": False,
+            "log_console": False,
+            "deep_crawl_strategy": deep_crawl_strategy,
+            "cache_mode": cache_mode,
             **chunking_config
-        )
+        }
+        
+        # Add content filter if supported by current crawl4ai version
+        try:
+            config = CrawlerRunConfig(**config_params, content_filter=content_filter_strategy)
+        except TypeError:
+            # Fallback for older versions without content_filter support
+            config = CrawlerRunConfig(**config_params)
 
         # Setup browser configuration
         browser_config = {
@@ -251,7 +322,47 @@ async def crawl_url(request: CrawlRequest) -> CrawlResponse:
                 
                 result = await crawler.arun(url=request.url, config=config)
         
-        if result.success:
+        # Handle different result types (single result vs list from deep crawling)
+        if isinstance(result, list):
+            # Deep crawling returns a list of results
+            if not result:
+                return CrawlResponse(
+                    success=False,
+                    url=request.url,
+                    error="No results returned from deep crawling"
+                )
+            
+            # Process multiple results from deep crawling
+            all_content = []
+            all_markdown = []
+            all_media = []
+            crawled_urls = []
+            
+            for page_result in result:
+                if hasattr(page_result, 'success') and page_result.success:
+                    crawled_urls.append(page_result.url if hasattr(page_result, 'url') else 'unknown')
+                    if hasattr(page_result, 'cleaned_html') and page_result.cleaned_html:
+                        all_content.append(f"=== {page_result.url} ===\n{page_result.cleaned_html}")
+                    if hasattr(page_result, 'markdown') and page_result.markdown:
+                        all_markdown.append(f"=== {page_result.url} ===\n{page_result.markdown}")
+                    if hasattr(page_result, 'media') and page_result.media and request.extract_media:
+                        all_media.extend(page_result.media)
+            
+            return CrawlResponse(
+                success=True,
+                url=request.url,
+                title=f"Deep crawl of {len(crawled_urls)} pages",
+                content="\n\n".join(all_content) if all_content else "No content extracted",
+                markdown="\n\n".join(all_markdown) if all_markdown else "No markdown content",
+                media=all_media if request.extract_media else None,
+                extracted_data={
+                    "crawled_pages": len(crawled_urls),
+                    "crawled_urls": crawled_urls,
+                    "processing_method": "deep_crawling"
+                }
+            )
+        
+        elif hasattr(result, 'success') and result.success:
             # For deep crawling, result might contain multiple pages
             if deep_crawl_strategy and hasattr(result, 'crawled_pages'):
                 # Combine content from all crawled pages
@@ -289,10 +400,19 @@ async def crawl_url(request: CrawlRequest) -> CrawlResponse:
                 )
             return response
         else:
+            # Handle case where result doesn't have success attribute or failed
+            error_msg = "Failed to crawl URL"
+            if hasattr(result, 'error_message'):
+                error_msg = f"Failed to crawl URL: {result.error_message}"
+            elif hasattr(result, 'error'):
+                error_msg = f"Failed to crawl URL: {result.error}"
+            else:
+                error_msg = f"Failed to crawl URL: Unknown error (result type: {type(result)})"
+            
             return CrawlResponse(
                 success=False,
                 url=request.url,
-                error=f"Failed to crawl URL: {result.error_message}"
+                error=error_msg
             )
                 
     except Exception as e:
@@ -518,13 +638,19 @@ async def intelligent_extract(
             }
 
         # Setup crawler configuration
-        config = CrawlerRunConfig(
-            content_filter=content_filter_strategy,
-            extraction_strategy=extraction_strategy,
-            verbose=False,
-            log_console=False,
+        config_params = {
+            "extraction_strategy": extraction_strategy,
+            "verbose": False,
+            "log_console": False,
             **chunking_config
-        )
+        }
+        
+        # Add content filter if supported by current crawl4ai version
+        try:
+            config = CrawlerRunConfig(**config_params, content_filter=content_filter_strategy)
+        except TypeError:
+            # Fallback for older versions without content_filter support
+            config = CrawlerRunConfig(**config_params)
 
         with suppress_stdout_stderr():
             async with AsyncWebCrawler(headless=True, verbose=False) as crawler:
@@ -947,6 +1073,111 @@ async def crawl_url_with_fallback(request: CrawlRequest) -> CrawlResponse:
     )
 
 
+@mcp.tool
+async def process_file(request: FileProcessRequest) -> FileProcessResponse:
+    """
+    Process various file formats (PDF, Office, ZIP) and convert to Markdown using MarkItDown.
+    
+    Args:
+        request: FileProcessRequest containing file URL and processing parameters
+        
+    Returns:
+        FileProcessResponse with processed content and metadata
+    """
+    try:
+        # Process the file
+        result = await file_processor.process_file_from_url(
+            request.url,
+            max_size_mb=request.max_size_mb
+        )
+        
+        if result['success']:
+            response = FileProcessResponse(
+                success=True,
+                url=result.get('url'),
+                filename=result.get('filename'),
+                file_type=result.get('file_type'),
+                size_bytes=result.get('size_bytes'),
+                is_archive=result.get('is_archive', False),
+                content=result.get('content'),
+                title=result.get('title'),
+                metadata=result.get('metadata') if request.include_metadata else None,
+                archive_contents=result.get('archive_contents') if result.get('is_archive') and request.extract_all_from_zip else None
+            )
+        else:
+            response = FileProcessResponse(
+                success=False,
+                url=request.url,
+                error=result.get('error'),
+                file_type=result.get('file_type')
+            )
+            
+        return response
+        
+    except Exception as e:
+        return FileProcessResponse(
+            success=False,
+            url=request.url,
+            error=f"File processing error: {str(e)}"
+        )
+
+
+@mcp.tool
+async def get_supported_file_formats() -> Dict[str, Any]:
+    """
+    Get list of supported file formats for file processing.
+    
+    Returns:
+        Dictionary with supported file formats and descriptions
+    """
+    try:
+        return {
+            "success": True,
+            "supported_formats": file_processor.supported_extensions,
+            "categories": {
+                "pdf": {
+                    "description": "PDF Documents",
+                    "extensions": [".pdf"],
+                    "features": ["Text extraction", "Structure preservation", "Metadata extraction"]
+                },
+                "microsoft_office": {
+                    "description": "Microsoft Office Documents",
+                    "extensions": [".docx", ".pptx", ".xlsx", ".xls"],
+                    "features": ["Content extraction", "Table processing", "Slide content", "Cell data"]
+                },
+                "archives": {
+                    "description": "Archive Files",
+                    "extensions": [".zip"],
+                    "features": ["Multi-file extraction", "Nested processing", "Format detection"]
+                },
+                "web_and_text": {
+                    "description": "Web and Text Formats",
+                    "extensions": [".html", ".htm", ".txt", ".md", ".csv", ".rtf"],
+                    "features": ["HTML parsing", "Text processing", "CSV structure", "Rich text"]
+                },
+                "ebooks": {
+                    "description": "eBook Formats",
+                    "extensions": [".epub"],
+                    "features": ["Chapter extraction", "Metadata", "Content structure"]
+                }
+            },
+            "max_file_size": "100MB (configurable)",
+            "output_format": "Markdown",
+            "additional_features": [
+                "Automatic file type detection",
+                "Metadata extraction",
+                "ZIP archive processing",
+                "Error handling and recovery",
+                "Size limit protection"
+            ]
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error retrieving format information: {str(e)}"
+        }
+
+
 @mcp.resource("uri://crawl4ai/config")
 async def get_crawler_config() -> str:
     """
@@ -1018,6 +1249,69 @@ async def get_usage_examples() -> str:
                     "price": ".price",
                     "description": ".description"
                 }
+            }
+        }
+    }
+    
+    return json.dumps(examples, indent=2)
+
+
+@mcp.resource("uri://crawl4ai/file-processing")
+async def get_file_processing_examples() -> str:
+    """
+    Get usage examples for file processing with MarkItDown.
+    
+    Returns:
+        JSON string with file processing examples
+    """
+    examples = {
+        "pdf_processing": {
+            "description": "Process PDF document and extract text content",
+            "request": {
+                "url": "https://example.com/document.pdf",
+                "max_size_mb": 50,
+                "include_metadata": True
+            }
+        },
+        "office_document": {
+            "description": "Process Microsoft Word document",
+            "request": {
+                "url": "https://example.com/report.docx",
+                "max_size_mb": 25,
+                "include_metadata": True
+            }
+        },
+        "excel_spreadsheet": {
+            "description": "Process Excel spreadsheet",
+            "request": {
+                "url": "https://example.com/data.xlsx",
+                "max_size_mb": 30,
+                "include_metadata": True
+            }
+        },
+        "powerpoint_presentation": {
+            "description": "Process PowerPoint presentation",
+            "request": {
+                "url": "https://example.com/slides.pptx",
+                "max_size_mb": 40,
+                "include_metadata": True
+            }
+        },
+        "zip_archive": {
+            "description": "Process ZIP archive containing multiple files",
+            "request": {
+                "url": "https://example.com/documents.zip",
+                "max_size_mb": 100,
+                "extract_all_from_zip": True,
+                "include_metadata": True
+            }
+        },
+        "large_file_processing": {
+            "description": "Process large file with custom size limit",
+            "request": {
+                "url": "https://example.com/large-document.pdf",
+                "max_size_mb": 200,
+                "include_metadata": False
             }
         }
     }
@@ -1134,6 +1428,77 @@ batch_crawlツールを使用して以下を実行してください：
 5. 統合レポートを作成
 
 効率的な一括処理を行い、結果をまとめて報告してください。"""
+
+    return [{"role": "user", "content": {"type": "text", "text": content}}]
+
+
+@mcp.prompt
+def process_file_prompt(file_url: str, file_type: str = "auto"):
+    """
+    Create a prompt for processing files with MarkItDown.
+    
+    Args:
+        file_url: URL of the file to process
+        file_type: Type of file processing (auto, pdf, office, zip)
+    
+    Returns:
+        List of prompt messages for file processing
+    """
+    if file_type == "pdf":
+        content = f"""PDFファイルを処理してMarkdown形式に変換してください: {file_url}
+
+以下の機能を使用してPDFを処理してください：
+1. process_fileツールを使用してPDFをダウンロード・処理
+2. テキスト内容をMarkdown形式で抽出
+3. 文書の構造（見出し、段落、リストなど）を保持
+4. メタデータ（タイトル、作成者、作成日など）を取得
+5. 処理結果を分析・要約
+
+PDFの内容を理解しやすい形式で提示してください。"""
+
+    elif file_type == "office":
+        content = f"""Microsoft Officeファイルを処理してMarkdown形式に変換してください: {file_url}
+
+以下の手順で処理してください：
+1. process_fileツールを使用してOfficeファイルを処理
+2. 文書の種類に応じた適切な抽出を実行
+   - Word: テキスト、見出し、表、画像キャプション
+   - Excel: シート名、セルデータ、表形式
+   - PowerPoint: スライドタイトル、コンテンツ、ノート
+3. 元の構造とフォーマットを可能な限り保持
+4. メタデータと追加情報を含める
+
+処理した内容を構造化された形式で提示してください。"""
+
+    elif file_type == "zip":
+        content = f"""ZIPアーカイブを処理して中身のファイルを分析してください: {file_url}
+
+以下の処理を実行してください：
+1. process_fileツールを使用してZIPファイルを処理
+2. アーカイブ内の全ファイルを抽出・分析
+3. 各ファイルの種類と内容を特定
+4. サポートされているファイル形式をMarkdownに変換
+5. ファイル構造とディレクトリ階層を可視化
+6. 処理できなかったファイルがあれば理由を説明
+
+全体的な分析結果と各ファイルの詳細を報告してください。"""
+
+    else:  # auto
+        content = f"""ファイルを自動検出して適切に処理してください: {file_url}
+
+以下の手順で処理してください：
+1. get_supported_file_formatsツールでサポート形式を確認
+2. process_fileツールを使用してファイルを処理
+3. ファイル形式に応じた最適な抽出を実行
+4. 内容をMarkdown形式で構造化
+5. メタデータと追加情報を取得
+6. 処理結果を分析・要約
+
+ファイルの種類と内容に応じた詳細な分析を提供してください。
+
+利用可能なツール：
+- process_file: ファイル処理とMarkdown変換
+- get_supported_file_formats: サポート形式の確認"""
 
     return [{"role": "user", "content": {"type": "text", "text": content}}]
 

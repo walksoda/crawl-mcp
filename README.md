@@ -8,6 +8,10 @@ A comprehensive Model Context Protocol (MCP) server that wraps the powerful craw
 - **Advanced Web Crawling** with JavaScript execution support
 - **Deep Crawling** with configurable depth and multiple strategies (BFS, DFS, Best-First)
 - **AI-Powered Content Extraction** using LLM-based analysis
+- **📄 File Processing** with Microsoft MarkItDown integration
+  - PDF, Office documents, ZIP archives, and more
+  - Automatic file format detection and conversion
+  - Batch processing of archive contents
 - **Entity Extraction** with 9 built-in patterns (emails, phones, URLs, dates, etc.)
 - **Intelligent Content Filtering** (BM25, pruning, LLM-based)
 - **Content Chunking** for large document processing
@@ -139,6 +143,25 @@ Parallel processing of multiple URLs with unified reporting.
 ### `crawl_url_with_fallback`
 Robust crawling with multiple fallback strategies for maximum reliability.
 
+### `process_file`
+**📄 File Processing**: Convert various file formats to Markdown using Microsoft MarkItDown.
+
+**Parameters:**
+- `url`: File URL (PDF, Office, ZIP, etc.)
+- `max_size_mb`: Maximum file size limit (default: 100MB)
+- `extract_all_from_zip`: Extract all files from ZIP archives
+- `include_metadata`: Include file metadata in response
+
+**Supported Formats:**
+- **PDF**: .pdf
+- **Microsoft Office**: .docx, .pptx, .xlsx, .xls
+- **Archives**: .zip
+- **Web/Text**: .html, .htm, .txt, .md, .csv, .rtf
+- **eBooks**: .epub
+
+### `get_supported_file_formats`
+**📋 Format Information**: Get comprehensive list of supported file formats and their capabilities.
+
 ## 📚 Resources
 
 - `uri://crawl4ai/config`: Default crawler configuration options
@@ -170,6 +193,45 @@ Robust crawling with multiple fallback strategies for maximum reliability.
     "content_filter": "llm",
     "use_llm": true,
     "custom_instructions": "Extract main article content, summarize key points, and identify important quotes"
+}
+```
+
+### 📄 File Processing Examples
+
+#### PDF Document Processing
+```json
+{
+    "url": "https://example.com/document.pdf",
+    "max_size_mb": 50,
+    "include_metadata": true
+}
+```
+
+#### Office Document Processing
+```json
+{
+    "url": "https://example.com/report.docx",
+    "max_size_mb": 25,
+    "include_metadata": true
+}
+```
+
+#### ZIP Archive Processing
+```json
+{
+    "url": "https://example.com/documents.zip",
+    "max_size_mb": 100,
+    "extract_all_from_zip": true,
+    "include_metadata": true
+}
+```
+
+#### Automatic File Detection
+The `crawl_url` tool automatically detects file formats and routes to appropriate processing:
+```json
+{
+    "url": "https://example.com/mixed-content.pdf",
+    "generate_markdown": true
 }
 ```
 

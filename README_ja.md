@@ -8,6 +8,10 @@ crawl4aiライブラリの機能をModel Context Protocol (MCP)仕様に準拠�
 - 複数の抽出戦略（CSSセレクター、XPath、LLMベース）
 - カスタムスキーマによる構造化データ抽出
 - コンテンツフィルタリング付きMarkdown生成
+- **📄 ファイル処理機能（MarkItDown統合）**
+  - PDF、Microsoft Office、ZIP等の各種ファイル形式サポート
+  - 自動ファイル形式検出と最適な変換処理
+  - ZIPアーカイブ内の複数ファイル一括処理
 - スクリーンショット撮影
 - メディア抽出（画像、音声、動画）
 - バッチクローリング機能
@@ -179,6 +183,31 @@ Windows環境でClaude Desktopから使用する場合：
 - `credit_cards`: クレジットカード番号
 - `coordinates`: 地理座標
 
+#### `process_file`
+**📄 ファイル処理**: Microsoft MarkItDownを使用した各種ファイル形式の処理・変換
+
+**パラメータ:**
+- `url`: 処理対象ファイルのURL（PDF、Office、ZIP等）
+- `max_size_mb`: 最大ファイルサイズ（MB、デフォルト：100MB）
+- `extract_all_from_zip`: ZIPアーカイブの全ファイル抽出（デフォルト：True）
+- `include_metadata`: メタデータの取得（デフォルト：True）
+
+**サポートファイル形式:**
+- **PDF**: .pdf
+- **Microsoft Office**: .docx, .pptx, .xlsx, .xls
+- **アーカイブ**: .zip
+- **Web/テキスト**: .html, .htm, .txt, .md, .csv, .rtf
+- **eBook**: .epub
+
+#### `get_supported_file_formats`
+**📋 サポート形式一覧**: ファイル処理でサポートされている形式とその詳細を取得
+
+**戻り値:**
+- サポートされている全ファイル形式のリスト
+- 各形式の機能と特徴
+- 最大ファイルサイズ制限
+- 追加機能の説明
+
 ### リソース
 
 #### `uri://crawl4ai/config`
@@ -325,6 +354,45 @@ Windows環境でClaude Desktopから使用する場合：
 }
 ```
 
+## 📄 ファイル処理機能の使用例
+
+### PDF文書の処理
+```json
+{
+    "url": "https://example.com/document.pdf",
+    "max_size_mb": 50,
+    "include_metadata": true
+}
+```
+
+### Microsoft Office文書の処理
+```json
+{
+    "url": "https://example.com/report.docx",
+    "max_size_mb": 25,
+    "include_metadata": true
+}
+```
+
+### ZIPアーカイブの一括処理
+```json
+{
+    "url": "https://example.com/documents.zip",
+    "max_size_mb": 100,
+    "extract_all_from_zip": true,
+    "include_metadata": true
+}
+```
+
+### 自動ファイル検出とクローリング統合
+crawl_urlツールは自動的にファイル形式を検出し、適切な処理方法を選択します：
+```json
+{
+    "url": "https://example.com/mixed-content.pdf",
+    "generate_markdown": true
+}
+```
+
 ## 🎯 コンテンツフィルターの説明
 
 ### BM25フィルター
@@ -350,6 +418,7 @@ crawl/
 │   ├── __init__.py              # パッケージ初期化
 │   ├── server.py                # メインMCPサーバー
 │   ├── strategies.py            # 追加の抽出戦略
+│   ├── file_processor.py        # MarkItDownファイル処理モジュール
 │   └── suppress_output.py       # 出力抑制ユーティリティ
 ├── requirements.txt             # Python依存関係
 ├── setup.sh                     # Linux/macOSセットアップスクリプト
@@ -369,6 +438,7 @@ crawl/
 - `crawl4ai>=0.3.0` - Webクローリングライブラリ
 - `fastmcp>=0.1.0` - MCPサーバーフレームワーク
 - `pydantic>=2.0.0` - データ検証
+- `markitdown>=0.0.1a2` - ファイル処理・変換（Microsoft製）
 - `asyncio` - 非同期処理
 - `typing-extensions` - 型ヒント拡張
 
