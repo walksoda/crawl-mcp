@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "crawl4ai": {
+      "command": "python",
+      "args": ["-m", "crawl4ai_mcp.server"],
+      "cwd": "/home/user/prj/crawl",
+      "env": {
+        "PYTHONPATH": "/home/user/prj/crawl/venv/lib/python3.10/site-packages"
+      }
+    }
+  }
+}

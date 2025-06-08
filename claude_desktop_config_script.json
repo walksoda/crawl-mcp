@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "crawl4ai": {
+      "command": "wsl",
+      "args": [
+        "/home/user/prj/crawl/run_server.sh"
+      ],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "DEBUG"
+      }
+    }
+  }
+}

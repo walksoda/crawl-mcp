@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "crawl4ai": {
+      "command": "wsl",
+      "args": [
+        "-e",
+        "bash",
+        "-c",
+        "cd /home/user/prj/crawl && source venv/bin/activate && python -m crawl4ai_mcp.server"
+      ],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "DEBUG"
+      }
+    }
+  }
+}
