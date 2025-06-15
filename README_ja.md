@@ -80,6 +80,169 @@ Windows環境でClaude Desktopから使用する場合：
 2. Claude Desktopを再起動
 3. チャットでcrawl4aiツールが利用可能になります
 
+### LLM設定の管理
+
+MCP設定ファイル内でLLMプロバイダーとモデルの設定を管理できます。`claude_desktop_config.json`に以下の設定を追加：
+
+```json
+{
+  "mcpServers": {
+    "crawl4ai": {
+      "command": "python",
+      "args": ["-m", "crawl4ai_mcp.server"],
+      "cwd": "/path/to/crawl",
+      "env": {
+        "PYTHONPATH": "/path/to/crawl/venv/lib/python3.10/site-packages"
+      },
+      "llm_config": {
+        "default_provider": "openai",
+        "default_model": "gpt-4.1",
+        "providers": {
+          "openai": {
+            "api_key": null,
+            "api_key_env": "OPENAI_API_KEY",
+            "base_url": null,
+            "models": ["gpt-4.1", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
+          },
+          "aoai": {
+            "api_key": null,
+            "api_key_env": "AZURE_OPENAI_API_KEY",
+            "base_url": null,
+            "base_url_env": "AZURE_OPENAI_ENDPOINT",
+            "api_version": "2025-04-01-preview",
+            "models": ["gpt-4.1", "gpt-4.1-nano", "o4-mini", "o3", "o3-mini", "o1", "o1-mini", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-35-turbo"]
+          },
+          "anthropic": {
+            "api_key": null,
+            "api_key_env": "ANTHROPIC_API_KEY",
+            "base_url": null,
+            "models": ["claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"]
+          },
+          "ollama": {
+            "api_key": null,
+            "api_key_env": null,
+            "base_url": "http://localhost:11434",
+            "models": ["llama3.3", "qwen2.5"]
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+**LLM設定のパラメータ：**
+
+- `default_provider`: デフォルトのLLMプロバイダー
+- `default_model`: デフォルトのLLMモデル（2025年対応：GPT-4.1推奨）
+- `providers`: 利用可能なプロバイダーの設定
+  - `api_key`: APIキーを直接記載（推奨）
+  - `api_key_env`: APIキーを格納する環境変数名（オプション）
+  - `base_url`: カスタムAPIエンドポイント（Ollamaなど）
+  - `base_url_env`: ベースURLの環境変数名（Azure OpenAI用）
+  - `api_version`: APIバージョン（Azure OpenAI用：2025-04-01-preview）
+  - `models`: 利用可能なモデルのリスト
+
+**プロバイダー別特徴：**
+
+- **openai**: OpenAI公式API（GPT-4.1、GPT-4o対応）
+- **aoai**: Azure OpenAI Service（企業向け、最新O-seriesモデル対応）
+- **anthropic**: Anthropic Claude（高品質な推論）
+- **ollama**: ローカル実行（プライバシー重視）
+
+**APIキー設定方法：**
+
+**方法1: 環境変数を使用（推奨・安全）**
+```bash
+# OpenAI API キー
+export OPENAI_API_KEY="sk-proj-your-actual-openai-api-key-here"
+
+# Anthropic API キー  
+export ANTHROPIC_API_KEY="sk-ant-your-actual-anthropic-api-key-here"
+```
+
+**方法2: 設定ファイルに直接記載**
+```json
+{
+  "providers": {
+    "openai": {
+      "api_key": "sk-proj-your-actual-openai-api-key-here",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    "aoai": {
+      "api_key": "your-azure-openai-api-key",
+      "api_key_env": "AZURE_OPENAI_API_KEY",
+      "base_url": "https://your-resource.openai.azure.com",
+      "base_url_env": "AZURE_OPENAI_ENDPOINT"
+    }
+  }
+}
+```
+
+**Azure OpenAI環境変数設定例：**
+```bash
+# Azure OpenAI API キー
+export AZURE_OPENAI_API_KEY="your-azure-openai-api-key-here"
+
+# Azure OpenAI エンドポイント
+export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com"
+```
+
+**⚠️ 重要:**
+- 設定ファイルに`api_key`が記載されている場合は、そちらが優先されます
+- 実際のAPIキーに置き換えてください（プレースホルダーのままでは認証エラー）
+- セキュリティのため、環境変数使用を推奨します
+
+**Windows（WSL）での環境変数設定:**
+```bash
+# ~/.bashrc または ~/.profile に追加
+echo 'export OPENAI_API_KEY="sk-proj-your-actual-key-here"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**インテリジェントプロバイダー選択：**
+
+設定されたプロバイダーの中から、有効なAPIキーを持つものが自動選択されます：
+
+1. 指定プロバイダーが有効な場合 → そのプロバイダーを使用
+2. デフォルトプロバイダーが有効な場合 → デフォルトを使用
+3. どちらも無効な場合 → フォールバック順序で自動選択
+   - OpenAI → Azure OpenAI → Anthropic → Ollama
+
+**設定の確認：**
+
+`get_llm_config_info` ツールを使用して現在の設定状況を確認できます：
+
+- 設定されているプロバイダーとモデル
+- APIキーの設定状況と有効性
+- 利用可能なモデル一覧
+- 自動フォールバック状況
+
+**2025年対応モデル：**
+
+- **GPT-4.1**: 最新のGPT-4シリーズ（1Mトークンコンテキスト）
+- **O-seriesモデル**: 推論特化型（o4-mini、o3、o1など）
+- **GPT-4o**: マルチモーダル対応（テキスト・画像・音声）
+
+### 使用例
+
+```python
+# 自動プロバイダー選択でのクロール
+result = await intelligent_extract(
+    url="https://example.com",
+    extraction_goal="技術仕様の抽出",
+    # llm_providerとllm_modelを指定しない場合、設定から自動選択
+)
+
+# 特定プロバイダーを指定（APIキーが無効な場合は自動フォールバック）
+result = await intelligent_extract(
+    url="https://example.com",
+    extraction_goal="記事の要約",
+    llm_provider="aoai",  # Azure OpenAIを指定
+    llm_model="gpt-4.1"
+)
+```
+
 ## MCPコンポーネント
 
 ### ツール
@@ -122,16 +285,17 @@ Windows環境でClaude Desktopから使用する場合：
 - `auth_token`: 認証トークン
 - `cookies`: カスタムクッキー
 
-#### `extract_structured_data`
-各種戦略を使用した構造化データ抽出
+#### `extract_structured_data` 🔄
+各種戦略を使用した構造化データ抽出（自動プロバイダー選択対応）
 
 **パラメータ:**
 - `url`: クローリング対象のURL
 - `schema`: 抽出用JSONスキーマ
 - `extraction_type`: 抽出タイプ（'css'または'llm'）
 - `css_selectors`: 各フィールド用CSSセレクター（オプション）
-- `llm_provider`: LLMプロバイダー（オプション）
-- `llm_model`: LLMモデル名（オプション）
+- `llm_provider`: LLMプロバイダー（自動選択対応）
+- `llm_model`: LLMモデル名（自動選択対応）
+- `instruction`: カスタム抽出指示 🆕（LLM抽出時の追加指示）
 
 #### `batch_crawl`
 複数URLの一括クローリング
@@ -195,8 +359,14 @@ Windows環境でClaude Desktopから使用する場合：
 - `credit_cards`: クレジットカード番号
 - `coordinates`: 地理座標
 
-#### `process_file`
-**📄 ファイル処理**: Microsoft MarkItDownを使用した各種ファイル形式の処理・変換
+#### `process_file` 🔄
+**📄 ファイル処理**: Microsoft MarkItDownを使用した各種ファイル形式の処理・変換（拡張子推論機能付き）
+
+**ファイル処理改善:**
+- **拡張子なしファイル対応**: URLパターンからファイルタイプを推論
+- **HTML文書認識**: `/html`パターンや`html`キーワードの検出
+- **README自動認識**: 拡張子なしREADMEファイルの自動検出
+- **エラー処理強化**: ファイルタイプ取得エラーの回避
 
 **パラメータ:**
 - `url`: 処理対象ファイルのURL（PDF、Office、ZIP等）
@@ -208,8 +378,44 @@ Windows環境でClaude Desktopから使用する場合：
 - **PDF**: .pdf
 - **Microsoft Office**: .docx, .pptx, .xlsx, .xls
 - **アーカイブ**: .zip
-- **Web/テキスト**: .html, .htm, .txt, .md, .csv, .rtf
+- **Web/テキスト**: .html, .htm, .txt, .md, .csv, .rtf + **拡張子なし推論対応**
 - **eBook**: .epub
+- **README等の拡張子なしファイル** 🆕（自動推論）
+- **URLパターンベース推論** 🆕（GitHub API等対応）
+
+**対応改善例:**
+- `https://example.com/docs/README` → Text File として処理
+- `https://example.com/page.html` → HTML Document として処理
+- `https://api.github.com/repos/user/repo/contents/file` → 推論による処理
+
+#### `get_llm_config_info` 🆕
+**🤖 LLM設定状況確認**: 現在のLLM設定状況の確認とプロバイダー状態の診断
+
+**機能:**
+- 設定されているプロバイダーとモデルの一覧
+- APIキーの設定状況と有効性チェック
+- 利用可能なモデル一覧の表示
+- 自動フォールバック機能の動作状況
+- 設定の問題診断とトラブルシューティング
+
+**戻り値例:**
+```json
+{
+  "success": true,
+  "default_provider": "openai",
+  "default_model": "gpt-4.1",
+  "providers": {
+    "openai": {
+      "api_key_available": true,
+      "models": ["gpt-4.1", "gpt-4o"]
+    },
+    "aoai": {
+      "api_key_available": false,
+      "base_url_required": true
+    }
+  }
+}
+```
 
 #### `get_supported_file_formats`
 **📋 サポート形式一覧**: ファイル処理でサポートされている形式とその詳細を取得
