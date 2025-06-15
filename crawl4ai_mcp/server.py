@@ -26,7 +26,6 @@ from crawl4ai import (
 from .strategies import (
     CustomCssExtractionStrategy,
     XPathExtractionStrategy,
-    RegexExtractionStrategy,
     create_extraction_strategy,
 )
 from crawl4ai import BrowserConfig, CrawlerRunConfig
@@ -90,6 +89,7 @@ class StructuredExtractionRequest(BaseModel):
     css_selectors: Optional[Dict[str, str]] = Field(None, description="CSS selectors for each field")
     llm_provider: Optional[str] = Field("openai", description="LLM provider for LLM-based extraction")
     llm_model: Optional[str] = Field("gpt-3.5-turbo", description="LLM model name")
+    instruction: Optional[str] = Field(None, description="Custom instruction for LLM extraction")
 
 
 class FileProcessRequest(BaseModel):
@@ -236,8 +236,7 @@ youtube_processor = YouTubeProcessor()
 google_search_processor = GoogleSearchProcessor()
 
 
-@mcp.tool
-async def crawl_url(request: CrawlRequest) -> CrawlResponse:
+async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
     """
     Crawl a URL and extract content using various methods, with optional deep crawling.
     
@@ -571,14 +570,28 @@ async def crawl_url(request: CrawlRequest) -> CrawlResponse:
 
 
 @mcp.tool
+async def crawl_url(request: CrawlRequest) -> CrawlResponse:
+    """
+    Crawl a URL and extract content using various methods, with optional deep crawling.
+    
+    Args:
+        request: CrawlRequest containing URL and extraction parameters
+        
+    Returns:
+        CrawlResponse with crawled content and metadata
+    """
+    return await _internal_crawl_url(request)
+
+
+@mcp.tool
 async def deep_crawl_site(
     url: str,
     max_depth: int = 2,
-    max_pages: int = 20,
+    max_pages: int = 5,  # Conservative default
     crawl_strategy: str = "bfs",
     include_external: bool = False,
     url_pattern: Optional[str] = None,
-    score_threshold: float = 0.3,
+    score_threshold: float = 0.0,  # More permissive default
     extract_media: bool = False
 ) -> Dict[str, Any]:
     """
@@ -586,131 +599,272 @@ async def deep_crawl_site(
     
     Args:
         url: Starting URL for deep crawling
-        max_depth: Maximum crawling depth (recommended: 1-3)
-        max_pages: Maximum number of pages to crawl
+        max_depth: Maximum crawling depth (limited to 2 for stability)
+        max_pages: Maximum number of pages to crawl (limited to 5 for stability)
         crawl_strategy: Strategy - 'bfs', 'dfs', or 'best_first'
         include_external: Whether to follow external domain links
         url_pattern: URL pattern filter (e.g., '*docs*', '*blog*')
-        score_threshold: Minimum score for URLs to be crawled (0.0-1.0)
-        extract_media: Whether to extract media files
+        score_threshold: Minimum score for URLs to be crawled (0.0 = permissive)
+        extract_media: Whether to extract media files (always disabled for performance)
         
     Returns:
         Dictionary with crawled pages information and site map
     """
     try:
-        # Create filter chain
+        # Create filter chain - always include domain filter for stability
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc
+        
         filters = []
         if url_pattern:
             filters.append(URLPatternFilter(patterns=[url_pattern]))
+        
+        # Always add domain filter unless explicitly allowing external links
         if not include_external:
-            from urllib.parse import urlparse
-            domain = urlparse(url).netloc
             filters.append(DomainFilter(allowed_domains=[domain]))
+        else:
+            # Even when allowing external, add a broad domain filter for stability
+            # This prevents the filter_chain=None error
+            filters.append(DomainFilter(allowed_domains=[domain, "*"]))
         
-        filter_chain = FilterChain(filters) if filters else None
+        # Always create a filter chain to avoid NoneType errors
+        filter_chain = FilterChain(filters)
         
-        # Select crawling strategy
+        # Conservative resource limits for MCP stability
+        if max_pages > 5:  # Much more conservative limit
+            max_pages = 5
+        if max_depth > 2:  # Limit depth for stability
+            max_depth = 2
+        
+        # Use more permissive score threshold for better link following
+        effective_score_threshold = min(score_threshold, 0.0)  # Cap at 0.0 for better results
+        
+        # Select crawling strategy with corrected parameters
         if crawl_strategy == "dfs":
             strategy = DFSDeepCrawlStrategy(
                 max_depth=max_depth,
-                max_pages=max_pages,
+                max_pages=max_pages,  # Now uses the limited value
                 include_external=include_external,
                 filter_chain=filter_chain,
-                score_threshold=score_threshold
+                score_threshold=effective_score_threshold
             )
         elif crawl_strategy == "best_first":
             strategy = BestFirstCrawlingStrategy(
                 max_depth=max_depth,
-                max_pages=max_pages,
+                max_pages=max_pages,  # Now uses the limited value
                 include_external=include_external,
                 filter_chain=filter_chain,
-                score_threshold=score_threshold
+                score_threshold=effective_score_threshold
             )
         else:  # Default to BFS
             strategy = BFSDeepCrawlStrategy(
                 max_depth=max_depth,
-                max_pages=max_pages,
+                max_pages=max_pages,  # Now uses the limited value
                 include_external=include_external,
                 filter_chain=filter_chain,
-                score_threshold=score_threshold
+                score_threshold=effective_score_threshold
             )
 
+        # Add timeout and resource limits for deep crawling
         config = CrawlerRunConfig(
             deep_crawl_strategy=strategy,
-            exclude_all_images=not extract_media,
-            verbose=False,
-            log_console=False,
+            exclude_all_images=True,  # Always exclude images for performance
+            verbose=False,  # Always disable to prevent MCP connection issues
+            log_console=False,  # Always disable to prevent MCP connection issues
+            page_timeout=10000,  # Reduced to 10 seconds per page
         )
         
-        with suppress_stdout_stderr():
-            async with AsyncWebCrawler(headless=True, verbose=False) as crawler:
-                result = await crawler.arun(url=url, config=config)
+        # Enhanced browser configuration
+        browser_config = {
+            "headless": True,
+            "verbose": False,
+            "viewport_width": 1280,
+            "viewport_height": 720,
+            "user_agent": "Mozilla/5.0 (compatible; Crawl4AI-DeepCrawler/1.0)",
+            "accept_downloads": False,
+            "ignore_https_errors": True,
+        }
         
-        if result.success:
-            site_map = {
+        # Configuration info for debugging if needed
+        config_info = {
+            "strategy_used": crawl_strategy,
+            "max_depth_actual": max_depth,
+            "max_pages_actual": max_pages,
+            "score_threshold_actual": effective_score_threshold,
+            "include_external": include_external,
+            "url_pattern": url_pattern
+        }
+        
+        try:
+            with suppress_stdout_stderr():
+                async with AsyncWebCrawler(**browser_config) as crawler:
+                    # Reduced overall timeout for MCP stability (90 seconds)
+                    result = await asyncio.wait_for(
+                        crawler.arun(url=url, config=config),
+                        timeout=90
+                    )
+        except asyncio.TimeoutError:
+            return {
+                "success": False,
+                "error": "Deep crawling operation timed out after 90 seconds",
                 "starting_url": url,
-                "strategy_used": crawl_strategy,
-                "total_pages_crawled": 0,
-                "pages": [],
-                "site_structure": {},
-                "content_summary": ""
+                "timeout_reason": "Operation exceeded maximum allowed time",
+                "config_info": config_info
             }
+        except Exception as crawler_error:
+            return {
+                "success": False,
+                "error": f"Browser/crawler error: {str(crawler_error)}",
+                "starting_url": url,
+                "error_type": type(crawler_error).__name__,
+                "config_info": config_info
+            }
+        
+        # Handle different result types from deep crawling
+        site_map = {
+            "starting_url": url,
+            "strategy_used": crawl_strategy,
+            "total_pages_crawled": 0,
+            "pages": [],
+            "site_structure": {},
+            "content_summary": ""
+        }
+        
+        # Check if result is a list (multiple pages) or single result object
+        if isinstance(result, list):
+            # Deep crawling returns a list of CrawlResult objects
+            site_map["total_pages_crawled"] = len(result)
             
-            if hasattr(result, 'crawled_pages'):
-                site_map["total_pages_crawled"] = len(result.crawled_pages)
-                
-                for page in result.crawled_pages:
+            for page_result in result:
+                if hasattr(page_result, 'success') and page_result.success:
                     page_info = {
-                        "url": page.url,
-                        "title": page.metadata.get("title", "No title") if page.metadata else "No title",
-                        "content_length": len(page.cleaned_html) if page.cleaned_html else 0,
-                        "links_found": len(page.links.get("internal", [])) if hasattr(page, 'links') else 0,
-                        "depth": getattr(page, 'depth', 0),
-                        "content_preview": (page.cleaned_html[:200] + "...") if page.cleaned_html else "",
-                        "markdown_preview": (page.markdown[:200] + "...") if page.markdown else ""
+                        "url": page_result.url,
+                        "title": page_result.metadata.get("title", "No title") if page_result.metadata else "No title",
+                        "content_length": len(page_result.cleaned_html) if page_result.cleaned_html else 0,
+                        "links_found": len(page_result.links.get("internal", [])) if hasattr(page_result, 'links') and page_result.links else 0,
+                        "depth": getattr(page_result, 'depth', 0),
+                        "content_preview": (page_result.cleaned_html[:200] + "...") if page_result.cleaned_html else "",
+                        "markdown_preview": (page_result.markdown[:200] + "...") if page_result.markdown else ""
                     }
                     site_map["pages"].append(page_info)
-                
-                # Create content summary
-                total_content = sum(p["content_length"] for p in site_map["pages"])
-                site_map["content_summary"] = f"Crawled {site_map['total_pages_crawled']} pages with {total_content} characters of content"
-            else:
-                # Single page result
+                else:
+                    # Add failed page info
+                    failed_page_info = {
+                        "url": getattr(page_result, 'url', 'Unknown URL'),
+                        "title": "Failed to crawl",
+                        "content_length": 0,
+                        "error": getattr(page_result, 'error_message', 'Unknown error'),
+                        "content_preview": "",
+                        "markdown_preview": ""
+                    }
+                    site_map["pages"].append(failed_page_info)
+            
+            # Create content summary
+            successful_pages = [p for p in site_map["pages"] if "error" not in p]
+            total_content = sum(p["content_length"] for p in successful_pages)
+            site_map["content_summary"] = f"Crawled {len(successful_pages)} of {site_map['total_pages_crawled']} pages with {total_content} characters of content"
+            
+            return site_map
+            
+        elif hasattr(result, 'success'):
+            # Single result object
+            if result.success:
                 site_map["total_pages_crawled"] = 1
                 site_map["pages"].append({
-                    "url": url,
+                    "url": result.url,
                     "title": result.metadata.get("title", "No title") if result.metadata else "No title",
                     "content_length": len(result.cleaned_html) if result.cleaned_html else 0,
                     "content_preview": (result.cleaned_html[:200] + "...") if result.cleaned_html else "",
                     "markdown_preview": (result.markdown[:200] + "...") if result.markdown else ""
                 })
-            
-            return site_map
+                site_map["content_summary"] = f"Single page crawled with {site_map['pages'][0]['content_length']} characters of content"
+                return site_map
+            else:
+                return {
+                    "success": False,
+                    "error": f"Deep crawling failed: {result.error_message}",
+                    "starting_url": url,
+                    "config_info": config_info
+                }
         else:
+            # Unknown result type
             return {
                 "success": False,
-                "error": f"Deep crawling failed: {result.error_message}",
-                "starting_url": url
+                "error": f"Unknown result type from crawler: {type(result)}. Result: {str(result)[:500]}",
+                "starting_url": url,
+                "config_info": config_info
             }
             
     except Exception as e:
         return {
             "success": False,
             "error": f"Deep crawling error: {str(e)}",
-            "starting_url": url
+            "starting_url": url,
+            "error_type": type(e).__name__
         }
 
 
 @mcp.tool
-async def intelligent_extract(
+async def get_llm_config_info() -> Dict[str, Any]:
+    """
+    Get information about the current LLM configuration.
+    
+    Returns:
+        Dictionary with LLM configuration details including available providers and models
+    """
+    try:
+        from .config import config_manager
+        
+        if not config_manager.llm_config:
+            return {
+                "success": False,
+                "error": "No LLM configuration loaded"
+            }
+        
+        # Get available models by provider
+        available_models = config_manager.list_available_models()
+        
+        # Check API key status for each provider
+        provider_status = {}
+        for provider_name, provider_config in config_manager.llm_config.providers.items():
+            api_key_available = bool(config_manager.get_api_key(provider_name))
+            has_direct_key = provider_config.api_key is not None
+            has_env_key = provider_config.api_key_env is not None
+            
+            provider_status[provider_name] = {
+                "api_key_required": has_direct_key or has_env_key or provider_name not in ['ollama'],
+                "api_key_direct": has_direct_key,
+                "api_key_env_var": provider_config.api_key_env,
+                "api_key_available": api_key_available,
+                "base_url": provider_config.base_url,
+                "models": provider_config.models
+            }
+        
+        return {
+            "success": True,
+            "default_provider": config_manager.get_default_provider(),
+            "default_model": config_manager.get_default_model(),
+            "providers": provider_status,
+            "config_source": "MCP configuration"
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to get LLM config info: {str(e)}",
+            "error_type": type(e).__name__
+        }
+
+
+async def _internal_intelligent_extract(
     url: str,
     extraction_goal: str,
     content_filter: str = "bm25",
     filter_query: Optional[str] = None,
     chunk_content: bool = False,
     use_llm: bool = True,
-    llm_provider: str = "openai",
-    llm_model: str = "gpt-3.5-turbo",
+    llm_provider: Optional[str] = None,
+    llm_model: Optional[str] = None,
     custom_instructions: Optional[str] = None
 ) -> Dict[str, Any]:
     """
@@ -723,14 +877,16 @@ async def intelligent_extract(
         filter_query: Query for content filtering (required for BM25)
         chunk_content: Whether to chunk large content for better processing
         use_llm: Whether to use LLM for intelligent extraction
-        llm_provider: LLM provider (openai, claude, etc.)
-        llm_model: Specific model to use
+        llm_provider: LLM provider (auto-detected from config if not specified)
+        llm_model: Specific model to use (auto-detected from config if not specified)
         custom_instructions: Custom instructions for extraction
         
     Returns:
         Dictionary with extracted content and metadata
     """
     try:
+        from .config import get_llm_config, config_manager
+        
         # Setup content filter
         content_filter_strategy = None
         if content_filter == "bm25" and filter_query:
@@ -739,10 +895,12 @@ async def intelligent_extract(
             content_filter_strategy = PruningContentFilter(threshold=0.5)
         elif content_filter == "llm" and use_llm:
             instructions = custom_instructions or f"Extract content related to: {extraction_goal}"
+            llm_config = get_llm_config(llm_provider, llm_model)
+            # Use ONLY llm_config parameter, avoid mixing with legacy params
             content_filter_strategy = LLMContentFilter(
-                provider=llm_provider,
-                model=llm_model,
-                instructions=instructions
+                llm_config=llm_config,
+                instruction=instructions,
+                verbose=False
             )
 
         # Setup extraction strategy
@@ -764,12 +922,14 @@ async def intelligent_extract(
             4. Any relevant metadata
             """
             
+            llm_config = get_llm_config(llm_provider, llm_model)
+            # Use ONLY llm_config parameter, avoid mixing with legacy params
             extraction_strategy = LLMExtractionStrategy(
-                provider=llm_provider,
-                model=llm_model,
+                llm_config=llm_config,
                 schema=schema,
                 extraction_type="schema",
-                instruction=instructions
+                instruction=instructions,
+                verbose=False
             )
 
         # Configure chunking
@@ -859,7 +1019,48 @@ async def intelligent_extract(
 
 
 @mcp.tool
-async def extract_entities(
+async def intelligent_extract(
+    url: str,
+    extraction_goal: str,
+    content_filter: str = "bm25",
+    filter_query: Optional[str] = None,
+    chunk_content: bool = False,
+    use_llm: bool = True,
+    llm_provider: Optional[str] = None,
+    llm_model: Optional[str] = None,
+    custom_instructions: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Perform intelligent content extraction with advanced filtering and AI analysis.
+    
+    Args:
+        url: URL to extract content from
+        extraction_goal: Description of what to extract (e.g., "product information", "article summary")
+        content_filter: Filter type - 'bm25', 'pruning', 'llm', or 'none'
+        filter_query: Query for content filtering (required for BM25)
+        chunk_content: Whether to chunk large content for better processing
+        use_llm: Whether to use LLM for intelligent extraction
+        llm_provider: LLM provider (auto-detected from config if not specified)
+        llm_model: Specific model to use (auto-detected from config if not specified)
+        custom_instructions: Custom instructions for extraction
+        
+    Returns:
+        Dictionary with extracted content and metadata
+    """
+    return await _internal_intelligent_extract(
+        url=url,
+        extraction_goal=extraction_goal,
+        content_filter=content_filter,
+        filter_query=filter_query,
+        chunk_content=chunk_content,
+        use_llm=use_llm,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        custom_instructions=custom_instructions
+    )
+
+
+async def _internal_extract_entities(
     url: str,
     entity_types: List[str],
     custom_patterns: Optional[Dict[str, str]] = None,
@@ -913,13 +1114,10 @@ async def extract_entities(
                 "available_types": list(builtin_patterns.keys())
             }
 
-        # Create regex extraction strategy
-        extraction_strategy = RegexExtractionStrategy(patterns=patterns)
-        
+        # Use the same successful configuration as intelligent_extract
         config = CrawlerRunConfig(
-            extraction_strategy=extraction_strategy,
             verbose=False,
-            log_console=False,
+            log_console=False
         )
 
         with suppress_stdout_stderr():
@@ -927,44 +1125,50 @@ async def extract_entities(
                 result = await crawler.arun(url=url, config=config)
 
         if result.success:
+            import re
             extracted_entities = {}
             
-            if result.extracted_content:
+            # Get text content for pattern matching
+            content = result.cleaned_html or result.markdown or ""
+            
+            # Process each entity type pattern
+            for entity_type, pattern in patterns.items():
                 try:
-                    raw_extracted = json.loads(result.extracted_content)
+                    # Find all matches
+                    matches = re.finditer(pattern, content, re.IGNORECASE)
+                    entity_list = []
+                    seen = set() if deduplicate else None
                     
-                    # Process each entity type
-                    for entity_type, matches in raw_extracted.items():
-                        if matches:
-                            entity_list = []
-                            seen = set() if deduplicate else None
-                            
-                            for match in matches:
-                                entity_value = match if isinstance(match, str) else match.get('match', str(match))
-                                
-                                if deduplicate:
-                                    if entity_value in seen:
-                                        continue
-                                    seen.add(entity_value)
-                                
-                                entity_info = {"value": entity_value}
-                                
-                                # Add context if requested and available
-                                if include_context and isinstance(match, dict):
-                                    entity_info["context"] = match.get('context', '')
-                                    entity_info["position"] = match.get('position', -1)
-                                
-                                entity_list.append(entity_info)
-                            
-                            extracted_entities[entity_type] = {
-                                "count": len(entity_list),
-                                "entities": entity_list
-                            }
-                        else:
-                            extracted_entities[entity_type] = {"count": 0, "entities": []}
-                
-                except json.JSONDecodeError:
-                    extracted_entities = {"raw_content": result.extracted_content}
+                    for match in matches:
+                        entity_value = match.group(0)
+                        
+                        if deduplicate:
+                            if entity_value in seen:
+                                continue
+                            seen.add(entity_value)
+                        
+                        entity_info = {"value": entity_value}
+                        
+                        # Add context if requested
+                        if include_context:
+                            start_pos = max(0, match.start() - 50)
+                            end_pos = min(len(content), match.end() + 50)
+                            entity_info["context"] = content[start_pos:end_pos]
+                            entity_info["position"] = match.start()
+                        
+                        entity_list.append(entity_info)
+                    
+                    extracted_entities[entity_type] = {
+                        "count": len(entity_list),
+                        "entities": entity_list
+                    }
+                    
+                except re.error as e:
+                    extracted_entities[entity_type] = {
+                        "count": 0,
+                        "entities": [],
+                        "error": f"Invalid regex pattern: {e}"
+                    }
 
             return {
                 "url": url,
@@ -998,26 +1202,206 @@ async def extract_entities(
 
 
 @mcp.tool
-async def extract_structured_data(request: StructuredExtractionRequest) -> CrawlResponse:
+async def extract_entities(
+    url: str,
+    entity_types: List[str],
+    custom_patterns: Optional[Dict[str, str]] = None,
+    include_context: bool = True,
+    deduplicate: bool = True,
+    use_llm: bool = False,
+    llm_provider: Optional[str] = None,
+    llm_model: Optional[str] = None
+) -> Dict[str, Any]:
     """
-    Extract structured data from a URL using CSS selectors or LLM-based extraction.
+    Extract entities from web content using regex patterns or LLM analysis.
     
     Args:
-        request: StructuredExtractionRequest with URL, schema, and extraction parameters
+        url: URL to extract entities from
+        entity_types: Types of entities to extract
+            - For regex: emails, phones, urls, dates, social_media, etc.
+            - For LLM: names (people, organizations, locations, misc entities)
+        custom_patterns: Custom regex patterns for entity extraction (regex mode only)
+        include_context: Whether to include surrounding context for each entity
+        deduplicate: Whether to remove duplicate entities
+        use_llm: If True, use LLM for named entity recognition instead of regex
+        llm_provider: LLM provider to use (openai, anthropic, ollama) when use_llm=True
+        llm_model: LLM model to use when use_llm=True
         
     Returns:
-        CrawlResponse with extracted structured data
+        Dictionary with extracted entities organized by type
     """
+    if use_llm and "names" in entity_types:
+        # Use LLM-based extraction for named entities
+        return await _internal_llm_extract_entities(url, llm_provider, llm_model)
+    else:
+        # Use regex-based extraction
+        return await _internal_extract_entities(
+            url=url,
+            entity_types=entity_types,
+            custom_patterns=custom_patterns,
+            include_context=include_context,
+            deduplicate=deduplicate
+        )
+
+
+async def _internal_llm_extract_entities(
+    url: str,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    instruction: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Internal implementation for LLM-based entity extraction using direct LiteLLM approach
+    """
+    try:
+        from .config import config_manager
+        import json
+        import litellm
+        
+        # Create LLM configuration
+        llm_config = config_manager.create_llm_config(provider, model)
+        
+        # First, crawl the webpage to get content
+        config = CrawlerRunConfig(
+            verbose=False,
+            log_console=False
+        )
+        
+        with suppress_stdout_stderr():
+            async with AsyncWebCrawler(headless=True, verbose=False) as crawler:
+                result = await crawler.arun(url=url, config=config)
+        
+        if not result.success:
+            return {
+                "url": url,
+                "success": False,
+                "error": f"Failed to crawl URL: {result.error_message}",
+                "extraction_method": "llm_direct"
+            }
+        
+        # Get content for LLM processing
+        content = result.cleaned_html or result.markdown or result.html or ""
+        
+        if not content:
+            return {
+                "url": url,
+                "success": False,
+                "error": "No content found on the webpage",
+                "extraction_method": "llm_direct"
+            }
+        
+        # Limit content size to avoid token limits and reduce processing time
+        # GPT-4.1 models support 1M token context but become less reliable with more tokens
+        max_content_length = 6000  # Optimized for GPT-4.1 models
+        if len(content) > max_content_length:
+            content = content[:max_content_length] + "..."
+        
+        # Default instruction if not provided
+        if not instruction:
+            instruction = """Extract named entities from this text. Return JSON:
+            {"entities": [{"name": "entity name", "type": "PERSON|ORGANIZATION|LOCATION|MISC"}]}
+            Only extract clearly identifiable entities."""
+        
+        # Prepare LiteLLM call
+        messages = [
+            {"role": "user", "content": f"{instruction}\n\nWeb page content:\n{content}"}
+        ]
+        
+        # Configure LiteLLM
+        if llm_config.api_token:
+            litellm.api_key = llm_config.api_token
+        if llm_config.base_url:
+            litellm.api_base = llm_config.base_url
+            
+        # Call LLM with GPT-4.1 optimized settings
+        response = await litellm.acompletion(
+            model=llm_config.provider,
+            messages=messages,
+            max_tokens=500,  # Increased for GPT-4.1's better output capacity
+            temperature=0.1, # Slightly more creative for better extractions
+            timeout=25,      # 25 second timeout
+        )
+        
+        llm_response = response.choices[0].message.content
+        
+        # Parse LLM response
+        try:
+            # Try to extract JSON from the response
+            json_start = llm_response.find('{')
+            json_end = llm_response.rfind('}') + 1
+            
+            if json_start != -1 and json_end > json_start:
+                json_text = llm_response[json_start:json_end]
+                extracted_json = json.loads(json_text)
+            else:
+                # If no JSON found, try to parse the entire response
+                extracted_json = json.loads(llm_response)
+            
+            entities = extracted_json.get("entities", [])
+            
+            # Organize entities by type
+            entities_by_type = {}
+            for entity in entities:
+                entity_type = entity.get("type", "MISC")
+                if entity_type not in entities_by_type:
+                    entities_by_type[entity_type] = []
+                entities_by_type[entity_type].append({
+                    "name": entity.get("name", ""),
+                    "context": entity.get("context", ""),
+                    "confidence": entity.get("confidence", 1.0)
+                })
+            
+            return {
+                "url": url,
+                "success": True,
+                "entities_by_type": entities_by_type,
+                "total_entities": len(entities),
+                "llm_provider": llm_config.provider,
+                "extraction_method": "llm_direct",
+                "content_length": len(content)
+            }
+            
+        except (json.JSONDecodeError, KeyError) as e:
+            return {
+                "url": url,
+                "success": False,
+                "error": f"Failed to parse LLM response as JSON: {str(e)}",
+                "raw_llm_response": llm_response[:500] + "..." if len(llm_response) > 500 else llm_response,
+                "extraction_method": "llm_direct"
+            }
+            
+    except Exception as e:
+        return {
+            "url": url,
+            "success": False,
+            "error": f"LLM entity extraction error: {str(e)}",
+            "extraction_method": "llm_direct"
+        }
+
+
+
+
+async def _internal_extract_structured_data(request: StructuredExtractionRequest) -> CrawlResponse:
+    """Internal implementation for structured data extraction"""
     try:
         if request.extraction_type == "css" and request.css_selectors:
             strategy = JsonCssExtractionStrategy(request.css_selectors)
         elif request.extraction_type == "llm":
-            strategy = LLMExtractionStrategy(
+            # Create LLM config using our config manager
+            from .config import config_manager
+            llm_config = config_manager.create_llm_config(
                 provider=request.llm_provider,
-                api_token=None,  # Should be set via environment variable
+                model=request.llm_model
+            )
+            
+            strategy = LLMExtractionStrategy(
+                llm_config=llm_config,
                 schema=request.schema,
                 extraction_type="schema",
-                model=request.llm_model,
+                instruction=request.instruction or "Extract data according to the provided schema.",
+                chunk_token_threshold=2000,  # Smaller chunks for faster processing
+                apply_chunking=True,
+                verbose=False
             )
         else:
             return CrawlResponse(
@@ -1028,31 +1412,146 @@ async def extract_structured_data(request: StructuredExtractionRequest) -> Crawl
             
         config = CrawlerRunConfig(
             extraction_strategy=strategy,
-            timeout=30,
+            page_timeout=30000,  # 30 seconds in milliseconds
             verbose=False,
             log_console=False,
         )
         
+        # First crawl without extraction to get content
         with suppress_stdout_stderr():
             async with AsyncWebCrawler(verbose=False) as crawler:
-                result = await crawler.arun(url=request.url, config=config)
+                initial_result = await crawler.arun(url=request.url)
         
-        if result.success:
-            extracted_data = json.loads(result.extracted_content) if result.extracted_content else None
-            return CrawlResponse(
-                success=True,
-                url=request.url,
-                title=result.metadata.get("title"),
-                content=result.cleaned_html,
-                markdown=result.markdown,
-                extracted_data=extracted_data,
-            )
-        else:
+        if not initial_result.success:
             return CrawlResponse(
                 success=False,
                 url=request.url,
-                error=f"Failed to extract data: {result.error_message}"
+                error=f"Failed to crawl URL: {initial_result.error_message}"
             )
+        
+        # For LLM extraction, truncate content to avoid token limits
+        if request.extraction_type == "llm":
+            # Get content and truncate to manageable size
+            content = initial_result.cleaned_html or initial_result.markdown or initial_result.html or ""
+            max_content_length = 10000  # Increased for GPT-4.1's 1M token context
+            
+            if len(content) > max_content_length:
+                content = content[:max_content_length] + "..."
+            
+            # Create a simple text-based extraction instead of using the full HTML
+            import litellm
+            from .config import config_manager
+            
+            llm_config = config_manager.create_llm_config(
+                provider=request.llm_provider,
+                model=request.llm_model
+            )
+            
+            # Configure LiteLLM
+            if llm_config.api_token:
+                litellm.api_key = llm_config.api_token
+            if llm_config.base_url:
+                litellm.api_base = llm_config.base_url
+            
+            # Create prompt for structured extraction
+            instruction = request.instruction or "Extract data according to the provided schema."
+            schema_str = json.dumps(request.schema, indent=2)
+            
+            prompt = f"""{instruction}
+
+Schema to follow:
+{schema_str}
+
+Web page content:
+{content}
+
+Return valid JSON that matches the schema."""
+            
+            try:
+                # Call LLM directly with GPT-4.1 optimized settings
+                response = await litellm.acompletion(
+                    model=llm_config.provider,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=1200, # Increased for GPT-4.1's better output capacity
+                    temperature=0.1, # Slightly more creative for better structured output
+                    timeout=30,      # 30 second timeout for complex schemas
+                )
+                
+                llm_response = response.choices[0].message.content
+                
+                # Parse LLM response
+                try:
+                    # Try to extract JSON from the response
+                    json_start = llm_response.find('{')
+                    json_end = llm_response.rfind('}') + 1
+                    
+                    if json_start != -1 and json_end > json_start:
+                        json_text = llm_response[json_start:json_end]
+                        extracted_data = json.loads(json_text)
+                    else:
+                        # If no JSON found, try to parse the entire response
+                        extracted_data = json.loads(llm_response)
+                    
+                    return CrawlResponse(
+                        success=True,
+                        url=request.url,
+                        title=initial_result.metadata.get("title"),
+                        content=initial_result.cleaned_html,
+                        markdown=initial_result.markdown,
+                        extracted_data=extracted_data,
+                    )
+                    
+                except (json.JSONDecodeError, KeyError) as e:
+                    return CrawlResponse(
+                        success=False,
+                        url=request.url,
+                        error=f"Failed to parse LLM response as JSON: {str(e)}",
+                        content=initial_result.cleaned_html,
+                        markdown=initial_result.markdown
+                    )
+                    
+            except Exception as e:
+                return CrawlResponse(
+                    success=False,
+                    url=request.url,
+                    error=f"LLM extraction error: {str(e)}",
+                    content=initial_result.cleaned_html,
+                    markdown=initial_result.markdown
+                )
+        
+        # For CSS extraction, use the original approach
+        else:
+            with suppress_stdout_stderr():
+                async with AsyncWebCrawler(verbose=False) as crawler:
+                    result = await crawler.arun(url=request.url, config=config)
+            
+            if result.success:
+                extracted_data = None
+                if result.extracted_content:
+                    try:
+                        parsed_content = json.loads(result.extracted_content)
+                        # Handle case where result is a list instead of dict
+                        if isinstance(parsed_content, list) and len(parsed_content) > 0:
+                            extracted_data = parsed_content[0]  # Take first item
+                        elif isinstance(parsed_content, dict):
+                            extracted_data = parsed_content
+                    except (json.JSONDecodeError, TypeError):
+                        extracted_data = {"raw_content": result.extracted_content}
+                
+                return CrawlResponse(
+                    success=True,
+                    url=request.url,
+                    title=result.metadata.get("title"),
+                    content=result.cleaned_html,
+                    markdown=result.markdown,
+                    extracted_data=extracted_data,
+                )
+            else:
+                return CrawlResponse(
+                    success=False,
+                    url=request.url,
+                    error=f"Failed to extract data: {result.error_message}"
+                )
                 
     except Exception as e:
         return CrawlResponse(
@@ -1060,6 +1559,20 @@ async def extract_structured_data(request: StructuredExtractionRequest) -> Crawl
             url=request.url,
             error=f"Extraction error: {str(e)}"
         )
+
+
+@mcp.tool
+async def extract_structured_data(request: StructuredExtractionRequest) -> CrawlResponse:
+    """
+    Extract structured data from a URL using CSS selectors or LLM-based extraction.
+    
+    Args:
+        request: StructuredExtractionRequest with URL, schema, and extraction parameters
+        
+    Returns:
+        CrawlResponse with extracted structured data
+    """
+    return await _internal_extract_structured_data(request)
 
 
 @mcp.tool
@@ -1324,146 +1837,81 @@ async def get_supported_file_formats() -> Dict[str, Any]:
 @mcp.tool
 async def extract_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTubeTranscriptResponse:
     """
-    [DEPRECATED] Extract transcript from a YouTube video with language preferences and translation options.
+    [CURRENTLY UNAVAILABLE] Extract transcript from a YouTube video with language preferences and translation options.
     
-    ⚠️ WARNING: This feature is currently deprecated due to YouTube API specification changes.
-    Transcript extraction may fail intermittently. Please use with caution and consider 
-    alternative methods until the underlying API issues are resolved.
+    ⚠️ STATUS: This feature is currently unavailable due to YouTube API changes that occurred in 2024.
+    The underlying youtube-transcript-api library is experiencing compatibility issues with YouTube's 
+    updated HTML structure, causing "no element found" errors.
+    
+    Current Issues:
+    - YouTube changed their page structure, breaking transcript parsing
+    - Multiple videos return "no element found" errors consistently
+    - The issue affects both manual and auto-generated transcripts
+    
+    Alternatives:
+    1. Use YouTube's official API with proper authentication
+    2. Use browser automation to extract transcripts directly
+    3. Wait for youtube-transcript-api library updates
     
     Args:
         request: YouTubeTranscriptRequest containing URL and extraction parameters
         
     Returns:
-        YouTubeTranscriptResponse with transcript content and metadata
+        YouTubeTranscriptResponse indicating current unavailability
     """
-    try:
-        # Validate max_concurrent if it's somehow in request (shouldn't be for single requests)
+    # Return immediate error response explaining current unavailability
+    return YouTubeTranscriptResponse(
+        success=False,
+        url=request.url,
+        error="""YouTube transcript extraction is currently unavailable due to API changes.
         
-        result = await youtube_processor.process_youtube_url(
-            url=request.url,
-            languages=request.languages,
-            translate_to=request.translate_to,
-            include_timestamps=request.include_timestamps,
-            preserve_formatting=request.preserve_formatting,
-            include_metadata=request.include_metadata
-        )
-        
-        if result['success']:
-            return YouTubeTranscriptResponse(
-                success=True,
-                url=result['url'],
-                video_id=result['video_id'],
-                transcript=result['transcript'],
-                language_info=result['language_info'],
-                metadata=result.get('metadata'),
-                processing_method=result['processing_method']
-            )
-        else:
-            return YouTubeTranscriptResponse(
-                success=False,
-                url=request.url,
-                error=result.get('error')
-            )
-            
-    except Exception as e:
-        return YouTubeTranscriptResponse(
-            success=False,
-            url=request.url,
-            error=f"YouTube transcript extraction error: {str(e)}"
-        )
+YouTube updated their page structure in 2024, breaking the youtube-transcript-api library that this feature depends on. This affects all videos and transcript types.
+
+Current status: "no element found" errors occur consistently across different videos.
+
+Recommended alternatives:
+1. Use YouTube's Data API v3 with proper authentication
+2. Manual transcript copy from YouTube's interface
+3. Wait for library updates to fix compatibility
+
+This is a known issue affecting many applications using the youtube-transcript-api library."""
+    )
 
 
 @mcp.tool
 async def batch_extract_youtube_transcripts(request: YouTubeBatchRequest) -> YouTubeBatchResponse:
     """
-    [DEPRECATED] Extract transcripts from multiple YouTube videos in batch.
+    [CURRENTLY UNAVAILABLE] Extract transcripts from multiple YouTube videos in batch.
     
-    ⚠️ WARNING: This feature is currently deprecated due to YouTube API specification changes.
-    Batch transcript extraction may fail for multiple videos. Please use with caution and consider 
-    alternative methods until the underlying API issues are resolved.
+    ⚠️ STATUS: This feature is currently unavailable due to the same YouTube API changes 
+    affecting single video transcript extraction. All batch operations will fail with 
+    "no element found" errors.
     
     Args:
         request: YouTubeBatchRequest containing URLs and extraction parameters
         
     Returns:
-        YouTubeBatchResponse with batch processing results
+        YouTubeBatchResponse indicating current unavailability for all videos
     """
-    try:
-        # Validate and limit max_concurrent
-        max_concurrent = max(1, min(10, request.max_concurrent))
-        
-        # Process all URLs
-        results = await youtube_processor.batch_extract_transcripts(
-            urls=request.urls,
-            languages=request.languages,
-            translate_to=request.translate_to,
-            include_timestamps=request.include_timestamps,
-            max_concurrent=max_concurrent
-        )
-        
-        # Convert results to response objects
-        response_results = []
-        successful = 0
-        failed = 0
-        
-        for result in results:
-            if result['success']:
-                successful += 1
-                response_results.append(YouTubeTranscriptResponse(
-                    success=True,
-                    url=result['url'],
-                    video_id=result['video_id'],
-                    transcript=result['transcript'],
-                    language_info=result['language_info'],
-                    metadata=result.get('metadata'),
-                    processing_method=result['processing_method']
-                ))
-            else:
-                failed += 1
-                response_results.append(YouTubeTranscriptResponse(
-                    success=False,
-                    url=result['url'],
-                    error=result.get('error')
-                ))
-        
-        # Calculate processing summary
-        total_words = sum(
-            r.transcript.get('word_count', 0) for r in response_results 
-            if r.success and r.transcript
-        )
-        total_duration = sum(
-            r.transcript.get('duration_seconds', 0) for r in response_results 
-            if r.success and r.transcript
-        )
-        
-        processing_summary = {
-            'total_videos': len(request.urls),
-            'successful_extractions': successful,
-            'failed_extractions': failed,
-            'success_rate': f"{(successful/len(request.urls)*100):.1f}%",
-            'total_words_extracted': total_words,
-            'total_duration_seconds': total_duration,
-            'average_words_per_video': total_words // successful if successful > 0 else 0
-        }
-        
-        return YouTubeBatchResponse(
-            success=True,
-            total_urls=len(request.urls),
-            successful_extractions=successful,
-            failed_extractions=failed,
-            results=response_results,
-            processing_summary=processing_summary
-        )
-        
-    except Exception as e:
-        return YouTubeBatchResponse(
+    # Return immediate error response for all URLs
+    response_results = []
+    error_message = "YouTube transcript extraction is currently unavailable due to API changes. See single video extraction for details."
+    
+    for url in request.urls:
+        response_results.append(YouTubeTranscriptResponse(
             success=False,
-            total_urls=len(request.urls),
-            successful_extractions=0,
-            failed_extractions=len(request.urls),
-            results=[],
-            processing_summary={"error": f"Batch processing failed: {str(e)}"}
-        )
+            url=url,
+            error=error_message
+        ))
+    
+    return YouTubeBatchResponse(
+        success=False,
+        results=response_results,
+        total_videos=len(request.urls),
+        successful_extractions=0,
+        failed_extractions=len(request.urls),
+        error="All YouTube transcript extractions currently unavailable due to API compatibility issues."
+    )
 
 
 @mcp.tool
@@ -1693,7 +2141,7 @@ async def search_and_crawl(
                     timeout=30
                 )
                 
-                crawl_result = await crawl_url(crawl_request)
+                crawl_result = await _internal_crawl_url(crawl_request)
                 
                 # Add search ranking to crawl result
                 crawl_data = {

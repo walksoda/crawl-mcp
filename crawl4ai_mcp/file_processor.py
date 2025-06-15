@@ -52,7 +52,17 @@ class FileProcessor:
                 path = file_path_or_url
             
             ext = Path(path).suffix.lower()
-            return ext in self.supported_extensions
+            is_supported = ext in self.supported_extensions
+            
+            # If no extension found but it might be a known format, try to infer
+            if not is_supported and file_path_or_url.startswith('http'):
+                # Check for common patterns
+                if '/html' in file_path_or_url or 'html' in file_path_or_url:
+                    return True
+                elif 'README' in file_path_or_url.upper() and not ext:
+                    return True
+            
+            return is_supported
         except Exception:
             return False
     
@@ -66,7 +76,17 @@ class FileProcessor:
                 path = file_path_or_url
             
             ext = Path(path).suffix.lower()
-            return self.supported_extensions.get(ext)
+            file_type = self.supported_extensions.get(ext)
+            
+            # If no extension found but it might be a known format, try to infer
+            if not file_type and file_path_or_url.startswith('http'):
+                # Check for common patterns
+                if '/html' in file_path_or_url or 'html' in file_path_or_url:
+                    return 'HTML Document'
+                elif 'README' in file_path_or_url.upper() and not ext:
+                    return 'Text File'
+            
+            return file_type
         except Exception:
             return None
     
@@ -181,17 +201,19 @@ class FileProcessor:
     
     async def process_file_from_url(self, url: str, max_size_mb: int = 100) -> Dict[str, Any]:
         """Process file from URL"""
+        # Get file type early to avoid reference errors
+        file_type = self.get_file_type(url)
+        
         if not self.is_supported_file(url):
             return {
                 'success': False,
                 'error': f"Unsupported file format. Supported: {', '.join(self.supported_extensions.keys())}",
-                'file_type': None
+                'file_type': file_type
             }
         
         try:
             # Download file
             file_data = await self.download_file(url, max_size_mb)
-            file_type = self.get_file_type(url)
             
             # Handle ZIP files specially
             if url.lower().endswith('.zip'):
@@ -240,15 +262,17 @@ class FileProcessor:
     
     async def process_file_from_data(self, file_data: bytes, filename: str) -> Dict[str, Any]:
         """Process file from binary data"""
+        # Get file type early to avoid reference errors
+        file_type = self.get_file_type(filename)
+        
         if not self.is_supported_file(filename):
             return {
                 'success': False,
                 'error': f"Unsupported file format. Supported: {', '.join(self.supported_extensions.keys())}",
-                'file_type': None
+                'file_type': file_type
             }
         
         try:
-            file_type = self.get_file_type(filename)
             
             # Handle ZIP files specially
             if filename.lower().endswith('.zip'):
