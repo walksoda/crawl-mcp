@@ -90,6 +90,12 @@ tests/
 .coverage
 htmlcov/
 
+# Debug and development scripts
+debug_*.py
+check_*.py
+*_debug.py
+*_check.py
+
 # Documentation build
 docs/_build/
 site/
