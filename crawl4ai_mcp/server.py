@@ -1846,7 +1846,7 @@ async def get_supported_file_formats() -> Dict[str, Any]:
 
 
 @mcp.tool
-async def extract_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTubeTranscriptResponse:
+async def extract_youtube_transcript(request: Dict[str, Any]) -> YouTubeTranscriptResponse:
     """
     Extract transcript from a YouTube video using youtube-transcript-api.
     
@@ -1872,22 +1872,31 @@ async def extract_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTu
         YouTubeTranscriptResponse with transcript data or error information
     """
     try:
-        # Check if URL is valid YouTube URL
-        if not youtube_processor.is_youtube_url(request.url):
+        # Convert dict to YouTubeTranscriptRequest for validation
+        try:
+            transcript_request = YouTubeTranscriptRequest(**request)
+        except Exception as e:
             return YouTubeTranscriptResponse(
                 success=False,
-                url=request.url,
+                error=f"Invalid request parameters: {str(e)}"
+            )
+        
+        # Check if URL is valid YouTube URL
+        if not youtube_processor.is_youtube_url(transcript_request.url):
+            return YouTubeTranscriptResponse(
+                success=False,
+                url=transcript_request.url,
                 error="URL is not a valid YouTube video URL"
             )
         
         # Process with youtube-transcript-api
         result = await youtube_processor.process_youtube_url(
-            url=request.url,
-            languages=request.languages,
-            translate_to=request.translate_to,
-            include_timestamps=request.include_timestamps,
-            preserve_formatting=request.preserve_formatting,
-            include_metadata=request.include_metadata
+            url=transcript_request.url,
+            languages=transcript_request.languages,
+            translate_to=transcript_request.translate_to,
+            include_timestamps=transcript_request.include_timestamps,
+            preserve_formatting=transcript_request.preserve_formatting,
+            include_metadata=transcript_request.include_metadata
         )
         
         if result['success']:
@@ -1918,20 +1927,20 @@ async def extract_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTu
         else:
             return YouTubeTranscriptResponse(
                 success=False,
-                url=request.url,
+                url=transcript_request.url,
                 error=result.get('error', 'Unknown error during transcript extraction')
             )
                 
     except Exception as e:
         return YouTubeTranscriptResponse(
             success=False,
-            url=request.url,
+            url=request.get('url', 'unknown'),
             error=f"YouTube transcript processing error: {str(e)}"
         )
 
 
 @mcp.tool
-async def batch_extract_youtube_transcripts(request: YouTubeBatchRequest) -> YouTubeBatchResponse:
+async def batch_extract_youtube_transcripts(request: Dict[str, Any]) -> YouTubeBatchResponse:
     """
     Extract transcripts from multiple YouTube videos using youtube-transcript-api.
     
@@ -1952,17 +1961,33 @@ async def batch_extract_youtube_transcripts(request: YouTubeBatchRequest) -> You
         YouTubeBatchResponse with individual results and batch statistics
     """
     try:
+        # Convert dict to YouTubeBatchRequest for validation
+        try:
+            batch_request = YouTubeBatchRequest(**request)
+        except Exception as e:
+            return YouTubeBatchResponse(
+                success=False,
+                results=[],
+                total_urls=0,
+                successful_extractions=0,
+                failed_extractions=0,
+                processing_summary={
+                    'processing_method': 'youtube_transcript_api_batch',
+                    'error': f"Invalid request parameters: {str(e)}"
+                }
+            )
+        
         # Validate and limit concurrent requests
-        max_concurrent = min(max(1, request.max_concurrent), 5)  # Conservative limit for stability
+        max_concurrent = min(max(1, batch_request.max_concurrent), 5)  # Conservative limit for stability
         
         # Create individual transcript requests
         async def process_single_url(url: str) -> YouTubeTranscriptResponse:
-            single_request = YouTubeTranscriptRequest(
-                url=url,
-                languages=request.languages,
-                translate_to=request.translate_to,
-                include_timestamps=request.include_timestamps
-            )
+            single_request = {
+                'url': url,
+                'languages': batch_request.languages,
+                'translate_to': batch_request.translate_to,
+                'include_timestamps': batch_request.include_timestamps
+            }
             return await extract_youtube_transcript(single_request)
         
         # Process URLs with semaphore for concurrency control
@@ -1973,7 +1998,7 @@ async def batch_extract_youtube_transcripts(request: YouTubeBatchRequest) -> You
                 return await process_single_url(url)
         
         # Execute all requests concurrently
-        tasks = [process_with_semaphore(url) for url in request.urls]
+        tasks = [process_with_semaphore(url) for url in batch_request.urls]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Process results and handle exceptions
@@ -1985,7 +2010,7 @@ async def batch_extract_youtube_transcripts(request: YouTubeBatchRequest) -> You
             if isinstance(result, Exception):
                 response_results.append(YouTubeTranscriptResponse(
                     success=False,
-                    url=request.urls[i],
+                    url=batch_request.urls[i],
                     error=f"Processing exception: {str(result)}"
                 ))
                 failed_extractions += 1
@@ -2002,13 +2027,13 @@ async def batch_extract_youtube_transcripts(request: YouTubeBatchRequest) -> You
         return YouTubeBatchResponse(
             success=overall_success,
             results=response_results,
-            total_urls=len(request.urls),
+            total_urls=len(batch_request.urls),
             successful_extractions=successful_extractions,
             failed_extractions=failed_extractions,
             processing_summary={
                 'processing_method': 'youtube_transcript_api_batch',
-                'total_processed': len(request.urls),
-                'success_rate': f"{(successful_extractions/len(request.urls)*100):.1f}%" if request.urls else "0%",
+                'total_processed': len(batch_request.urls),
+                'success_rate': f"{(successful_extractions/len(batch_request.urls)*100):.1f}%" if batch_request.urls else "0%",
                 'concurrent_limit': max_concurrent
             }
         )
@@ -2016,7 +2041,7 @@ async def batch_extract_youtube_transcripts(request: YouTubeBatchRequest) -> You
     except Exception as e:
         # Return error response for all URLs
         response_results = []
-        for url in request.urls:
+        for url in batch_request.urls:
             response_results.append(YouTubeTranscriptResponse(
                 success=False,
                 url=url,
@@ -2026,9 +2051,9 @@ async def batch_extract_youtube_transcripts(request: YouTubeBatchRequest) -> You
         return YouTubeBatchResponse(
             success=False,
             results=response_results,
-            total_urls=len(request.urls),
+            total_urls=len(batch_request.urls),
             successful_extractions=0,
-            failed_extractions=len(request.urls),
+            failed_extractions=len(batch_request.urls),
             processing_summary={
                 'processing_method': 'youtube_transcript_api_batch',
                 'error': f"Batch processing failed: {str(e)}"

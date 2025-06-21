@@ -262,13 +262,20 @@ class YouTubeProcessor:
                 error_message = "Could not retrieve transcript data from YouTube"
             elif "transcripts disabled" in error_message.lower():
                 error_message = "Transcripts are disabled for this video"
+            elif "transcript not found" in error_message.lower():
+                error_message = "No transcript found for the requested languages"
+            elif "list index out of range" in error_message.lower():
+                error_message = "Video parsing error - transcript data structure unexpected"
+            elif "connection" in error_message.lower() or "timeout" in error_message.lower():
+                error_message = "Network connection issue - please try again later"
             
             return {
                 'success': False,
                 'error': f'Transcript extraction failed: {error_message}',
                 'video_id': video_id,
                 'api_version': 'youtube-transcript-api-1.1.0+',
-                'suggestion': "Try using a different video or check if the video has publicly available transcripts"
+                'suggestion': self._get_error_suggestion(error_message),
+                'retry_recommended': "connection" in error_message.lower() or "timeout" in error_message.lower() or "temporary" in error_message.lower()
             }
     
     def _format_timestamp(self, seconds: float) -> str:
@@ -297,6 +304,23 @@ class YouTubeProcessor:
             parts.append(f"{secs}s")
         
         return " ".join(parts)
+    
+    def _get_error_suggestion(self, error_message: str) -> str:
+        """Get helpful suggestion based on error type"""
+        error_lower = error_message.lower()
+        
+        if "transcript not found" in error_lower or "no transcript" in error_lower:
+            return "This video may not have transcripts available. Try a different video or check if captions are enabled."
+        elif "transcripts disabled" in error_lower:
+            return "The video owner has disabled transcripts. Try a different video."
+        elif "video unavailable" in error_lower or "private" in error_lower:
+            return "Video is not accessible. Check if the video exists and is publicly available."
+        elif "network" in error_lower or "connection" in error_lower or "timeout" in error_lower:
+            return "Network issue detected. Check your internet connection and try again."
+        elif "parsing" in error_lower or "temporary" in error_lower:
+            return "This appears to be a temporary issue with YouTube's servers. Try again in a few minutes."
+        else:
+            return "Try using a different video or check if the video has publicly available transcripts."
     
     async def process_youtube_url(
         self,
