@@ -11,19 +11,22 @@ crawl4aiライブラリの機能をModel Context Protocol (MCP)仕様に準拠�
 - **📄 ファイル処理機能（MarkItDown統合）**
   - PDF、Microsoft Office、ZIP等の各種ファイル形式サポート
   - 自動ファイル形式検出と最適な変換処理
-  - ZIPアーカイブ内の複数ファイル一括処理
+- **📺 YouTube トランスクリプト抽出（youtube-transcript-api v1.1.0+）**
+  - 認証不要のシンプルで安定した字幕抽出
+  - 自動生成・手動字幕の両方に対応
+  - 多言語サポートと優先言語設定
+  - タイムスタンプ付きセグメント情報
 - **🔍 Google検索統合機能**
   - 31種類の検索ジャンル指定（学術、プログラミング、ニュース等）
   - 検索結果からのタイトル・スニペット自動抽出
   - セーフサーチ原則有効化でセキュリティ確保
   - バッチ検索と結果分析機能
   - 検索+クローリング統合処理
-- **📺 YouTube動画処理機能 [非推奨]**
-  - ⚠️ 現在、YouTubeのAPI仕様変更により非推奨
-  - YouTube動画のトランスクリプト（字幕）自動抽出（不安定）
-  - 多言語サポートと自動翻訳機能（制限あり）
-  - タイムスタンプ付きまたはクリーンテキスト出力
-  - バッチ処理による複数動画の一括処理（非推奨）
+- **📺 YouTube動画バッチ処理機能**
+  - 複数動画の一括トランスクリプト抽出
+  - 同時処理数制御による効率的な処理
+  - 詳細なエラーハンドリングと結果レポート
+  - 翻訳機能（利用可能な場合）
 - スクリーンショット撮影
 - メディア抽出（画像、音声、動画）
 - バッチクローリング機能
@@ -72,13 +75,166 @@ python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
 python -m crawl4ai_mcp.server --transport sse --host 127.0.0.1 --port 8001
 ```
 
+## 🌐 HTTP API アクセス
+
+このMCPサーバーは複数のHTTPプロトコルをサポートしており、用途に応じて最適な実装を選択できます。
+
+### 🎯 Pure StreamableHTTP（推奨）
+
+**Server-Sent Events (SSE) を使用しない純粋なJSON HTTPプロトコル**
+
+#### サーバー起動
+```bash
+# 方法1: 起動スクリプト使用
+./scripts/start_pure_http_server.sh
+
+# 方法2: 直接起動
+python examples/simple_pure_http_server.py --host 127.0.0.1 --port 8000
+
+# 方法3: バックグラウンド起動
+nohup python examples/simple_pure_http_server.py --port 8000 > server.log 2>&1 &
+```
+
+#### Claude Desktop設定
+```json
+{
+  "mcpServers": {
+    "crawl4ai-pure-http": {
+      "url": "http://127.0.0.1:8000/mcp"
+    }
+  }
+}
+```
+
+#### 使用手順
+1. **サーバー起動**: `./scripts/start_pure_http_server.sh`
+2. **設定適用**: `configs/claude_desktop_config_pure_http.json` を使用
+3. **Claude Desktop再起動**: 設定を適用
+
+#### 動作確認
+```bash
+# ヘルスチェック
+curl http://127.0.0.1:8000/health
+
+# 完全テスト
+python examples/pure_http_test.py
+```
+
+### 🔄 Legacy HTTP（SSE実装）
+
+**従来のFastMCP StreamableHTTPプロトコル（SSE使用）**
+
+#### サーバー起動
+```bash
+# 方法1: コマンドライン
+python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8001
+
+# 方法2: 環境変数
+export MCP_TRANSPORT=http
+export MCP_HOST=127.0.0.1
+export MCP_PORT=8001
+python -m crawl4ai_mcp.server
+```
+
+#### Claude Desktop設定
+```json
+{
+  "mcpServers": {
+    "crawl4ai-legacy-http": {
+      "url": "http://127.0.0.1:8001/mcp"
+    }
+  }
+}
+```
+
+### 📊 プロトコル比較
+
+| 特徴 | Pure StreamableHTTP | Legacy HTTP (SSE) | STDIO |
+|------|---------------------|-------------------|-------|
+| レスポンス形式 | プレーンJSON | Server-Sent Events | バイナリ |
+| 設定複雑度 | 低 (URLのみ) | 低 (URLのみ) | 高 (プロセス管理) |
+| デバッグ容易性 | 高 (curl可能) | 中 (SSEパーサー必要) | 低 |
+| 独立性 | 高 | 高 | 低 |
+| パフォーマンス | 高 | 中 | 高 |
+
+### 🚀 HTTP使用例
+
+#### Pure StreamableHTTP
+```bash
+# 初期化
+SESSION_ID=$(curl -s -X POST http://127.0.0.1:8000/mcp/initialize \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}' \
+  -D- | grep -i mcp-session-id | cut -d' ' -f2 | tr -d '\r')
+
+# ツール実行
+curl -X POST http://127.0.0.1:8000/mcp \
+  -H "Content-Type: application/json" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","id":"crawl","method":"tools/call","params":{"name":"crawl_url","arguments":{"url":"https://example.com"}}}'
+```
+
+#### Legacy HTTP
+```bash
+curl -X POST "http://127.0.0.1:8001/tools/crawl_url" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com", "generate_markdown": true}'
+```
+
+### 📚 詳細ドキュメント
+
+- **Pure StreamableHTTP**: [PURE_STREAMABLE_HTTP.md](PURE_STREAMABLE_HTTP.md)
+- **HTTP サーバー使用方法**: [HTTP_SERVER_USAGE.md](HTTP_SERVER_USAGE.md)
+- **Legacy HTTP API**: [HTTP_API_GUIDE.md](HTTP_API_GUIDE.md)
+
 ### Claude Desktop での使用
 
-Windows環境でClaude Desktopから使用する場合：
+#### 🎯 Pure StreamableHTTP使用（推奨）
 
-1. `claude_desktop_config_windows.json` をClaude Desktopの設定ディレクトリにコピー
+1. **サーバー起動**:
+   ```bash
+   ./scripts/start_pure_http_server.sh
+   ```
+
+2. **設定ファイル適用**:
+   - `configs/claude_desktop_config_pure_http.json` をClaude Desktopの設定ディレクトリにコピー
+   - または既存の設定に以下を追加:
+   ```json
+   {
+     "mcpServers": {
+       "crawl4ai-pure-http": {
+         "url": "http://127.0.0.1:8000/mcp"
+       }
+     }
+   }
+   ```
+
+3. **Claude Desktop再起動**: 設定を適用
+
+4. **利用開始**: チャットでcrawl4aiツールが利用可能になります
+
+#### 🔄 従来のSTDIO使用
+
+1. `configs/claude_desktop_config.json` をClaude Desktopの設定ディレクトリにコピー
 2. Claude Desktopを再起動
 3. チャットでcrawl4aiツールが利用可能になります
+
+#### 📂 設定ファイルの場所
+
+**Windows:**
+```
+%APPDATA%\Claude\claude_desktop_config.json
+```
+
+**macOS:**
+```
+~/Library/Application Support/Claude/claude_desktop_config.json
+```
+
+**Linux:**
+```
+~/.config/claude-desktop/claude_desktop_config.json
+```
 
 ### LLM設定の管理
 
@@ -188,10 +344,84 @@ export AZURE_OPENAI_API_KEY="your-azure-openai-api-key-here"
 export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com"
 ```
 
-**⚠️ 重要:**
-- 設定ファイルに`api_key`が記載されている場合は、そちらが優先されます
+### 📄 .envファイルによるAPIキー管理（推奨）
+
+**🔒 セキュリティ強化：環境変数の.envファイル管理**
+
+より安全で管理しやすいAPIキー設定のため、`.env`ファイルを使用することを強く推奨します。
+
+**1. .envファイルの作成**
+```bash
+# プロジェクトのルートディレクトリに.envファイルを作成
+cp .env.example .env
+```
+
+**2. .envファイルの編集**
+`.env`ファイルを開いて、以下のように実際のAPIキーを設定：
+
+```bash
+# OpenAI API Key
+OPENAI_API_KEY=sk-proj-your-actual-openai-api-key-here
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_API_KEY=your-azure-openai-api-key-here
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+
+# Anthropic API Key
+ANTHROPIC_API_KEY=sk-ant-your-actual-anthropic-api-key-here
+
+# YouTube Transcript API (youtube-transcript-api v1.1.0+)
+# No configuration required - works out of the box!
+
+# Google Search API Configuration (if needed)
+GOOGLE_SEARCH_API_KEY=your-google-search-api-key-here
+GOOGLE_SEARCH_ENGINE_ID=your-custom-search-engine-id
+```
+
+**3. .envファイルの自動読み込み**
+システムは自動的に以下の場所から.envファイルを検索・読み込みします：
+- プロジェクトルートの`.env`
+- 現在のディレクトリの`.env`
+- 実行時ディレクトリの`.env`
+
+**4. セキュリティ確保**
+```bash
+# .envファイルのパーミッションを制限
+chmod 600 .env
+
+# .gitignoreに.envファイルを追加（既に設定済み）
+echo ".env" >> .gitignore
+```
+
+**5. APIキー取得方法**
+
+**OpenAI API キー:**
+1. https://platform.openai.com/api-keys にアクセス
+2. 新しいAPIキーを作成
+3. `sk-proj-`で始まるキーをコピー
+
+**Azure OpenAI API キー:**
+1. Azure Portalにログイン
+2. Azure OpenAI リソースを選択
+3. 「キーとエンドポイント」からキーとエンドポイントをコピー
+
+**Anthropic API キー:**
+1. https://console.anthropic.com/ にアクセス
+2. APIキーを作成
+3. `sk-ant-`で始まるキーをコピー
+
+**YouTube動画処理:**
+- youtube-transcript-api v1.1.0+により認証不要
+- APIキーやOAuth設定は必要ありません
+
+**6. 設定確認**
+`get_llm_config_info`ツールを使用して、APIキーが正しく読み込まれているか確認できます。
+
+**⚠️ 重要なセキュリティ注意事項:**
+- `.env`ファイルは絶対にGitリポジトリにコミットしないでください
 - 実際のAPIキーに置き換えてください（プレースホルダーのままでは認証エラー）
-- セキュリティのため、環境変数使用を推奨します
+- APIキーは他人と共有しないでください
+- 定期的にAPIキーをローテーションしてください
 
 **Windows（WSL）での環境変数設定:**
 ```bash
@@ -426,41 +656,91 @@ result = await intelligent_extract(
 - 最大ファイルサイズ制限
 - 追加機能の説明
 
-#### `extract_youtube_transcript` [非推奨]
-**📺 YouTube動画処理**: YouTube動画からトランスクリプト（字幕）を抽出・変換
+#### `extract_youtube_transcript` 🔄
+**📺 YouTube動画処理**: youtube-transcript-api v1.1.0+を使用したシンプル字幕抽出
 
-**⚠️ 注意: YouTubeのAPI仕様変更により現在非推奨。使用は推奨されません。**
+**✅ 2025年対応: 認証不要のyoutube-transcript-api v1.1.0+に移行済み**
+
+**主な特徴:**
+- **認証不要**: APIキーやOAuth設定は一切不要
+- **安定性向上**: 公式ライブラリによる信頼性の高い字幕取得
+- **シンプル設定**: インストール後すぐに使用可能
+- **多言語対応**: 自動生成・手動字幕の両方をサポート
+- **複数形式対応**: プレーンテキストとタイムスタンプ付きテキスト
+
+**セットアップ要件:**
+- **なし**: 追加設定は一切必要ありません
+- **自動インストール**: `pip install -r requirements.txt`で自動的にインストール済み
 
 **パラメータ:**
 - `url`: YouTube動画のURL
 - `languages`: 優先言語リスト（デフォルト：["ja", "en"]）
-- `translate_to`: 翻訳先言語（オプション）
+- `translate_to`: 翻訳先言語（将来実装予定）
 - `include_timestamps`: タイムスタンプを含めるか
-- `preserve_formatting`: 元の書式を保持するか
-- `include_metadata`: 動画メタデータを含めるか
 
-#### `batch_extract_youtube_transcripts` [非推奨]
-**📺 一括YouTube処理**: 複数のYouTube動画を並行処理でトランスクリプト抽出
+**戻り値:**
+- 字幕テキスト（タイムスタンプ付き/なし）
+- セグメント情報（開始・終了時間、継続時間）
+- 言語情報（ソース言語、字幕種別）
+- 動画メタデータ（タイトル、再生回数、投稿日等）
 
-**⚠️ 注意: YouTubeのAPI仕様変更により現在非推奨。バッチ処理は特に不安定です。**
+#### `batch_extract_youtube_transcripts` 🔄
+**📺 一括YouTube処理**: youtube-transcript-api v1.1.0+による複数動画の並行字幕抽出
+
+**✅ 安定性向上: 認証不要ライブラリによる信頼性の高いバッチ処理**
+
+**改善点:**
+- **認証不要**: APIクォータやレート制限の心配なし
+- **エラー処理強化**: 個別動画ごとの詳細なエラー情報
+- **処理統計**: 成功/失敗件数、処理時間等の詳細統計
+- **シンプル設定**: 追加設定なしですぐに使用可能
 
 **パラメータ:**
 - `urls`: YouTube動画URLのリスト
 - `languages`: 優先言語リスト
-- `translate_to`: 翻訳先言語（オプション）
+- `translate_to`: 翻訳先言語（将来実装予定）
 - `include_timestamps`: タイムスタンプを含めるか
-- `max_concurrent`: 最大並行処理数（1-10）
+- `max_concurrent`: 最大並行処理数（1-3、APIクォータ考慮）
 
-#### `get_youtube_video_info`
-**📋 YouTube情報取得**: 動画の利用可能なトランスクリプト言語等の情報を取得
+**戻り値:**
+- 個別動画の処理結果リスト
+- バッチ処理統計（成功率、エラー詳細）
+- 処理方法: `youtube_transcript_api_batch`
+
+#### `get_youtube_video_info` 🔄
+**📋 YouTube情報取得**: youtube-transcript-api v1.1.0+による基本動画情報取得
+
+**✅ 機能改善: 認証不要での基本情報取得**
+
+**利用可能情報:**
+- **基本情報**: 動画タイトル、投稿者
+- **字幕情報**: 利用可能な字幕言語、手動/自動判別
+- **言語設定**: 優先言語と利用可能言語
+- **アクセス状況**: 字幕取得可能性の確認
 
 **パラメータ:**
 - `video_url`: YouTube動画のURL
 
 **戻り値:**
-- 利用可能なトランスクリプト言語
-- 手動/自動生成の区別
-- 翻訳可能言語の情報
+- 基本動画情報（タイトル、投稿者）
+- 字幕可用性と言語情報
+- 利用可能な字幕言語リスト
+- 取得可能性の確認結果
+
+#### `get_youtube_api_setup_guide` 🆕
+**🔧 利用ガイド**: youtube-transcript-api v1.1.0+の使用方法
+
+**機能:**
+- **使用方法説明**: 認証不要の簡単使用方法
+- **機能説明**: 利用可能な機能とパラメータ
+- **制限事項**: ライブラリの制限と対処法
+- **トラブルシューティング**: よくある問題の解決方法
+
+**戻り値:**
+- 現在のライブラリ状況
+- 詳細な使用ガイド
+- 利用可能機能の説明
+- トラブルシューティング情報
 
 #### `search_google`
 **🔍 Google検索**: ジャンル指定とメタデータ抽出付きGoogle検索
@@ -752,9 +1032,9 @@ crawl_urlツールは自動的にファイル形式を検出し、適切な処�
 }
 ```
 
-## 📺 YouTube動画処理機能の使用例 [非推奨]
+## 📺 YouTube動画処理機能の使用例
 
-**⚠️ 重要: 以下のYouTube機能は現在非推奨です。YouTubeのAPI仕様変更により不安定な状態です。**
+**✅ 2025年対応: youtube-transcript-api v1.1.0+による安定した字幕抽出**
 
 ### 基本的なトランスクリプト抽出
 ```json
@@ -832,7 +1112,7 @@ crawl/
 │   ├── strategies.py            # 追加の抽出戦略
 │   ├── file_processor.py        # MarkItDownファイル処理モジュール
 │   ├── google_search_processor.py  # Google検索処理モジュール
-│   ├── youtube_processor.py     # YouTubeトランスクリプト処理モジュール [非推奨]
+│   ├── youtube_processor.py     # YouTubeトランスクリプト処理モジュール（認証不要）
 │   └── suppress_output.py       # 出力抑制ユーティリティ
 ├── requirements.txt             # Python依存関係
 ├── setup.sh                     # Linux/macOSセットアップスクリプト
@@ -856,14 +1136,14 @@ crawl/
 - `googlesearch-python>=1.3.0` - Google検索機能
 - `aiohttp>=3.8.0` - メタデータ抽出用非同期HTTPクライアント
 - `beautifulsoup4>=4.12.0` - タイトル・スニペット抽出用HTMLパーサー
-- `youtube-transcript-api>=1.0.3` - YouTubeトランスクリプト抽出 [非推奨]
+- `youtube-transcript-api>=1.1.0` - YouTubeトランスクリプト抽出（認証不要）
 - `asyncio` - 非同期処理
 - `typing-extensions` - 型ヒント拡張
 
-**⚠️ YouTube機能に関する注意事項:**
-- YouTubeのAPI仕様変更により、一時的にトランスクリプト抽出が失敗する場合があります
-- その場合は別の動画で試すか、時間をおいて再試行してください
-- 動画情報の取得は通常通り機能します
+**✅ YouTube機能の改善点:**
+- youtube-transcript-api v1.1.0+により認証不要で安定動作
+- APIキーやOAuth設定は一切不要
+- すぐに使用開始可能
 
 ## エラーハンドリング
 

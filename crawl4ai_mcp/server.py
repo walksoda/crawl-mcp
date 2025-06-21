@@ -7,6 +7,7 @@ capabilities using the crawl4ai library.
 
 import asyncio
 import json
+import os
 import sys
 import logging
 from typing import Any, Dict, List, Optional, Union
@@ -47,7 +48,7 @@ class CrawlRequest(BaseModel):
     take_screenshot: bool = Field(False, description="Whether to take a screenshot")
     generate_markdown: bool = Field(True, description="Whether to generate markdown")
     wait_for_selector: Optional[str] = Field(None, description="Wait for specific element")
-    timeout: int = Field(30, description="Request timeout in seconds")
+    timeout: int = Field(60, description="Request timeout in seconds")
     
     # Deep crawling parameters
     max_depth: Optional[int] = Field(None, description="Maximum crawling depth (None for single page)")
@@ -229,7 +230,7 @@ mcp = FastMCP("Crawl4AI MCP Server")
 # Initialize FileProcessor for MarkItDown integration
 file_processor = FileProcessor()
 
-# Initialize YouTubeProcessor for transcript extraction
+# Initialize YouTubeProcessor for transcript extraction (youtube-transcript-api v1.1.0+)
 youtube_processor = YouTubeProcessor()
 
 # Initialize GoogleSearchProcessor for search functionality
@@ -410,14 +411,16 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
             cache_mode = CacheMode.BYPASS
 
         # Configure chunking if requested
-        chunking_config = {}
+        chunking_strategy = None
         if request.chunk_content:
-            chunking_config = {
-                "chunk_token_threshold": request.chunk_size,
-                "overlap_rate": request.overlap_rate
-            }
+            from crawl4ai.chunking_strategy import SlidingWindowChunking
+            step_size = int(request.chunk_size * (1 - request.overlap_rate))
+            chunking_strategy = SlidingWindowChunking(
+                window_size=request.chunk_size,
+                step=step_size
+            )
 
-        # Create config without content_filter (will be applied separately)
+        # Create config parameters
         config_params = {
             "css_selector": request.css_selector,
             "screenshot": request.take_screenshot,
@@ -427,9 +430,11 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
             "verbose": False,
             "log_console": False,
             "deep_crawl_strategy": deep_crawl_strategy,
-            "cache_mode": cache_mode,
-            **chunking_config
+            "cache_mode": cache_mode
         }
+        
+        if chunking_strategy:
+            config_params["chunking_strategy"] = chunking_strategy
         
         # Add content filter if supported by current crawl4ai version
         try:
@@ -462,7 +467,10 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 if request.execute_js:
                     config.js_code = request.execute_js
                 
-                result = await crawler.arun(url=request.url, config=config)
+                # Run crawler with config
+                arun_params = {"url": request.url, "config": config}
+                
+                result = await crawler.arun(**arun_params)
         
         # Handle different result types (single result vs list from deep crawling)
         if isinstance(result, list):
@@ -671,7 +679,7 @@ async def deep_crawl_site(
             exclude_all_images=True,  # Always exclude images for performance
             verbose=False,  # Always disable to prevent MCP connection issues
             log_console=False,  # Always disable to prevent MCP connection issues
-            page_timeout=10000,  # Reduced to 10 seconds per page
+            page_timeout=60000,  # 60 seconds per page for slow sites
         )
         
         # Enhanced browser configuration
@@ -933,20 +941,23 @@ async def _internal_intelligent_extract(
             )
 
         # Configure chunking
-        chunking_config = {}
+        chunking_strategy = None
         if chunk_content:
-            chunking_config = {
-                "chunk_token_threshold": 1000,
-                "overlap_rate": 0.1
-            }
+            from crawl4ai.chunking_strategy import SlidingWindowChunking
+            chunking_strategy = SlidingWindowChunking(
+                window_size=1000,
+                step=900  # 10% overlap
+            )
 
         # Setup crawler configuration
         config_params = {
             "extraction_strategy": extraction_strategy,
             "verbose": False,
             "log_console": False,
-            **chunking_config
         }
+        
+        if chunking_strategy:
+            config_params["chunking_strategy"] = chunking_strategy
         
         # Add content filter if supported by current crawl4ai version
         try:
@@ -1665,7 +1676,7 @@ async def crawl_url_with_fallback(request: CrawlRequest) -> CrawlResponse:
             "browser_type": "chromium", 
             "headless": True,
             "config": CrawlerRunConfig(
-                page_timeout=15000,
+                page_timeout=60000,
                 exclude_all_images=True,
                 remove_overlay_elements=True,
                 js_only=False,
@@ -1677,7 +1688,7 @@ async def crawl_url_with_fallback(request: CrawlRequest) -> CrawlResponse:
             "browser_type": "chromium",
             "headless": True, 
             "config": CrawlerRunConfig(
-                page_timeout=10000,
+                page_timeout=60000,
                 exclude_all_images=True,
                 exclude_external_links=True,
                 remove_overlay_elements=True,
@@ -1837,96 +1848,214 @@ async def get_supported_file_formats() -> Dict[str, Any]:
 @mcp.tool
 async def extract_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTubeTranscriptResponse:
     """
-    [CURRENTLY UNAVAILABLE] Extract transcript from a YouTube video with language preferences and translation options.
+    Extract transcript from a YouTube video using youtube-transcript-api.
     
-    ⚠️ STATUS: This feature is currently unavailable due to YouTube API changes that occurred in 2024.
-    The underlying youtube-transcript-api library is experiencing compatibility issues with YouTube's 
-    updated HTML structure, causing "no element found" errors.
+    This function uses the youtube-transcript-api library for simple and reliable transcript extraction
+    without complex authentication requirements.
     
-    Current Issues:
-    - YouTube changed their page structure, breaking transcript parsing
-    - Multiple videos return "no element found" errors consistently
-    - The issue affects both manual and auto-generated transcripts
+    Features:
+    - Simple youtube-transcript-api integration
+    - Support for multiple languages with automatic fallback
+    - Automatic language preference handling
+    - Both manual and auto-generated captions
+    - Basic video information extraction
     
-    Alternatives:
-    1. Use YouTube's official API with proper authentication
-    2. Use browser automation to extract transcripts directly
-    3. Wait for youtube-transcript-api library updates
+    No Setup Required:
+    - Works directly with public YouTube videos that have transcripts
+    - No API keys or authentication needed
+    - Automatically handles language preferences
     
     Args:
         request: YouTubeTranscriptRequest containing URL and extraction parameters
         
     Returns:
-        YouTubeTranscriptResponse indicating current unavailability
+        YouTubeTranscriptResponse with transcript data or error information
     """
-    # Return immediate error response explaining current unavailability
-    return YouTubeTranscriptResponse(
-        success=False,
-        url=request.url,
-        error="""YouTube transcript extraction is currently unavailable due to API changes.
+    try:
+        # Check if URL is valid YouTube URL
+        if not youtube_processor.is_youtube_url(request.url):
+            return YouTubeTranscriptResponse(
+                success=False,
+                url=request.url,
+                error="URL is not a valid YouTube video URL"
+            )
         
-YouTube updated their page structure in 2024, breaking the youtube-transcript-api library that this feature depends on. This affects all videos and transcript types.
-
-Current status: "no element found" errors occur consistently across different videos.
-
-Recommended alternatives:
-1. Use YouTube's Data API v3 with proper authentication
-2. Manual transcript copy from YouTube's interface
-3. Wait for library updates to fix compatibility
-
-This is a known issue affecting many applications using the youtube-transcript-api library."""
-    )
+        # Process with youtube-transcript-api
+        result = await youtube_processor.process_youtube_url(
+            url=request.url,
+            languages=request.languages,
+            translate_to=request.translate_to,
+            include_timestamps=request.include_timestamps,
+            preserve_formatting=request.preserve_formatting,
+            include_metadata=request.include_metadata
+        )
+        
+        if result['success']:
+            transcript_data = result['transcript']
+            language_info = result['language_info']
+            
+            return YouTubeTranscriptResponse(
+                success=True,
+                url=result['url'],
+                video_id=result['video_id'],
+                transcript={
+                    'full_text': transcript_data['full_text'],
+                    'clean_text': transcript_data['clean_text'],
+                    'segments': transcript_data.get('segments', []),
+                    'segment_count': transcript_data.get('segment_count', 0),
+                    'word_count': transcript_data.get('word_count', 0),
+                    'duration_seconds': transcript_data.get('duration_seconds', 0),
+                    'duration_formatted': transcript_data.get('duration_formatted', '0s')
+                },
+                language_info={
+                    'source_language': language_info['source_language'],
+                    'final_language': language_info['final_language'],
+                    'is_translated': language_info['is_translated']
+                },
+                processing_method=result['processing_method'],
+                metadata=result.get('metadata')
+            )
+        else:
+            return YouTubeTranscriptResponse(
+                success=False,
+                url=request.url,
+                error=result.get('error', 'Unknown error during transcript extraction')
+            )
+                
+    except Exception as e:
+        return YouTubeTranscriptResponse(
+            success=False,
+            url=request.url,
+            error=f"YouTube transcript processing error: {str(e)}"
+        )
 
 
 @mcp.tool
 async def batch_extract_youtube_transcripts(request: YouTubeBatchRequest) -> YouTubeBatchResponse:
     """
-    [CURRENTLY UNAVAILABLE] Extract transcripts from multiple YouTube videos in batch.
+    Extract transcripts from multiple YouTube videos using youtube-transcript-api.
     
-    ⚠️ STATUS: This feature is currently unavailable due to the same YouTube API changes 
-    affecting single video transcript extraction. All batch operations will fail with 
-    "no element found" errors.
+    Processes multiple YouTube URLs concurrently with controlled rate limiting
+    to avoid overwhelming YouTube's servers.
+    
+    Features:
+    - Concurrent processing with configurable limits
+    - youtube-transcript-api integration
+    - Comprehensive error handling per video
+    - Batch processing statistics
+    - No authentication required
     
     Args:
         request: YouTubeBatchRequest containing URLs and extraction parameters
         
     Returns:
-        YouTubeBatchResponse indicating current unavailability for all videos
+        YouTubeBatchResponse with individual results and batch statistics
     """
-    # Return immediate error response for all URLs
-    response_results = []
-    error_message = "YouTube transcript extraction is currently unavailable due to API changes. See single video extraction for details."
-    
-    for url in request.urls:
-        response_results.append(YouTubeTranscriptResponse(
+    try:
+        # Validate and limit concurrent requests
+        max_concurrent = min(max(1, request.max_concurrent), 5)  # Conservative limit for stability
+        
+        # Create individual transcript requests
+        async def process_single_url(url: str) -> YouTubeTranscriptResponse:
+            single_request = YouTubeTranscriptRequest(
+                url=url,
+                languages=request.languages,
+                translate_to=request.translate_to,
+                include_timestamps=request.include_timestamps
+            )
+            return await extract_youtube_transcript(single_request)
+        
+        # Process URLs with semaphore for concurrency control
+        semaphore = asyncio.Semaphore(max_concurrent)
+        
+        async def process_with_semaphore(url: str) -> YouTubeTranscriptResponse:
+            async with semaphore:
+                return await process_single_url(url)
+        
+        # Execute all requests concurrently
+        tasks = [process_with_semaphore(url) for url in request.urls]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results and handle exceptions
+        response_results = []
+        successful_extractions = 0
+        failed_extractions = 0
+        
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                response_results.append(YouTubeTranscriptResponse(
+                    success=False,
+                    url=request.urls[i],
+                    error=f"Processing exception: {str(result)}"
+                ))
+                failed_extractions += 1
+            else:
+                response_results.append(result)
+                if result.success:
+                    successful_extractions += 1
+                else:
+                    failed_extractions += 1
+        
+        # Determine overall success
+        overall_success = successful_extractions > 0
+        
+        return YouTubeBatchResponse(
+            success=overall_success,
+            results=response_results,
+            total_urls=len(request.urls),
+            successful_extractions=successful_extractions,
+            failed_extractions=failed_extractions,
+            processing_summary={
+                'processing_method': 'youtube_transcript_api_batch',
+                'total_processed': len(request.urls),
+                'success_rate': f"{(successful_extractions/len(request.urls)*100):.1f}%" if request.urls else "0%",
+                'concurrent_limit': max_concurrent
+            }
+        )
+        
+    except Exception as e:
+        # Return error response for all URLs
+        response_results = []
+        for url in request.urls:
+            response_results.append(YouTubeTranscriptResponse(
+                success=False,
+                url=url,
+                error=f"Batch processing error: {str(e)}"
+            ))
+        
+        return YouTubeBatchResponse(
             success=False,
-            url=url,
-            error=error_message
-        ))
-    
-    return YouTubeBatchResponse(
-        success=False,
-        results=response_results,
-        total_videos=len(request.urls),
-        successful_extractions=0,
-        failed_extractions=len(request.urls),
-        error="All YouTube transcript extractions currently unavailable due to API compatibility issues."
-    )
+            results=response_results,
+            total_urls=len(request.urls),
+            successful_extractions=0,
+            failed_extractions=len(request.urls),
+            processing_summary={
+                'processing_method': 'youtube_transcript_api_batch',
+                'error': f"Batch processing failed: {str(e)}"
+            }
+        )
 
 
 @mcp.tool
 async def get_youtube_video_info(video_url: str) -> Dict[str, Any]:
     """
-    Get available transcript information for a YouTube video without extracting the full transcript.
+    Get YouTube video information using youtube-transcript-api.
     
-    NOTE: This function typically continues to work despite YouTube API changes as it only 
-    retrieves metadata information rather than full transcript content.
+    Retrieves basic video information and transcript availability
+    without requiring authentication. This provides transcript language
+    availability and basic video details.
+    
+    Features:
+    - youtube-transcript-api integration
+    - Transcript availability and language information
+    - No authentication required
+    - Simple and reliable access to public video data
     
     Args:
         video_url: YouTube video URL
         
     Returns:
-        Dictionary with video transcript availability and language information
+        Dictionary with video information and transcript details
     """
     try:
         if not youtube_processor.is_youtube_url(video_url):
@@ -1944,9 +2073,15 @@ async def get_youtube_video_info(video_url: str) -> Dict[str, Any]:
                 'url': video_url
             }
         
+        # Get video info using youtube-transcript-api
         video_info = youtube_processor.get_video_info(video_id)
         video_info['url'] = video_url
-        video_info['success'] = True
+        video_info['success'] = not video_info.get('error')
+        
+        # Add processing method information
+        if video_info['success']:
+            video_info['api_method'] = 'youtube_transcript_api'
+            video_info['data_source'] = 'youtube_transcript_api_v1.1.0+'
         
         return video_info
         
@@ -1954,7 +2089,95 @@ async def get_youtube_video_info(video_url: str) -> Dict[str, Any]:
         return {
             'success': False,
             'url': video_url,
-            'error': f"Failed to get video info: {str(e)}"
+            'error': f"Failed to get video info: {str(e)}",
+            'api_method': 'youtube_transcript_api'
+        }
+
+
+@mcp.tool
+async def get_youtube_api_setup_guide() -> Dict[str, Any]:
+    """
+    Get setup information for youtube-transcript-api integration.
+    
+    Provides information about the current youtube-transcript-api setup,
+    which requires no authentication or API keys for basic transcript extraction.
+    
+    Returns:
+        Dictionary with setup information, capabilities, and usage tips
+    """
+    try:
+        # Check if youtube-transcript-api is available
+        try:
+            from youtube_transcript_api import YouTubeTranscriptApi
+            youtube_transcript_available = True
+            youtube_transcript_version = getattr(YouTubeTranscriptApi, '__version__', 'unknown')
+        except ImportError:
+            youtube_transcript_available = False
+            youtube_transcript_version = None
+        
+        # Current configuration status
+        config_status = {
+            'youtube_transcript_api_installed': youtube_transcript_available,
+            'youtube_transcript_api_version': youtube_transcript_version,
+            'authentication_required': False,
+            'api_keys_required': False,
+            'setup_required': not youtube_transcript_available
+        }
+        
+        # Determine setup completeness
+        setup_complete = youtube_transcript_available
+        
+        return {
+            'success': True,
+            'setup_complete': setup_complete,
+            'current_configuration': config_status,
+            'setup_guide': {
+                'title': 'YouTube Transcript API Setup (Simple)',
+                'description': 'youtube-transcript-api requires no authentication for public video transcripts',
+                'installation': {
+                    'step_1': 'Install the package: pip install youtube-transcript-api',
+                    'step_2': 'No additional configuration needed',
+                    'step_3': 'Ready to extract transcripts from public YouTube videos'
+                },
+                'capabilities': {
+                    'transcript_extraction': 'Extract transcripts from public YouTube videos',
+                    'multi_language': 'Support for multiple languages with automatic fallback',
+                    'auto_generated': 'Access both manual and auto-generated captions',
+                    'translation': 'Basic translation support for available transcript languages',
+                    'no_quota_limits': 'No API quotas or rate limits (within reasonable usage)'
+                },
+                'limitations': {
+                    'public_videos_only': 'Only works with public videos that have transcripts',
+                    'no_metadata': 'Limited video metadata (no view counts, descriptions, etc.)',
+                    'transcript_dependent': 'Requires videos to have captions/transcripts available'
+                }
+            },
+            'next_steps': {
+                'if_not_setup': [
+                    '1. Install youtube-transcript-api: pip install youtube-transcript-api',
+                    '2. No additional configuration needed',
+                    '3. Start extracting transcripts immediately'
+                ],
+                'if_setup_complete': [
+                    '1. YouTube transcript extraction is ready to use',
+                    '2. Call extract_youtube_transcript with any public YouTube URL',
+                    '3. No authentication or API keys needed'
+                ]
+            },
+            'troubleshooting': {
+                'common_issues': {
+                    'import_error': 'Install youtube-transcript-api: pip install youtube-transcript-api',
+                    'no_transcript_found': 'Video may not have transcripts available or may be private',
+                    'transcripts_disabled': 'Video owner has disabled transcripts for this video',
+                    'video_unavailable': 'Video may be private, deleted, or region-restricted'
+                }
+            }
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f"Failed to get setup guide: {str(e)}"
         }
 
 

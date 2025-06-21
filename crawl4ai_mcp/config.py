@@ -9,6 +9,14 @@ import os
 import sys
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
+from pathlib import Path
+
+# Try to import python-dotenv for .env file support
+try:
+    from dotenv import load_dotenv
+    DOTENV_AVAILABLE = True
+except ImportError:
+    DOTENV_AVAILABLE = False
 
 
 @dataclass
@@ -35,7 +43,32 @@ class ConfigManager:
     
     def __init__(self):
         self.llm_config: Optional[MCPLLMConfig] = None
+        self._load_env_vars()
         self._load_config()
+    
+    def _load_env_vars(self):
+        """Load environment variables from .env file if available"""
+        if DOTENV_AVAILABLE:
+            # Look for .env file in current directory or parent directories
+            env_paths = [
+                '.env',
+                os.path.join(os.path.dirname(__file__), '..', '.env'),
+                os.path.join(os.getcwd(), '.env')
+            ]
+            
+            for env_path in env_paths:
+                if os.path.exists(env_path):
+                    load_dotenv(env_path, override=False)  # Don't override existing env vars
+                    print(f"✅ Loaded environment variables from {env_path}", file=sys.stderr)
+                    break
+            else:
+                # Try to load from any .env file in the working directory
+                try:
+                    load_dotenv(override=False)
+                except:
+                    pass  # Silently fail if no .env file found
+        else:
+            print("⚠️ python-dotenv not available. Install with: pip install python-dotenv", file=sys.stderr)
     
     def _load_config(self):
         """Load LLM configuration from MCP server environment or config files"""
@@ -307,18 +340,13 @@ class ConfigManager:
         api_token = self.get_api_key(target_provider)
         base_url = self.get_base_url(target_provider)
         
-        # Create LLMConfig with additional parameters for AOAI
-        extra_headers = {}
-        if target_provider == 'aoai' and provider_config.api_version:
-            extra_headers['api-version'] = provider_config.api_version
-        
         print(f"🚀 Creating LLM config: {target_provider}/{target_model}", file=sys.stderr)
         
+        # Create LLMConfig (extra_headers not supported in current version)
         llm_config = LLMConfig(
             provider=f"{target_provider}/{target_model}",
             api_token=api_token,
-            base_url=base_url,
-            extra_headers=extra_headers if extra_headers else None
+            base_url=base_url
         )
         
         return llm_config

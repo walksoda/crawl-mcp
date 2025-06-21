@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "crawl4ai-stdio": {
+      "command": "python",
+      "args": ["-m", "crawl4ai_mcp.server"],
+      "cwd": "/home/user/prj/crawl",
+      "env": {
+        "PYTHONPATH": "/home/user/prj/crawl/venv/lib/python3.10/site-packages"
+      }
+    },
+    "crawl4ai-pure-http": {
+      "url": "http://127.0.0.1:8000/mcp"
+    },
+    "crawl4ai-legacy-http": {
+      "url": "http://127.0.0.1:8001/mcp"
+    }
+  }
+}

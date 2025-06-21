@@ -1,15 +1,16 @@
 """
 YouTube Processing Module for Transcript Extraction
-Handles YouTube video transcript retrieval, translation, and processing
+Handles YouTube video transcript retrieval using youtube-transcript-api v1.1.0+
+Simple and reliable transcript extraction without complex authentication
 """
 
 import asyncio
 import re
+import logging
 from typing import Dict, List, Optional, Any, Union
 from urllib.parse import urlparse, parse_qs
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 from youtube_transcript_api.formatters import TextFormatter
-import logging
 
 
 class YouTubeProcessor:
@@ -46,33 +47,29 @@ class YouTubeProcessor:
             return None
     
     def get_video_info(self, video_id: str) -> Dict[str, Any]:
-        """Get basic video information"""
+        """Get basic video information and available transcripts"""
         try:
-            # Try to get transcript list to determine available languages
+            # Get transcript list to determine available languages
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
             
             available_languages = []
             manual_transcripts = []
             auto_transcripts = []
             
-            try:
-                for transcript in transcript_list:
-                    lang_info = {
-                        'language': getattr(transcript, 'language', 'Unknown'),
-                        'language_code': getattr(transcript, 'language_code', 'unknown'),
-                        'is_generated': getattr(transcript, 'is_generated', False),
-                        'is_translatable': getattr(transcript, 'is_translatable', False)
-                    }
-                    
-                    available_languages.append(lang_info)
-                    
-                    if lang_info['is_generated']:
-                        auto_transcripts.append(lang_info)
-                    else:
-                        manual_transcripts.append(lang_info)
-            except Exception as inner_e:
-                # If we can't iterate transcripts, at least we know some exist
-                pass
+            for transcript in transcript_list:
+                lang_info = {
+                    'language': transcript.language,
+                    'language_code': transcript.language_code,
+                    'is_generated': transcript.is_generated,
+                    'is_translatable': transcript.is_translatable
+                }
+                
+                available_languages.append(lang_info)
+                
+                if transcript.is_generated:
+                    auto_transcripts.append(lang_info)
+                else:
+                    manual_transcripts.append(lang_info)
             
             return {
                 'video_id': video_id,
@@ -82,19 +79,22 @@ class YouTubeProcessor:
                 'auto_transcripts': len(auto_transcripts),
                 'available_languages': available_languages,
                 'manual_languages': manual_transcripts,
-                'auto_languages': auto_transcripts
+                'auto_languages': auto_transcripts,
+                'api_version': 'youtube-transcript-api-1.1.0+'
             }
             
         except Exception as e:
             error_message = str(e)
             
-            # Handle specific errors for better user feedback
-            if "no element found" in error_message.lower():
-                error_message = "Video metadata unavailable or video may be private/deleted"
+            # Handle specific errors with clearer messages
+            if "no element found" in error_message.lower() or "parseerror" in error_message.lower():
+                error_message = "Video transcript parsing failed - this may be a temporary YouTube API issue"
             elif "video unavailable" in error_message.lower():
                 error_message = "Video is unavailable, private, or does not exist"
+            elif "transcripts disabled" in error_message.lower():
+                error_message = "Transcripts are disabled for this video"
             elif "http error" in error_message.lower():
-                error_message = f"Network error accessing video metadata: {error_message}"
+                error_message = f"Network error accessing video: {error_message}"
             
             return {
                 'video_id': video_id,
@@ -105,7 +105,8 @@ class YouTubeProcessor:
                 'available_languages': [],
                 'manual_languages': [],
                 'auto_languages': [],
-                'error': error_message
+                'error': error_message,
+                'api_version': 'youtube-transcript-api-1.1.0+'
             }
     
     async def extract_transcript(
@@ -250,12 +251,9 @@ class YouTubeProcessor:
         except Exception as e:
             error_message = str(e)
             
-            # Handle specific XML parsing errors and provide helpful suggestions
+            # Handle specific errors with helpful messages
             if "no element found" in error_message.lower() or "parseerror" in error_message.lower():
-                error_message = (
-                    "YouTube transcript API is currently experiencing issues or the video's transcript format has changed. "
-                    "This is likely a temporary issue with YouTube's API. Please try again later or use a different video."
-                )
+                error_message = "YouTube transcript parsing failed - this may be a temporary issue with YouTube's servers"
             elif "http error" in error_message.lower():
                 error_message = f"Network error accessing video: {error_message}"
             elif "video unavailable" in error_message.lower():
@@ -264,13 +262,12 @@ class YouTubeProcessor:
                 error_message = "Could not retrieve transcript data from YouTube"
             elif "transcripts disabled" in error_message.lower():
                 error_message = "Transcripts are disabled for this video"
-            else:
-                error_message = f"Unexpected error: {error_message}"
             
             return {
                 'success': False,
                 'error': f'Transcript extraction failed: {error_message}',
                 'video_id': video_id,
+                'api_version': 'youtube-transcript-api-1.1.0+',
                 'suggestion': "Try using a different video or check if the video has publicly available transcripts"
             }
     
@@ -349,14 +346,15 @@ class YouTubeProcessor:
                 'success': True,
                 'url': url,
                 'video_id': video_id,
-                'processing_method': 'youtube_transcript_api',
+                'processing_method': 'youtube_transcript_api_v1.1.0+',
                 'transcript': transcript_result['transcript_data'],
                 'language_info': {
                     'source_language': transcript_result['source_language'],
                     'final_language': transcript_result['final_language'],
                     'is_translated': transcript_result['is_translated']
                 },
-                'metadata': video_metadata
+                'metadata': video_metadata,
+                'api_version': 'youtube-transcript-api-1.1.0+'
             }
             
         except Exception as e:

@@ -12,12 +12,13 @@ A comprehensive Model Context Protocol (MCP) server that wraps the powerful craw
   - PDF, Office documents, ZIP archives, and more
   - Automatic file format detection and conversion
   - Batch processing of archive contents
-- **📺 YouTube Video Processing [DEPRECATED]** with transcript extraction
-  - ⚠️ Currently deprecated due to YouTube API specification changes
-  - Automatic YouTube video transcript extraction (unstable)
-  - Multi-language support and translation capabilities (limited)
-  - Timestamped or clean text output options
-  - Batch processing for multiple videos (deprecated)
+- **📺 YouTube Transcript Extraction** (youtube-transcript-api v1.1.0+)
+  - No authentication required - works out of the box
+  - Stable and reliable transcript extraction
+  - Support for both auto-generated and manual captions
+  - Multi-language support with priority settings
+  - Timestamped segment information and clean text output
+  - Batch processing for multiple videos
 - **Entity Extraction** with 9 built-in patterns (emails, phones, URLs, dates, etc.)
 - **Intelligent Content Filtering** (BM25, pruning, LLM-based)
 - **Content Chunking** for large document processing
@@ -86,12 +87,207 @@ python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
 
 ### Claude Desktop Integration
 
-For Windows with WSL, copy the configuration:
-```bash
-cp claude_desktop_config_windows.json %APPDATA%\Claude\claude_desktop_config.json
+#### 🎯 Pure StreamableHTTP Usage (Recommended)
+
+1. **Start Server**:
+   ```bash
+   ./scripts/start_pure_http_server.sh
+   ```
+
+2. **Apply Configuration**:
+   - Copy `configs/claude_desktop_config_pure_http.json` to Claude Desktop's config directory
+   - Or add the following to your existing config:
+   ```json
+   {
+     "mcpServers": {
+       "crawl4ai-pure-http": {
+         "url": "http://127.0.0.1:8000/mcp"
+       }
+     }
+   }
+   ```
+
+3. **Restart Claude Desktop**: Apply settings
+
+4. **Start Using**: crawl4ai tools are now available in chat
+
+#### 🔄 Traditional STDIO Usage
+
+1. Copy the configuration:
+   ```bash
+   cp configs/claude_desktop_config.json ~/.config/claude-desktop/claude_desktop_config.json
+   ```
+
+2. Restart Claude Desktop to enable the crawl4ai tools
+
+#### 📂 Configuration File Locations
+
+**Windows:**
+```
+%APPDATA%\Claude\claude_desktop_config.json
 ```
 
-Then restart Claude Desktop to enable the crawl4ai tools.
+**macOS:**
+```
+~/Library/Application Support/Claude/claude_desktop_config.json
+```
+
+**Linux:**
+```
+~/.config/claude-desktop/claude_desktop_config.json
+```
+
+## 🌐 HTTP API Access
+
+This MCP server supports multiple HTTP protocols, allowing you to choose the optimal implementation for your use case.
+
+### 🎯 Pure StreamableHTTP (Recommended)
+
+**Pure JSON HTTP protocol without Server-Sent Events (SSE)**
+
+#### Server Startup
+```bash
+# Method 1: Using startup script
+./scripts/start_pure_http_server.sh
+
+# Method 2: Direct startup
+python examples/simple_pure_http_server.py --host 127.0.0.1 --port 8000
+
+# Method 3: Background startup
+nohup python examples/simple_pure_http_server.py --port 8000 > server.log 2>&1 &
+```
+
+#### Claude Desktop Configuration
+```json
+{
+  "mcpServers": {
+    "crawl4ai-pure-http": {
+      "url": "http://127.0.0.1:8000/mcp"
+    }
+  }
+}
+```
+
+#### Usage Steps
+1. **Start Server**: `./scripts/start_pure_http_server.sh`
+2. **Apply Configuration**: Use `configs/claude_desktop_config_pure_http.json`
+3. **Restart Claude Desktop**: Apply settings
+
+#### Verification
+```bash
+# Health check
+curl http://127.0.0.1:8000/health
+
+# Complete test
+python examples/pure_http_test.py
+```
+
+### 🔄 Legacy HTTP (SSE Implementation)
+
+**Traditional FastMCP StreamableHTTP protocol (with SSE)**
+
+#### Server Startup
+```bash
+# Method 1: Command line
+python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8001
+
+# Method 2: Environment variables
+export MCP_TRANSPORT=http
+export MCP_HOST=127.0.0.1
+export MCP_PORT=8001
+python -m crawl4ai_mcp.server
+```
+
+#### Claude Desktop Configuration
+```json
+{
+  "mcpServers": {
+    "crawl4ai-legacy-http": {
+      "url": "http://127.0.0.1:8001/mcp"
+    }
+  }
+}
+```
+
+### 📊 Protocol Comparison
+
+| Feature | Pure StreamableHTTP | Legacy HTTP (SSE) | STDIO |
+|---------|---------------------|-------------------|-------|
+| Response Format | Plain JSON | Server-Sent Events | Binary |
+| Configuration Complexity | Low (URL only) | Low (URL only) | High (Process management) |
+| Debug Ease | High (curl compatible) | Medium (SSE parser needed) | Low |
+| Independence | High | High | Low |
+| Performance | High | Medium | High |
+
+### 🚀 HTTP Usage Examples
+
+#### Pure StreamableHTTP
+```bash
+# Initialize
+SESSION_ID=$(curl -s -X POST http://127.0.0.1:8000/mcp/initialize \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}' \
+  -D- | grep -i mcp-session-id | cut -d' ' -f2 | tr -d '\r')
+
+# Execute tool
+curl -X POST http://127.0.0.1:8000/mcp \
+  -H "Content-Type: application/json" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","id":"crawl","method":"tools/call","params":{"name":"crawl_url","arguments":{"url":"https://example.com"}}}'
+```
+
+#### Legacy HTTP
+```bash
+curl -X POST "http://127.0.0.1:8001/tools/crawl_url" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com", "generate_markdown": true}'
+```
+
+### 📚 Detailed Documentation
+
+- **Pure StreamableHTTP**: [PURE_STREAMABLE_HTTP.md](PURE_STREAMABLE_HTTP.md)
+- **HTTP Server Usage**: [HTTP_SERVER_USAGE.md](HTTP_SERVER_USAGE.md)
+- **Legacy HTTP API**: [HTTP_API_GUIDE.md](HTTP_API_GUIDE.md)
+
+### Starting the HTTP Server
+
+**Method 1: Command Line**
+```bash
+python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
+```
+
+**Method 2: Environment Variables**
+```bash
+export MCP_TRANSPORT=http
+export MCP_HOST=127.0.0.1
+export MCP_PORT=8000
+python -m crawl4ai_mcp.server
+```
+
+**Method 3: Docker (if available)**
+```bash
+docker run -p 8000:8000 crawl4ai-mcp --transport http --port 8000
+```
+
+### Basic Endpoint Information
+
+Once running, the HTTP API provides:
+- **Base URL**: `http://127.0.0.1:8000`
+- **OpenAPI Documentation**: `http://127.0.0.1:8000/docs`
+- **Tool Endpoints**: `http://127.0.0.1:8000/tools/{tool_name}`
+- **Resource Endpoints**: `http://127.0.0.1:8000/resources/{resource_uri}`
+
+All MCP tools (crawl_url, intelligent_extract, process_file, etc.) are accessible via HTTP POST requests with JSON payloads matching the tool parameters.
+
+### Quick HTTP Example
+
+```bash
+curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com", "generate_markdown": true}'
+```
+
+For detailed HTTP API documentation, examples, and integration guides, see the [HTTP API Guide](docs/http_api_guide.md).
 
 ## 🛠️ MCP Tools
 
@@ -173,10 +369,10 @@ Robust crawling with multiple fallback strategies for maximum reliability.
 ### `get_supported_file_formats`
 **📋 Format Information**: Get comprehensive list of supported file formats and their capabilities.
 
-### `extract_youtube_transcript` [DEPRECATED]
-**📺 YouTube Processing**: Extract transcripts from YouTube videos with language preferences and translation.
+### `extract_youtube_transcript`
+**📺 YouTube Processing**: Extract transcripts from YouTube videos with language preferences and translation using youtube-transcript-api v1.1.0+.
 
-**⚠️ WARNING: Currently deprecated due to YouTube API specification changes. Use not recommended.**
+**✅ Stable and reliable - No authentication required!**
 
 **Parameters:**
 - `url`: YouTube video URL
@@ -186,17 +382,17 @@ Robust crawling with multiple fallback strategies for maximum reliability.
 - `preserve_formatting`: Preserve original formatting
 - `include_metadata`: Include video metadata
 
-### `batch_extract_youtube_transcripts` [DEPRECATED]
+### `batch_extract_youtube_transcripts`
 **📺 Batch YouTube Processing**: Extract transcripts from multiple YouTube videos in parallel.
 
-**⚠️ WARNING: Currently deprecated due to YouTube API specification changes. Batch processing is particularly unstable.**
+**✅ Enhanced performance with controlled concurrency for stable batch processing.**
 
 **Parameters:**
 - `urls`: List of YouTube video URLs
 - `languages`: Preferred languages list
 - `translate_to`: Target language for translation (optional)
 - `include_timestamps`: Include timestamps in transcript
-- `max_concurrent`: Maximum concurrent requests (1-10)
+- `max_concurrent`: Maximum concurrent requests (1-5, default: 3)
 
 ### `get_youtube_video_info`
 **📋 YouTube Info**: Get available transcript information for a YouTube video without extracting the full transcript.
@@ -387,9 +583,9 @@ The `crawl_url` tool automatically detects file formats and routes to appropriat
 }
 ```
 
-### 📺 YouTube Video Processing Examples [DEPRECATED]
+### 📺 YouTube Video Processing Examples
 
-**⚠️ IMPORTANT: The following YouTube features are currently deprecated due to YouTube API specification changes and are unstable.**
+**✅ Stable youtube-transcript-api v1.1.0+ integration - No setup required!**
 
 #### Basic Transcript Extraction
 ```json
@@ -528,14 +724,14 @@ For detailed troubleshooting, see [`troubleshooting_ja.md`](troubleshooting_ja.m
 - `googlesearch-python>=1.3.0` - Google search functionality
 - `aiohttp>=3.8.0` - Asynchronous HTTP client for metadata extraction
 - `beautifulsoup4>=4.12.0` - HTML parsing for title/snippet extraction
-- `youtube-transcript-api>=1.0.3` - YouTube transcript extraction [DEPRECATED]
+- `youtube-transcript-api>=1.1.0` - Stable YouTube transcript extraction
 - `asyncio` - Asynchronous programming support
 - `typing-extensions` - Extended type hints
 
-**⚠️ YouTube Features Notice:**
-- Due to YouTube API specification changes, transcript extraction may temporarily fail for some videos
-- In such cases, try a different video or retry after some time
-- Video information retrieval typically continues to work normally
+**✅ YouTube Features Status:**
+- YouTube transcript extraction is stable and reliable with v1.1.0+
+- No authentication or API keys required
+- Works out of the box after installation
 
 ## 📄 License
 
