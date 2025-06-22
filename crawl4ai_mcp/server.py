@@ -29,6 +29,7 @@ from .strategies import (
     XPathExtractionStrategy,
     create_extraction_strategy,
 )
+from . import TOOL_SELECTION_GUIDE, WORKFLOW_GUIDE, COMPLEXITY_GUIDE
 from crawl4ai import BrowserConfig, CrawlerRunConfig
 from crawl4ai.deep_crawling import BFSDeepCrawlStrategy, DFSDeepCrawlStrategy, BestFirstCrawlingStrategy
 from crawl4ai.deep_crawling.filters import FilterChain, URLPatternFilter, DomainFilter
@@ -580,10 +581,32 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
 @mcp.tool
 async def crawl_url(request: CrawlRequest) -> CrawlResponse:
     """
-    Crawl a URL and extract content using various methods, with optional deep crawling.
+    Extract clean, structured content from any web page, PDF, or YouTube video.
+    
+    USE WHEN: User provides a single URL and wants the main content extracted.
+    AUTOMATICALLY HANDLES: Web pages, PDFs, Office docs, YouTube videos, file downloads.
+    OUTPUTS: Clean text, markdown, title, media links, structured data.
+    
+    Best for: Article extraction, document processing, content analysis, research.
+    vs deep_crawl_site: Use this for single pages; use deep_crawl_site for multiple pages.
+    vs intelligent_extract: Use this for general content; use intelligent_extract for specific data extraction.
     
     Args:
         request: CrawlRequest containing URL and extraction parameters
+        
+    Example MCP Call:
+        {
+          "request": {
+            "url": "https://example.com",
+            "generate_markdown": true,
+            "timeout": 30
+          }
+        }
+        
+    IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
         
     Returns:
         CrawlResponse with crawled content and metadata
@@ -600,10 +623,19 @@ async def deep_crawl_site(
     include_external: bool = False,
     url_pattern: Optional[str] = None,
     score_threshold: float = 0.0,  # More permissive default
-    extract_media: bool = False
+    extract_media: bool = False,
+    base_timeout: int = 60
 ) -> Dict[str, Any]:
     """
-    Perform deep crawling of a website with specified depth and strategy.
+    Map and extract content from multiple pages of a website systematically.
+    
+    USE WHEN: User wants to analyze entire sections of a website (documentation, blog, product catalog).
+    STRATEGY: Follows links automatically with configurable depth and filtering.
+    OUTPUTS: Site map, content from multiple pages, link relationships, comprehensive overview.
+    
+    Best for: Competitive analysis, documentation extraction, site content auditing, research across multiple pages.
+    vs crawl_url: Use this for multiple pages; use crawl_url for single pages.
+    Limitations: Limited to 5 pages max for stability.
     
     Args:
         url: Starting URL for deep crawling
@@ -614,6 +646,22 @@ async def deep_crawl_site(
         url_pattern: URL pattern filter (e.g., '*docs*', '*blog*')
         score_threshold: Minimum score for URLs to be crawled (0.0 = permissive)
         extract_media: Whether to extract media files (always disabled for performance)
+        base_timeout: Base timeout in seconds (default: 60), adjusted based on page count
+        
+    Example MCP Call:
+        {
+          "url": "https://example.com/docs",
+          "max_depth": 2,
+          "max_pages": 3,
+          "crawl_strategy": "bfs",
+          "url_pattern": "*docs*",
+          "base_timeout": 90
+        }
+        
+    IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
         
     Returns:
         Dictionary with crawled pages information and site map
@@ -643,6 +691,10 @@ async def deep_crawl_site(
             max_pages = 5
         if max_depth > 2:  # Limit depth for stability
             max_depth = 2
+        
+        # Calculate dynamic timeout based on max_pages
+        # Base timeout + additional time per page (15s per additional page after the first)
+        dynamic_timeout = base_timeout + max(0, (max_pages - 1) * 15)
         
         # Use more permissive score threshold for better link following
         effective_score_threshold = min(score_threshold, 0.0)  # Cap at 0.0 for better results
@@ -679,7 +731,7 @@ async def deep_crawl_site(
             exclude_all_images=True,  # Always exclude images for performance
             verbose=False,  # Always disable to prevent MCP connection issues
             log_console=False,  # Always disable to prevent MCP connection issues
-            page_timeout=60000,  # 60 seconds per page for slow sites
+            page_timeout=dynamic_timeout * 1000,  # Convert to milliseconds
         )
         
         # Enhanced browser configuration
@@ -816,6 +868,14 @@ async def deep_crawl_site(
 async def get_llm_config_info() -> Dict[str, Any]:
     """
     Get information about the current LLM configuration.
+    
+    Example MCP Call:
+        {}
+        
+    IMPORTANT: No parameters required for this function.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
     
     Returns:
         Dictionary with LLM configuration details including available providers and models
@@ -1042,7 +1102,17 @@ async def intelligent_extract(
     custom_instructions: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Perform intelligent content extraction with advanced filtering and AI analysis.
+    Extract specific information from web pages using AI-powered analysis.
+    
+    USE WHEN: User wants specific data points (prices, specs, contact info) rather than full content.
+    AI-POWERED: Uses LLM to understand context and extract exactly what you're looking for.
+    OUTPUTS: Targeted structured data, summaries, key points based on extraction goal.
+    
+    Best for: Product information, contact details, specific facts, competitive intelligence.
+    vs crawl_url: Use this for targeted data extraction; use crawl_url for full content.
+    vs extract_entities: Use this for semantic understanding; use extract_entities for pattern-based extraction.
+    
+    Example goals: "product prices and specs", "contact information", "key financial metrics"
     
     Args:
         url: URL to extract content from
@@ -1054,6 +1124,21 @@ async def intelligent_extract(
         llm_provider: LLM provider (auto-detected from config if not specified)
         llm_model: Specific model to use (auto-detected from config if not specified)
         custom_instructions: Custom instructions for extraction
+        
+    Example MCP Call:
+        {
+          "url": "https://example.com/product",
+          "extraction_goal": "product prices and specifications",
+          "content_filter": "bm25",
+          "filter_query": "price specifications features",
+          "use_llm": true,
+          "chunk_content": false
+        }
+        
+    IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
         
     Returns:
         Dictionary with extracted content and metadata
@@ -1224,7 +1309,17 @@ async def extract_entities(
     llm_model: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Extract entities from web content using regex patterns or LLM analysis.
+    Find and extract specific types of data (emails, phones, URLs, dates) from web pages.
+    
+    USE WHEN: User needs to find contact information, dates, links, or other structured data patterns.
+    PATTERN-BASED: Fast regex extraction for emails, phones, URLs, dates, coordinates, prices.
+    OUTPUTS: Categorized lists of found entities with context and deduplication.
+    
+    Best for: Lead generation, contact discovery, data mining, compliance checking.
+    Built-in types: emails, phones, urls, dates, ips, social_media, prices, credit_cards, coordinates.
+    vs intelligent_extract: Use this for pattern-based extraction; use intelligent_extract for AI understanding.
+    
+    Example: Extract all email addresses and phone numbers from a company website.
     
     Args:
         url: URL to extract entities from
@@ -1237,6 +1332,20 @@ async def extract_entities(
         use_llm: If True, use LLM for named entity recognition instead of regex
         llm_provider: LLM provider to use (openai, anthropic, ollama) when use_llm=True
         llm_model: LLM model to use when use_llm=True
+        
+    Example MCP Call:
+        {
+          "url": "https://example.com/contact",
+          "entity_types": ["emails", "phones", "urls"],
+          "include_context": true,
+          "deduplicate": true,
+          "use_llm": false
+        }
+        
+    IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
         
     Returns:
         Dictionary with extracted entities organized by type
@@ -1580,6 +1689,21 @@ async def extract_structured_data(request: StructuredExtractionRequest) -> Crawl
     Args:
         request: StructuredExtractionRequest with URL, schema, and extraction parameters
         
+    Example MCP Call:
+        {
+          "request": {
+            "url": "https://example.com",
+            "schema": {"title": "string", "price": "number"},
+            "extraction_type": "css",
+            "css_selectors": {"title": "h1", "price": ".price"}
+          }
+        }
+        
+    IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
+        
     Returns:
         CrawlResponse with extracted structured data
     """
@@ -1587,25 +1711,46 @@ async def extract_structured_data(request: StructuredExtractionRequest) -> Crawl
 
 
 @mcp.tool
-async def batch_crawl(urls: List[str], config: Optional[Dict[str, Any]] = None) -> List[CrawlResponse]:
+async def batch_crawl(urls: List[str], config: Optional[Dict[str, Any]] = None, base_timeout: int = 30) -> List[CrawlResponse]:
     """
     Crawl multiple URLs in batch.
     
     Args:
         urls: List of URLs to crawl
         config: Optional configuration parameters
+        base_timeout: Base timeout in seconds (default: 30), adjusted based on URL count
+        
+    Example MCP Call:
+        {
+          "urls": [
+            "https://example.com/page1",
+            "https://example.com/page2",
+            "https://example.com/page3"
+          ],
+          "config": {"generate_markdown": true},
+          "base_timeout": 45
+        }
+        
+    IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
         
     Returns:
         List of CrawlResponse objects for each URL
     """
     results = []
     
+    # Calculate dynamic timeout based on URL count
+    # Base timeout + additional time per URL (5s per additional URL after the first)
+    dynamic_timeout = base_timeout + max(0, (len(urls) - 1) * 5)
+    
     try:
         with suppress_stdout_stderr():
             async with AsyncWebCrawler(verbose=False) as crawler:
                 for url in urls:
                     try:
-                        default_config = {"verbose": False, "log_console": False}
+                        default_config = {"verbose": False, "log_console": False, "page_timeout": dynamic_timeout * 1000}
                         crawl_config = CrawlerRunConfig(**{**default_config, **(config or {})})
                         result = await crawler.arun(url=url, config=crawl_config)
                         
@@ -1652,6 +1797,20 @@ async def crawl_url_with_fallback(request: CrawlRequest) -> CrawlResponse:
     
     Args:
         request: CrawlRequest containing URL and extraction parameters
+        
+    Example MCP Call:
+        {
+          "request": {
+            "url": "https://example.com",
+            "generate_markdown": true,
+            "timeout": 60
+          }
+        }
+        
+    IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
         
     Returns:
         CrawlResponse with crawled content and metadata
@@ -1743,10 +1902,34 @@ async def crawl_url_with_fallback(request: CrawlRequest) -> CrawlResponse:
 @mcp.tool
 async def process_file(request: FileProcessRequest) -> FileProcessResponse:
     """
-    Process various file formats (PDF, Office, ZIP) and convert to Markdown using MarkItDown.
+    Convert documents (PDF, Word, Excel, PowerPoint, ZIP) into readable markdown text.
+    
+    USE WHEN: User provides a direct file URL (.pdf, .docx, .xlsx, .pptx, .zip).
+    AUTO-DETECTS: File format and applies appropriate conversion method.
+    OUTPUTS: Clean markdown text, metadata, file structure (for archives).
+    
+    Best for: Document analysis, report processing, archive extraction, research papers.
+    Formats: PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), ZIP archives, ePub.
+    vs crawl_url: Use this for direct file links; crawl_url auto-detects and redirects here.
+    
+    Note: crawl_url automatically uses this tool when detecting file URLs.
     
     Args:
         request: FileProcessRequest containing file URL and processing parameters
+        
+    Example MCP Call:
+        {
+          "request": {
+            "url": "https://example.com/document.pdf",
+            "include_metadata": true,
+            "max_size_mb": 50
+          }
+        }
+        
+    IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
         
     Returns:
         FileProcessResponse with processed content and metadata
@@ -1793,6 +1976,14 @@ async def process_file(request: FileProcessRequest) -> FileProcessResponse:
 async def get_supported_file_formats() -> Dict[str, Any]:
     """
     Get list of supported file formats for file processing.
+    
+    Example MCP Call:
+        {}
+        
+    IMPORTANT: No parameters required for this function.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
     
     Returns:
         Dictionary with supported file formats and descriptions
@@ -1848,7 +2039,17 @@ async def get_supported_file_formats() -> Dict[str, Any]:
 @mcp.tool
 async def extract_youtube_transcript(request: Dict[str, Any]) -> YouTubeTranscriptResponse:
     """
-    Extract transcript from a YouTube video using youtube-transcript-api.
+    Convert YouTube videos into searchable text transcripts with timestamps.
+    
+    USE WHEN: User provides YouTube URL and wants video content as text.
+    NO AUTH REQUIRED: Works instantly with public videos that have captions.
+    OUTPUTS: Full transcript, clean text, timestamps, language info, video metadata.
+    
+    Best for: Video content analysis, research, accessibility, content summarization.
+    Languages: Auto-detects available languages, supports translation.
+    vs crawl_url: Use this for YouTube-specific features; crawl_url auto-detects and redirects here.
+    
+    Note: crawl_url automatically uses this tool when detecting YouTube URLs.
     
     This function uses the youtube-transcript-api library for simple and reliable transcript extraction
     without complex authentication requirements.
@@ -1867,6 +2068,21 @@ async def extract_youtube_transcript(request: Dict[str, Any]) -> YouTubeTranscri
     
     Args:
         request: YouTubeTranscriptRequest containing URL and extraction parameters
+        
+    Example MCP Call:
+        {
+          "request": {
+            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "languages": ["en", "ja"],
+            "include_timestamps": true,
+            "format": "text"
+          }
+        }
+        
+    IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
         
     Returns:
         YouTubeTranscriptResponse with transcript data or error information
@@ -1956,6 +2172,24 @@ async def batch_extract_youtube_transcripts(request: Dict[str, Any]) -> YouTubeB
     
     Args:
         request: YouTubeBatchRequest containing URLs and extraction parameters
+        
+    Example MCP Call:
+        {
+          "request": {
+            "urls": [
+              "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+              "https://www.youtube.com/watch?v=oHg5SJYRHA0"
+            ],
+            "languages": ["en", "ja"],
+            "max_concurrent": 3,
+            "include_timestamps": true
+          }
+        }
+        
+    IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
         
     Returns:
         YouTubeBatchResponse with individual results and batch statistics
@@ -2079,6 +2313,16 @@ async def get_youtube_video_info(video_url: str) -> Dict[str, Any]:
     Args:
         video_url: YouTube video URL
         
+    Example MCP Call:
+        {
+          "video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        }
+        
+    IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
+        
     Returns:
         Dictionary with video information and transcript details
     """
@@ -2126,6 +2370,14 @@ async def get_youtube_api_setup_guide() -> Dict[str, Any]:
     
     Provides information about the current youtube-transcript-api setup,
     which requires no authentication or API keys for basic transcript extraction.
+    
+    Example MCP Call:
+        {}
+        
+    IMPORTANT: No parameters required for this function.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
     
     Returns:
         Dictionary with setup information, capabilities, and usage tips
@@ -2207,12 +2459,40 @@ async def get_youtube_api_setup_guide() -> Dict[str, Any]:
 
 
 @mcp.tool
-async def search_google(request: GoogleSearchRequest) -> GoogleSearchResponse:
+async def search_google(request: GoogleSearchRequest, include_current_date: bool = True) -> GoogleSearchResponse:
     """
-    Perform Google search and return structured results.
+    Perform Google search with genre filtering and extract structured results with metadata.
+    
+    USE WHEN: User needs web search results with titles, snippets, and URLs.
+    ENHANCED: 31 search genres (academic, news, technical) for targeted results.
+    OUTPUTS: URLs, titles, snippets, metadata, domain analysis.
+    
+    Best for: Research, fact-checking, finding specific content types, market research.
+    vs search_and_crawl: Use this for search results only; use search_and_crawl to also get full content.
+    Genres: academic, news, programming, shopping, pdf, documentation, etc.
+    
+    Example: Find academic papers about AI with search_genre="academic".
     
     Args:
         request: GoogleSearchRequest with search query and parameters
+        include_current_date: Whether to append current date to search query for latest results
+        
+    Example MCP Call:
+        {
+          "request": {
+            "query": "AI news",
+            "num_results": 10,
+            "search_genre": "news",
+            "language": "en",
+            "region": "us"
+          },
+          "include_current_date": true
+        }
+        
+    IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
         
     Returns:
         GoogleSearchResponse with search results and metadata
@@ -2221,9 +2501,16 @@ async def search_google(request: GoogleSearchRequest) -> GoogleSearchResponse:
         # Validate max_concurrent for individual searches (limit to reasonable range)
         num_results = max(1, min(100, request.num_results))
         
+        # Enhance query with current date for latest results
+        enhanced_query = request.query
+        if include_current_date:
+            from datetime import datetime
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            enhanced_query = f"{request.query} {current_date}"
+        
         # Perform search
         result = await google_search_processor.search_google(
-            query=request.query,
+            query=enhanced_query,
             num_results=num_results,
             language=request.language,
             region=request.region,
@@ -2255,12 +2542,30 @@ async def search_google(request: GoogleSearchRequest) -> GoogleSearchResponse:
 
 
 @mcp.tool
-async def batch_search_google(request: GoogleBatchSearchRequest) -> GoogleBatchSearchResponse:
+async def batch_search_google(request: GoogleBatchSearchRequest, include_current_date: bool = True) -> GoogleBatchSearchResponse:
     """
     Perform multiple Google searches in batch with analysis.
     
     Args:
         request: GoogleBatchSearchRequest with multiple queries and parameters
+        include_current_date: Whether to append current date to search queries for latest results
+        
+    Example MCP Call:
+        {
+          "request": {
+            "queries": ["AI news", "machine learning", "deep learning"],
+            "num_results_per_query": 5,
+            "max_concurrent": 2,
+            "search_genre": "academic",
+            "language": "en"
+          },
+          "include_current_date": true
+        }
+        
+    IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
         
     Returns:
         GoogleBatchSearchResponse with batch results and analysis
@@ -2270,9 +2575,16 @@ async def batch_search_google(request: GoogleBatchSearchRequest) -> GoogleBatchS
         max_concurrent = max(1, min(5, request.max_concurrent))  # Be respectful to Google
         num_results = max(1, min(100, request.num_results_per_query))
         
+        # Enhance queries with current date for latest results
+        enhanced_queries = request.queries
+        if include_current_date:
+            from datetime import datetime
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            enhanced_queries = [f"{query} {current_date}" for query in request.queries]
+        
         # Perform batch search
         batch_results = await google_search_processor.batch_search(
-            queries=request.queries,
+            queries=enhanced_queries,
             num_results_per_query=num_results,
             max_concurrent=max_concurrent,
             language=request.language,
@@ -2333,10 +2645,22 @@ async def search_and_crawl(
     crawl_top_results: int = 3,
     extract_media: bool = False,
     generate_markdown: bool = True,
-    search_genre: Optional[str] = None
+    search_genre: Optional[str] = None,
+    base_timeout: int = 30,
+    include_current_date: bool = True
 ) -> Dict[str, Any]:
     """
-    Perform Google search and crawl the top results for comprehensive content analysis.
+    Search Google AND automatically extract full content from top results.
+    
+    USE WHEN: User wants both search results AND the actual content from those pages.
+    COMBINED POWER: Google search + content extraction in one step.
+    OUTPUTS: Search metadata + full page content + analysis summary.
+    
+    Best for: Comprehensive research, competitive analysis, content aggregation, market research.
+    vs search_google: Use this to get full content; use search_google for just search results.
+    Efficiency: Processes multiple pages automatically with success rate reporting.
+    
+    Perfect for: "Find and analyze competitor pricing pages" or "Research latest AI developments with full articles".
     
     Args:
         search_query: Google search query
@@ -2345,6 +2669,24 @@ async def search_and_crawl(
         extract_media: Whether to extract media from crawled pages
         generate_markdown: Whether to generate markdown content
         search_genre: Optional search genre for content filtering
+        base_timeout: Base timeout in seconds (default: 30), adjusted based on crawl count
+        include_current_date: Whether to append current date to search query for latest results
+        
+    Example MCP Call:
+        {
+          "search_query": "AI latest developments",
+          "num_search_results": 5,
+          "crawl_top_results": 3,
+          "generate_markdown": true,
+          "search_genre": "news",
+          "base_timeout": 60,
+          "include_current_date": true
+        }
+        
+    IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
         
     Returns:
         Dictionary with search results and crawled content
@@ -2354,9 +2696,20 @@ async def search_and_crawl(
         num_search_results = max(1, min(20, num_search_results))
         crawl_top_results = max(1, min(10, min(crawl_top_results, num_search_results)))
         
+        # Calculate dynamic timeout based on crawl count
+        # Base timeout + additional time per URL (10s per additional URL after the first)
+        dynamic_timeout = base_timeout + max(0, (crawl_top_results - 1) * 10)
+        
+        # Enhance query with current date for latest results
+        enhanced_query = search_query
+        if include_current_date:
+            from datetime import datetime
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            enhanced_query = f"{search_query} {current_date}"
+        
         # Step 1: Perform Google search
         search_result = await google_search_processor.search_google(
-            query=search_query,
+            query=enhanced_query,
             num_results=num_search_results,
             search_genre=search_genre
         )
@@ -2386,7 +2739,7 @@ async def search_and_crawl(
                     url=url,
                     extract_media=extract_media,
                     generate_markdown=generate_markdown,
-                    timeout=30
+                    timeout=dynamic_timeout
                 )
                 
                 crawl_result = await _internal_crawl_url(crawl_request)
@@ -2467,6 +2820,14 @@ async def get_search_genres() -> Dict[str, Any]:
     """
     Get list of available search genres for content filtering.
     
+    Example MCP Call:
+        {}
+        
+    IMPORTANT: No parameters required for this function.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
+    
     Returns:
         Dictionary with available genres and their descriptions
     """
@@ -2504,6 +2865,49 @@ async def get_search_genres() -> Dict[str, Any]:
             "success": False,
             "error": f"Failed to get search genres: {str(e)}"
         }
+
+
+@mcp.tool
+async def get_tool_selection_guide() -> Dict[str, Any]:
+    """
+    Get comprehensive tool selection guide for AI agents.
+    
+    USE WHEN: AI agent needs guidance on which tool to use for specific tasks.
+    OUTPUTS: Complete mapping of use cases to appropriate tools, workflows, and complexity guides.
+    
+    Best for: Tool selection, workflow planning, understanding capabilities.
+    
+    Example MCP Call:
+        {}
+        
+    IMPORTANT: No parameters required for this function.
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
+    
+    Returns:
+        Dictionary with tool selection guide, workflows, and complexity mapping
+    """
+    return {
+        "success": True,
+        "tool_selection_guide": TOOL_SELECTION_GUIDE,
+        "workflow_guide": WORKFLOW_GUIDE,
+        "complexity_guide": COMPLEXITY_GUIDE,
+        "total_tools": 18,
+        "guide_categories": [
+            "single_content_extraction",
+            "multi_page_analysis", 
+            "targeted_data_extraction",
+            "pattern_based_extraction",
+            "structured_data_extraction",
+            "document_processing",
+            "video_content_processing",
+            "search_operations",
+            "batch_operations",
+            "configuration_metadata"
+        ],
+        "usage_tip": "Use TOOL_SELECTION_GUIDE keys to match your task description with the appropriate tool"
+    }
 
 
 @mcp.resource("uri://crawl4ai/config")
