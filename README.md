@@ -85,6 +85,78 @@ python -m crawl4ai_mcp.server
 python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
 ```
 
+### 📋 MCP Command Registration (Claude Code CLI)
+
+You can register this MCP server with Claude Code CLI using the following method:
+
+#### Using .mcp.json Configuration (Recommended)
+1. Create or update `.mcp.json` in your project directory:
+```json
+{
+  "mcpServers": {
+    "crawl4ai": {
+      "command": "/home/user/prj/crawl/venv/bin/python",
+      "args": ["-m", "crawl4ai_mcp.server"],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "DEBUG"
+      }
+    }
+  }
+}
+```
+
+2. Run `claude mcp` or start Claude Code from the project directory
+
+#### Alternative: Command Line Registration
+```bash
+# Register the MCP server with claude command
+claude mcp add crawl4ai "/path/to/your/venv/bin/python -m crawl4ai_mcp.server" --cwd /path/to/your/crawl4ai-mcp-project
+
+# With environment variables
+claude mcp add crawl4ai "/path/to/your/venv/bin/python -m crawl4ai_mcp.server" \
+  --cwd /path/to/your/crawl4ai-mcp-project \
+  -e FASTMCP_LOG_LEVEL=DEBUG
+
+# With project scope (shared with team)
+claude mcp add crawl4ai "/path/to/your/venv/bin/python -m crawl4ai_mcp.server" \
+  --cwd /path/to/your/crawl4ai-mcp-project \
+  --scope project
+```
+
+#### HTTP Transport (For Remote Access)
+```bash
+# First start the HTTP server
+python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
+
+# Then register the HTTP endpoint
+claude mcp add crawl4ai-http --transport http --url http://127.0.0.1:8000/mcp
+
+# Or with Pure StreamableHTTP (recommended)
+./scripts/start_pure_http_server.sh
+claude mcp add crawl4ai-pure-http --transport http --url http://127.0.0.1:8000/mcp
+```
+
+#### Verification
+```bash
+# List registered MCP servers
+claude mcp list
+
+# Test the connection
+claude mcp test crawl4ai
+
+# Remove if needed
+claude mcp remove crawl4ai
+```
+
+#### Setting API Keys (Optional for LLM Features)
+```bash
+# Add with environment variables for LLM functionality
+claude mcp add crawl4ai "python -m crawl4ai_mcp.server" \
+  --cwd /path/to/your/crawl4ai-mcp-project \
+  -e OPENAI_API_KEY=your_openai_key \
+  -e ANTHROPIC_API_KEY=your_anthropic_key
+```
+
 ### Claude Desktop Integration
 
 #### 🎯 Pure StreamableHTTP Usage (Recommended)

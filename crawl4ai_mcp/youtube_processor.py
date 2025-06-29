@@ -7,6 +7,7 @@ Simple and reliable transcript extraction without complex authentication
 import asyncio
 import re
 import logging
+import os
 from typing import Dict, List, Optional, Any, Union
 from urllib.parse import urlparse, parse_qs
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
@@ -431,3 +432,177 @@ class YouTubeProcessor:
                 processed_results.append(result)
         
         return processed_results
+    
+    async def summarize_transcript(
+        self,
+        transcript_text: str,
+        summary_length: str = "medium",
+        include_timestamps: bool = True,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Summarize a long transcript using LLM
+        
+        Args:
+            transcript_text: The full transcript text to summarize
+            summary_length: "short", "medium", or "long" summary
+            include_timestamps: Whether to preserve key timestamps
+            llm_provider: LLM provider to use
+            llm_model: Specific model to use
+            
+        Returns:
+            Dictionary with summary and metadata
+        """
+        try:
+            # Import config here to avoid circular imports
+            try:
+                from .config import get_llm_config
+            except ImportError:
+                from config import get_llm_config
+            
+            # Define summary lengths
+            length_configs = {
+                "short": {
+                    "target_length": "1-2 paragraphs",
+                    "detail_level": "key points only"
+                },
+                "medium": {
+                    "target_length": "3-5 paragraphs", 
+                    "detail_level": "main topics with key details"
+                },
+                "long": {
+                    "target_length": "6-10 paragraphs",
+                    "detail_level": "comprehensive overview with subtopics"
+                }
+            }
+            
+            config = length_configs.get(summary_length, length_configs["medium"])
+            
+            # Prepare instruction for LLM
+            timestamp_instruction = (
+                "Include key timestamps in your summary to help readers navigate to important sections."
+                if include_timestamps else
+                "Do not include timestamps in your summary."
+            )
+            
+            instruction = f"""
+            Summarize this YouTube video transcript in {config['target_length']}.
+            Focus on {config['detail_level']}.
+            {timestamp_instruction}
+            
+            Structure your summary with:
+            1. Brief overview of the video content
+            2. Main topics or sections discussed
+            3. Key insights or conclusions
+            4. Important details or examples mentioned
+            
+            Make the summary engaging and informative, preserving the tone and style of the original content.
+            """
+            
+            # Get LLM configuration
+            llm_config = get_llm_config(llm_provider, llm_model)
+            
+            # Use direct LLM API call for summarization
+            import json
+            
+            # Create the prompt for summarization
+            prompt = f"""
+            {instruction}
+            
+            Please provide a JSON response with the following structure:
+            {{
+                "summary": "The summarized content",
+                "key_topics": ["List", "of", "main", "topics"],
+                "key_timestamps": ["Important timestamps if preserved"],
+                "content_type": "Type of video content",
+                "duration_estimate": "Estimated reading time"
+            }}
+            
+            Transcript to summarize:
+            {transcript_text}
+            """
+            
+            # Use the LLM config to make direct API call
+            if hasattr(llm_config, 'provider'):
+                provider_info = llm_config.provider.split('/')
+                provider = provider_info[0] if provider_info else 'openai'
+                model = provider_info[1] if len(provider_info) > 1 else 'gpt-4o'
+                
+                if provider == 'openai':
+                    import openai
+                    
+                    # Get API key from config
+                    api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
+                    
+                    if not api_key:
+                        raise ValueError("OpenAI API key not found")
+                    
+                    client = openai.AsyncOpenAI(api_key=api_key)
+                    
+                    response = await client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": "You are a helpful assistant that summarizes YouTube video transcripts."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.7,
+                        max_tokens=2000
+                    )
+                    
+                    extracted_content = response.choices[0].message.content
+                else:
+                    raise ValueError(f"Provider {provider} not supported in direct mode")
+            else:
+                raise ValueError("Invalid LLM config format")
+            
+            if extracted_content:
+                try:
+                    import json
+                    # Clean up the extracted content if it's wrapped in markdown
+                    content_to_parse = extracted_content
+                    if content_to_parse.startswith('```json'):
+                        content_to_parse = content_to_parse.replace('```json', '').replace('```', '').strip()
+                    
+                    summary_data = json.loads(content_to_parse) if isinstance(content_to_parse, str) else content_to_parse
+                    
+                    return {
+                        "success": True,
+                        "summary": summary_data.get("summary", "Summary generation failed"),
+                        "key_topics": summary_data.get("key_topics", []),
+                        "key_timestamps": summary_data.get("key_timestamps", []) if include_timestamps else [],
+                        "content_type": summary_data.get("content_type", "Unknown"),
+                        "summary_length": summary_length,
+                        "original_length": len(transcript_text),
+                        "compressed_ratio": len(summary_data.get("summary", "")) / len(transcript_text) if transcript_text else 0,
+                        "llm_provider": llm_config.get("provider") if isinstance(llm_config, dict) else "unknown",
+                        "llm_model": llm_config.get("model") if isinstance(llm_config, dict) else "unknown"
+                    }
+                except (json.JSONDecodeError, AttributeError) as e:
+                    # Fallback: treat as plain text summary
+                    return {
+                        "success": True,
+                        "summary": str(extracted_content),
+                        "key_topics": [],
+                        "key_timestamps": [],
+                        "content_type": "Unknown",
+                        "summary_length": summary_length,
+                        "original_length": len(transcript_text),
+                        "compressed_ratio": len(str(extracted_content)) / len(transcript_text) if transcript_text else 0,
+                        "llm_provider": llm_config.get("provider") if isinstance(llm_config, dict) else "unknown",
+                        "llm_model": llm_config.get("model") if isinstance(llm_config, dict) else "unknown",
+                        "fallback_mode": True
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": "LLM extraction returned empty result",
+                    "summary_length": summary_length
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Summarization failed: {str(e)}",
+                "summary_length": summary_length
+            }

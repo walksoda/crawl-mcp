@@ -75,6 +75,7 @@ browser-profiles/
 # MCP specific
 mcp-logs/
 *.mcp.log
+.mcp.json
 
 # API keys and secrets
 secrets/

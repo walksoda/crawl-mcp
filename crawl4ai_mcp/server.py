@@ -2296,26 +2296,44 @@ async def batch_extract_youtube_transcripts(request: Dict[str, Any]) -> YouTubeB
 
 
 @mcp.tool
-async def get_youtube_video_info(video_url: str) -> Dict[str, Any]:
+async def get_youtube_video_info(
+    video_url: str,
+    summarize_transcript: bool = False,
+    max_tokens: int = 25000,
+    llm_provider: Optional[str] = None,
+    llm_model: Optional[str] = None,
+    summary_length: str = "medium",
+    include_timestamps: bool = True
+) -> Dict[str, Any]:
     """
-    Get YouTube video information using youtube-transcript-api.
+    Get YouTube video information using youtube-transcript-api with optional LLM summarization.
     
     Retrieves basic video information and transcript availability
-    without requiring authentication. This provides transcript language
-    availability and basic video details.
+    without requiring authentication. For long transcripts, can automatically
+    summarize content using LLM to stay within token limits.
     
     Features:
     - youtube-transcript-api integration
     - Transcript availability and language information
     - No authentication required
-    - Simple and reliable access to public video data
+    - LLM-powered summarization for long transcripts
+    - Configurable summary length and timestamp preservation
     
     Args:
         video_url: YouTube video URL
+        summarize_transcript: Whether to summarize long transcripts using LLM (default: False)
+        max_tokens: Maximum tokens before triggering summarization (default: 25000)
+        llm_provider: LLM provider for summarization (auto-detected if not specified)
+        llm_model: Specific model to use (auto-detected if not specified)
+        summary_length: Summary length - "short", "medium", "long" (default: "medium")
+        include_timestamps: Whether to preserve key timestamps in summary (default: True)
         
     Example MCP Call:
         {
-          "video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+          "video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          "summarize_transcript": true,
+          "max_tokens": 20000,
+          "summary_length": "medium"
         }
         
     IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
@@ -2324,7 +2342,7 @@ async def get_youtube_video_info(video_url: str) -> Dict[str, Any]:
     can cause temporary failures, but retry often succeeds.
         
     Returns:
-        Dictionary with video information and transcript details
+        Dictionary with video information and transcript details (summarized if requested)
     """
     try:
         if not youtube_processor.is_youtube_url(video_url):
@@ -2347,10 +2365,58 @@ async def get_youtube_video_info(video_url: str) -> Dict[str, Any]:
         video_info['url'] = video_url
         video_info['success'] = not video_info.get('error')
         
+        # If summarization is requested and video has transcripts, get and process transcript
+        if summarize_transcript and video_info['success'] and video_info.get('has_transcripts'):
+            try:
+                # Get the full transcript
+                transcript_result = await youtube_processor.process_youtube_url(
+                    video_url, 
+                    languages=['ja', 'en'], 
+                    include_timestamps=include_timestamps,
+                    format='text'
+                )
+                
+                if transcript_result.get('success') and transcript_result.get('transcript'):
+                    transcript_text = transcript_result['transcript']
+                    
+                    # Check if transcript exceeds token limit (rough estimate: 1 token ≈ 4 chars)
+                    estimated_tokens = len(transcript_text) // 4
+                    
+                    if estimated_tokens > max_tokens:
+                        # Summarize using LLM
+                        summary_result = await youtube_processor.summarize_transcript(
+                            transcript_text,
+                            summary_length=summary_length,
+                            include_timestamps=include_timestamps,
+                            llm_provider=llm_provider,
+                            llm_model=llm_model
+                        )
+                        
+                        if summary_result.get('success'):
+                            video_info['transcript_summary'] = summary_result['summary']
+                            video_info['original_length'] = estimated_tokens
+                            video_info['summary_length'] = len(summary_result['summary']) // 4
+                            video_info['summarized'] = True
+                        else:
+                            video_info['transcript_error'] = f"Summarization failed: {summary_result.get('error', 'Unknown error')}"
+                    else:
+                        # Transcript is within limits, include as-is
+                        video_info['transcript'] = transcript_text
+                        video_info['transcript_length'] = estimated_tokens
+                        video_info['summarized'] = False
+                else:
+                    video_info['transcript_error'] = f"Failed to extract transcript: {transcript_result.get('error', 'Unknown error')}"
+                    
+            except Exception as transcript_error:
+                video_info['transcript_error'] = f"Transcript processing failed: {str(transcript_error)}"
+        
         # Add processing method information
         if video_info['success']:
             video_info['api_method'] = 'youtube_transcript_api'
             video_info['data_source'] = 'youtube_transcript_api_v1.1.0+'
+            if summarize_transcript:
+                video_info['summarization_requested'] = True
+                video_info['max_tokens_limit'] = max_tokens
         
         return video_info
         

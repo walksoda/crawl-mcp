@@ -2,34 +2,39 @@
 
 crawl4aiライブラリの機能をModel Context Protocol (MCP)仕様に準拠してラップしたサーバーです。fastmcpフレームワークを使用して実装されています。
 
-## 主な機能
+## 🚀 主な機能
 
-- JavaScriptサポート付きWebクローリング
-- 複数の抽出戦略（CSSセレクター、XPath、LLMベース）
-- カスタムスキーマによる構造化データ抽出
-- コンテンツフィルタリング付きMarkdown生成
-- **📄 ファイル処理機能（MarkItDown統合）**
-  - PDF、Microsoft Office、ZIP等の各種ファイル形式サポート
-  - 自動ファイル形式検出と最適な変換処理
-- **📺 YouTube トランスクリプト抽出（youtube-transcript-api v1.1.0+）**
-  - 認証不要のシンプルで安定した字幕抽出
+### コア機能
+- **高度なWebクローリング** (JavaScript実行サポート)
+- **深度クローリング** (設定可能な深度と複数戦略: BFS、DFS、Best-First)
+- **AI搭載コンテンツ抽出** (LLMベース分析)
+- **📄 ファイル処理機能** (Microsoft MarkItDown統合)
+  - PDF、Office文書、ZIPアーカイブ等
+  - 自動ファイル形式検出と変換
+  - アーカイブ内容の一括処理
+- **📺 YouTube トランスクリプト抽出** (youtube-transcript-api v1.1.0+)
+  - 認証不要 - すぐに使える
+  - 安定した信頼性の高いトランスクリプト抽出
   - 自動生成・手動字幕の両方に対応
-  - 多言語サポートと優先言語設定
-  - タイムスタンプ付きセグメント情報
-- **🔍 Google検索統合機能**
-  - 31種類の検索ジャンル指定（学術、プログラミング、ニュース等）
+  - 優先設定付き多言語サポート
+  - タイムスタンプ付きセグメント情報とクリーンテキスト出力
+  - 複数動画のバッチ処理
+- **エンティティ抽出** (9つの内蔵パターン: メール、電話、URL、日付等)
+- **インテリジェントコンテンツフィルタリング** (BM25、プルーニング、LLMベース)
+- **コンテンツ分割** (大きなドキュメント処理用)
+- **スクリーンショット撮影** とメディア抽出
+
+### 高度な機能
+- **🔍 Google検索統合** (ジャンルベースフィルタリングとメタデータ抽出)
+  - 31種類の検索ジャンル（学術、プログラミング、ニュース等）
   - 検索結果からのタイトル・スニペット自動抽出
-  - セーフサーチ原則有効化でセキュリティ確保
-  - バッチ検索と結果分析機能
-  - 検索+クローリング統合処理
-- **📺 YouTube動画バッチ処理機能**
-  - 複数動画の一括トランスクリプト抽出
-  - 同時処理数制御による効率的な処理
-  - 詳細なエラーハンドリングと結果レポート
-  - 翻訳機能（利用可能な場合）
-- スクリーンショット撮影
-- メディア抽出（画像、音声、動画）
-- バッチクローリング機能
+  - セキュリティのためセーフサーチをデフォルト有効
+  - 結果分析付きバッチ検索機能
+- **複数抽出戦略**: CSSセレクター、XPath、正規表現パターン、LLMベース
+- **ブラウザ自動化**: カスタムユーザーエージェント、ヘッダー、クッキー、認証
+- **キャッシュシステム** (パフォーマンス最適化用複数モード)
+- **カスタムJavaScript実行** (動的コンテンツとのインタラクション)
+- **構造化データエクスポート** (JSON、Markdown、HTML形式)
 
 ## セットアップ
 
@@ -60,19 +65,142 @@ venv\Scripts\activate.bat  # Windows
 pip install -r requirements.txt
 ```
 
-## 使用方法
+## 🖥️ 使用方法
 
 ### サーバーの起動
 
+**STDIOトランスポート（デフォルト）:**
 ```bash
-# STDIOトランスポート（デフォルト）
 python -m crawl4ai_mcp.server
+```
 
-# HTTPトランスポート
+**HTTPトランスポート:**
+```bash
+python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
+```
+
+### 📋 MCPコマンド登録 (Claude Code CLI)
+
+Claude Code CLIでこのMCPサーバーを登録する方法：
+
+#### .mcp.json設定を使用（推奨）
+1. プロジェクトディレクトリに`.mcp.json`を作成または更新：
+```json
+{
+  "mcpServers": {
+    "crawl4ai": {
+      "command": "/home/user/prj/crawl/venv/bin/python",
+      "args": ["-m", "crawl4ai_mcp.server"],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "DEBUG"
+      }
+    }
+  }
+}
+```
+
+2. プロジェクトディレクトリから`claude mcp`を実行するか、Claude Codeを起動
+
+#### 代替手段：コマンドライン登録
+```bash
+# MCPサーバーをclaudeコマンドで登録
+claude mcp add crawl4ai "/path/to/your/venv/bin/python -m crawl4ai_mcp.server" --cwd /path/to/your/crawl4ai-mcp-project
+
+# 環境変数付きで登録
+claude mcp add crawl4ai "/path/to/your/venv/bin/python -m crawl4ai_mcp.server" \
+  --cwd /path/to/your/crawl4ai-mcp-project \
+  -e FASTMCP_LOG_LEVEL=DEBUG
+
+# プロジェクトスコープで登録（チーム共有）
+claude mcp add crawl4ai "/path/to/your/venv/bin/python -m crawl4ai_mcp.server" \
+  --cwd /path/to/your/crawl4ai-mcp-project \
+  --scope project
+```
+
+#### HTTPトランスポート（リモートアクセス用）
+```bash
+# まずHTTPサーバーを起動
 python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
 
-# SSEトランスポート
-python -m crawl4ai_mcp.server --transport sse --host 127.0.0.1 --port 8001
+# HTTPエンドポイントを登録
+claude mcp add crawl4ai-http --transport http --url http://127.0.0.1:8000/mcp
+
+# Pure StreamableHTTP使用（推奨）
+./scripts/start_pure_http_server.sh
+claude mcp add crawl4ai-pure-http --transport http --url http://127.0.0.1:8000/mcp
+```
+
+#### 確認
+```bash
+# 登録済みMCPサーバー一覧
+claude mcp list
+
+# 接続テスト
+claude mcp test crawl4ai
+
+# 必要に応じて削除
+claude mcp remove crawl4ai
+```
+
+#### APIキー設定（LLM機能用オプション）
+```bash
+# LLM機能用の環境変数付きで追加
+claude mcp add crawl4ai python -m crawl4ai_mcp.server \
+  --cwd /path/to/your/crawl4ai-mcp-project \
+  -e OPENAI_API_KEY=your_openai_key \
+  -e ANTHROPIC_API_KEY=your_anthropic_key
+```
+
+### Claude Desktop統合
+
+#### 🎯 Pure StreamableHTTP使用（推奨）
+
+1. **サーバー起動**:
+   ```bash
+   ./scripts/start_pure_http_server.sh
+   ```
+
+2. **設定適用**:
+   - `configs/claude_desktop_config_pure_http.json`をClaude Desktopの設定ディレクトリにコピー
+   - または既存の設定に以下を追加:
+   ```json
+   {
+     "mcpServers": {
+       "crawl4ai-pure-http": {
+         "url": "http://127.0.0.1:8000/mcp"
+       }
+     }
+   }
+   ```
+
+3. **Claude Desktop再起動**: 設定を適用
+
+4. **使用開始**: チャットでcrawl4aiツールが利用可能になります
+
+#### 🔄 従来のSTDIO使用
+
+1. 設定をコピー:
+   ```bash
+   cp configs/claude_desktop_config.json ~/.config/claude-desktop/claude_desktop_config.json
+   ```
+
+2. Claude Desktopを再起動してcrawl4aiツールを有効化
+
+#### 📂 設定ファイルの場所
+
+**Windows:**
+```
+%APPDATA%\Claude\claude_desktop_config.json
+```
+
+**macOS:**
+```
+~/Library/Application Support/Claude/claude_desktop_config.json
+```
+
+**Linux:**
+```
+~/.config/claude-desktop/claude_desktop_config.json
 ```
 
 ## 🌐 HTTP API アクセス
@@ -187,54 +315,47 @@ curl -X POST "http://127.0.0.1:8001/tools/crawl_url" \
 - **HTTP サーバー使用方法**: [HTTP_SERVER_USAGE.md](HTTP_SERVER_USAGE.md)
 - **Legacy HTTP API**: [HTTP_API_GUIDE.md](HTTP_API_GUIDE.md)
 
-### Claude Desktop での使用
+### HTTPサーバーの起動
 
-#### 🎯 Pure StreamableHTTP使用（推奨）
-
-1. **サーバー起動**:
-   ```bash
-   ./scripts/start_pure_http_server.sh
-   ```
-
-2. **設定ファイル適用**:
-   - `configs/claude_desktop_config_pure_http.json` をClaude Desktopの設定ディレクトリにコピー
-   - または既存の設定に以下を追加:
-   ```json
-   {
-     "mcpServers": {
-       "crawl4ai-pure-http": {
-         "url": "http://127.0.0.1:8000/mcp"
-       }
-     }
-   }
-   ```
-
-3. **Claude Desktop再起動**: 設定を適用
-
-4. **利用開始**: チャットでcrawl4aiツールが利用可能になります
-
-#### 🔄 従来のSTDIO使用
-
-1. `configs/claude_desktop_config.json` をClaude Desktopの設定ディレクトリにコピー
-2. Claude Desktopを再起動
-3. チャットでcrawl4aiツールが利用可能になります
-
-#### 📂 設定ファイルの場所
-
-**Windows:**
-```
-%APPDATA%\Claude\claude_desktop_config.json
+**方法1: コマンドライン**
+```bash
+python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
 ```
 
-**macOS:**
-```
-~/Library/Application Support/Claude/claude_desktop_config.json
+**方法2: 環境変数**
+```bash
+export MCP_TRANSPORT=http
+export MCP_HOST=127.0.0.1
+export MCP_PORT=8000
+python -m crawl4ai_mcp.server
 ```
 
-**Linux:**
+**方法3: Docker（利用可能な場合）**
+```bash
+docker run -p 8000:8000 crawl4ai-mcp --transport http --port 8000
 ```
-~/.config/claude-desktop/claude_desktop_config.json
+
+### 基本エンドポイント情報
+
+起動後、HTTP APIは以下を提供します：
+- **ベースURL**: `http://127.0.0.1:8000`
+- **OpenAPIドキュメント**: `http://127.0.0.1:8000/docs`
+- **ツールエンドポイント**: `http://127.0.0.1:8000/tools/{tool_name}`
+- **リソースエンドポイント**: `http://127.0.0.1:8000/resources/{resource_uri}`
+
+全MCPツール（crawl_url、intelligent_extract、process_file等）は、ツールパラメータに一致するJSONペイロードを使用してHTTP POSTリクエストでアクセス可能です。
+
+### HTTP使用例（簡単）
+
+```bash
+curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com", "generate_markdown": true}'
 ```
+
+詳細なHTTP API ドキュメント、使用例、統合ガイドについては、[HTTP API ガイド](docs/http_api_guide.md)を参照してください。
+
+## 🛠️ MCPツール
 
 ### LLM設定の管理
 
@@ -473,9 +594,374 @@ result = await intelligent_extract(
 )
 ```
 
+### `crawl_url`
+高度なWebクローリングと深度クローリングサポート、インテリジェントフィルタリング。
+
+**主要パラメータ:**
+- `url`: クローリング対象URL
+- `max_depth`: 最大クローリング深度（Noneで単一ページ）
+- `crawl_strategy`: 戦略タイプ（'bfs'、'dfs'、'best_first'）
+- `content_filter`: フィルタータイプ（'bm25'、'pruning'、'llm'）
+- `chunk_content`: 大きなドキュメントのコンテンツ分割を有効化
+- `execute_js`: カスタムJavaScriptコード実行
+- `user_agent`: カスタムユーザーエージェント文字列
+- `headers`: カスタムHTTPヘッダー
+- `cookies`: 認証クッキー
+
+### `deep_crawl_site`
+包括的サイトマッピングと再帰クローリング専用ツール。
+
+**パラメータ:**
+- `url`: 開始URL
+- `max_depth`: 最大クローリング深度（推奨: 1-3）
+- `max_pages`: クローリング最大ページ数
+- `crawl_strategy`: クローリング戦略（'bfs'、'dfs'、'best_first'）
+- `url_pattern`: URLフィルターパターン（例: '*docs*'、'*blog*'）
+- `score_threshold`: 最小関連性スコア（0.0-1.0）
+
+### `intelligent_extract`
+高度なフィルタリングと分析による AI搭載コンテンツ抽出。
+
+**パラメータ:**
+- `url`: 対象URL
+- `extraction_goal`: 抽出目標の説明
+- `content_filter`: コンテンツ品質フィルタータイプ
+- `use_llm`: LLMベースのインテリジェント抽出を有効化
+- `llm_provider`: LLMプロバイダー（openai、claude等）
+- `custom_instructions`: 詳細な抽出指示
+
+### `extract_entities`
+正規表現パターンによる高速エンティティ抽出。
+
+**内蔵エンティティタイプ:**
+- `emails`: メールアドレス
+- `phones`: 電話番号
+- `urls`: URLとリンク
+- `dates`: 日付形式
+- `ips`: IPアドレス
+- `social_media`: ソーシャルメディアハンドル（@username、#hashtag）
+- `prices`: 価格情報
+- `credit_cards`: クレジットカード番号
+- `coordinates`: 地理座標
+
+### `extract_structured_data`
+CSSセレクター・XPathセレクターまたはLLMスキーマを使用した従来の構造化データ抽出。
+
+### `batch_crawl`
+統合レポートによる複数URLの並列処理。
+
+### `crawl_url_with_fallback`
+最大信頼性のための複数フォールバック戦略を持つ堅牢なクローリング。
+
+### `process_file`
+**📄 ファイル処理**: Microsoft MarkItDownを使用した各種ファイル形式のMarkdown変換。
+
+**パラメータ:**
+- `url`: ファイルURL（PDF、Office、ZIP等）
+- `max_size_mb`: 最大ファイルサイズ制限（デフォルト: 100MB）
+- `extract_all_from_zip`: ZIPアーカイブからの全ファイル抽出
+- `include_metadata`: レスポンスにファイルメタデータを含める
+
+**サポート形式:**
+- **PDF**: .pdf
+- **Microsoft Office**: .docx、.pptx、.xlsx、.xls
+- **アーカイブ**: .zip
+- **Web/テキスト**: .html、.htm、.txt、.md、.csv、.rtf
+- **電子書籍**: .epub
+
+### `get_supported_file_formats`
+**📋 形式情報**: サポートされているファイル形式とその機能の包括的リストを取得。
+
+### `extract_youtube_transcript`
+**📺 YouTube処理**: youtube-transcript-api v1.1.0+を使用したYouTube動画からのトランスクリプト抽出（言語設定と翻訳付き）。
+
+**✅ 安定性・信頼性 - 認証不要！**
+
+**パラメータ:**
+- `url`: YouTube動画URL
+- `languages`: 優先順位での言語指定（デフォルト: ["ja", "en"]）
+- `translate_to`: 翻訳先言語（オプション）
+- `include_timestamps`: トランスクリプトにタイムスタンプを含める
+- `preserve_formatting`: 元の書式を保持
+- `include_metadata`: 動画メタデータを含める
+
+### `batch_extract_youtube_transcripts`
+**📺 バッチYouTube処理**: 複数YouTube動画からの並列トランスクリプト抽出。
+
+**✅ 安定したバッチ処理のための制御された同時実行による性能向上。**
+
+**パラメータ:**
+- `urls`: YouTube動画URLリスト
+- `languages`: 優先言語リスト
+- `translate_to`: 翻訳先言語（オプション）
+- `include_timestamps`: トランスクリプトにタイムスタンプを含める
+- `max_concurrent`: 最大同時実行数（1-5、デフォルト: 3）
+
+### `get_youtube_video_info`
+**📋 YouTube情報**: 完全なトランスクリプトを抽出せずにYouTube動画の利用可能なトランスクリプト情報を取得。
+
+**パラメータ:**
+- `video_url`: YouTube動画URL
+
+**戻り値:**
+- 利用可能なトランスクリプト言語
+- 手動/自動生成の区別
+- 翻訳可能言語情報
+
+### `search_google`
+**🔍 Google検索**: ジャンルフィルタリングとメタデータ抽出付きGoogle検索実行。
+
+**パラメータ:**
+- `query`: 検索クエリ文字列
+- `num_results`: 返す結果数（1-100、デフォルト: 10）
+- `language`: 検索言語（デフォルト: "en"）
+- `region`: 検索地域（デフォルト: "us"）
+- `search_genre`: コンテンツジャンルフィルター（オプション）
+- `safe_search`: セーフサーチ有効（セキュリティのため常にTrue）
+
+**機能:**
+- 検索結果からのタイトルとスニペット自動抽出
+- コンテンツフィルタリング用31種類の検索ジャンル
+- URL分類とドメイン分析
+- セキュリティのためセーフサーチをデフォルト強制
+
+### `batch_search_google`
+**🔍 バッチGoogle検索**: 包括的分析付き複数Google検索実行。
+
+**パラメータ:**
+- `queries`: 検索クエリリスト
+- `num_results_per_query`: クエリ毎の結果数（1-100、デフォルト: 10）
+- `max_concurrent`: 最大同時検索数（1-5、デフォルト: 3）
+- `language`: 検索言語（デフォルト: "en"）
+- `region`: 検索地域（デフォルト: "us"）
+- `search_genre`: コンテンツジャンルフィルター（オプション）
+
+**戻り値:**
+- 各クエリの個別検索結果
+- クエリ横断分析と統計
+- ドメイン分布と結果タイプ分析
+
+### `search_and_crawl`
+**🔍 統合検索+クローリング**: Google検索実行後、上位結果を自動クローリング。
+
+**パラメータ:**
+- `search_query`: Google検索クエリ
+- `num_search_results`: 検索結果数（1-20、デフォルト: 5）
+- `crawl_top_results`: クローリングする上位結果数（1-10、デフォルト: 3）
+- `extract_media`: クローリングページからのメディア抽出
+- `generate_markdown`: Markdownコンテンツ生成
+- `search_genre`: コンテンツジャンルフィルター（オプション）
+
+**戻り値:**
+- 完全な検索メタデータとクローリングコンテンツ
+- 成功率と処理統計
+- 検索・クローリング結果の統合分析
+
+### `get_search_genres`
+**📋 検索ジャンル**: 利用可能な検索ジャンルとその説明の包括的リストを取得。
+
+**戻り値:**
+- 説明付き31種類の検索ジャンル
+- カテゴリ別ジャンルリスト（学術、技術、ニュース等）
+- 各ジャンルタイプの使用例
+
+## 📚 リソース
+
+- `uri://crawl4ai/config`: デフォルトクローラー設定オプション
+- `uri://crawl4ai/examples`: 使用例とサンプルリクエスト
+
+## 🎯 プロンプト
+
+- `crawl_website_prompt`: ガイド付きウェブサイトクローリングワークフロー
+- `analyze_crawl_results_prompt`: クローリング結果分析
+- `batch_crawl_setup_prompt`: バッチクローリングセットアップ
+
+## 🔧 設定例
+
+### 🔍 Google検索例
+
+#### 基本Google検索
+```json
+{
+    "query": "python機械学習チュートリアル",
+    "num_results": 10,
+    "language": "ja",
+    "region": "jp"
+}
+```
+
+#### ジャンルフィルタリング検索
+```json
+{
+    "query": "機械学習研究",
+    "num_results": 15,
+    "search_genre": "academic",
+    "language": "ja"
+}
+```
+
+#### 分析付きバッチ検索
+```json
+{
+    "queries": [
+        "Pythonプログラミングチュートリアル",
+        "Web開発ガイド",
+        "データサイエンス入門"
+    ],
+    "num_results_per_query": 5,
+    "max_concurrent": 3,
+    "search_genre": "education"
+}
+```
+
+#### 統合検索とクローリング
+```json
+{
+    "search_query": "Python公式ドキュメント",
+    "num_search_results": 10,
+    "crawl_top_results": 5,
+    "extract_media": false,
+    "generate_markdown": true,
+    "search_genre": "documentation"
+}
+```
+
+### 基本深度クローリング
+```json
+{
+    "url": "https://docs.example.com",
+    "max_depth": 2,
+    "max_pages": 20,
+    "crawl_strategy": "bfs"
+}
+```
+
+### AI駆動コンテンツ抽出
+```json
+{
+    "url": "https://news.example.com",
+    "extraction_goal": "記事要約と要点",
+    "content_filter": "llm",
+    "use_llm": true,
+    "custom_instructions": "主要記事コンテンツを抽出し、要点を要約し、重要な引用を特定する"
+}
+```
+
+### 📄 ファイル処理例
+
+#### PDF文書処理
+```json
+{
+    "url": "https://example.com/document.pdf",
+    "max_size_mb": 50,
+    "include_metadata": true
+}
+```
+
+#### Office文書処理
+```json
+{
+    "url": "https://example.com/report.docx",
+    "max_size_mb": 25,
+    "include_metadata": true
+}
+```
+
+#### ZIPアーカイブ処理
+```json
+{
+    "url": "https://example.com/documents.zip",
+    "max_size_mb": 100,
+    "extract_all_from_zip": true,
+    "include_metadata": true
+}
+```
+
+#### 自動ファイル検出
+`crawl_url`ツールは自動的にファイル形式を検出し、適切な処理にルーティングします：
+```json
+{
+    "url": "https://example.com/mixed-content.pdf",
+    "generate_markdown": true
+}
+```
+
+### 📺 YouTube動画処理例
+
+**✅ 安定したyoutube-transcript-api v1.1.0+統合 - セットアップ不要！**
+
+#### 基本トランスクリプト抽出
+```json
+{
+    "url": "https://www.youtube.com/watch?v=VIDEO_ID",
+    "languages": ["ja", "en"],
+    "include_timestamps": true,
+    "include_metadata": true
+}
+```
+
+#### 自動翻訳機能
+```json
+{
+    "url": "https://www.youtube.com/watch?v=VIDEO_ID",
+    "languages": ["en"],
+    "translate_to": "ja",
+    "include_timestamps": false
+}
+```
+
+#### バッチ動画処理
+```json
+{
+    "urls": [
+        "https://www.youtube.com/watch?v=VIDEO_ID1",
+        "https://www.youtube.com/watch?v=VIDEO_ID2",
+        "https://youtu.be/VIDEO_ID3"
+    ],
+    "languages": ["ja", "en"],
+    "max_concurrent": 3
+}
+```
+
+#### 自動YouTube検出
+`crawl_url`ツールは自動的にYouTube URLを検出し、トランスクリプトを抽出します：
+```json
+{
+    "url": "https://www.youtube.com/watch?v=VIDEO_ID",
+    "generate_markdown": true
+}
+```
+
+#### 動画情報検索
+```json
+{
+    "video_url": "https://www.youtube.com/watch?v=VIDEO_ID"
+}
+```
+
+### エンティティ抽出
+```json
+{
+    "url": "https://company.com/contact",
+    "entity_types": ["emails", "phones", "social_media"],
+    "include_context": true,
+    "deduplicate": true
+}
+```
+
+### 認証クローリング
+```json
+{
+    "url": "https://private.example.com",
+    "auth_token": "Bearer your-token",
+    "cookies": {"session_id": "abc123"},
+    "headers": {"X-API-Key": "your-key"}
+}
+```
+
 ## MCPコンポーネント
 
-### ツール
+### 以前のツール
 
 #### `crawl_url`
 基本的なWebクローリングとコンテンツ抽出（**深度クローリング対応**）
@@ -1102,7 +1588,7 @@ crawl_urlツールは自動的にYouTube URLを検出し、トランスクリプ
 - **設定**: `custom_instructions` で詳細な指示
 - **利点**: 最も高度で柔軟なフィルタリング
 
-## プロジェクト構造
+## 🏗️ プロジェクト構造
 
 ```
 crawl/
@@ -1127,7 +1613,41 @@ crawl/
 └── README_ja.md                 # 日本語版README
 ```
 
-## 依存関係
+## 🔍 トラブルシューティング
+
+### よくある問題
+
+**ModuleNotFoundError:**
+- 仮想環境がアクティベートされていることを確認
+- PYTHONPATHが正しく設定されていることを確認
+- 依存関係のインストール: `pip install -r requirements.txt`
+
+**Playwrightブラウザーエラー:**
+- システム依存関係のインストール: `sudo apt-get install libnss3 libnspr4 libasound2`
+- WSL用: X11フォワーディングまたはヘッドレスモードを確認
+
+**JSON解析エラー:**
+- **解決済み**: 最新バージョンで出力抑制を実装
+- 全てのcrawl4ai冗長出力が適切に抑制されています
+
+詳細なトラブルシューティングについては、[`troubleshooting_ja.md`](troubleshooting_ja.md)を参照してください。
+
+## 🚀 パフォーマンス機能
+
+- **インテリジェントキャッシング**: 複数モード付き15分自動クリーニングキャッシュ
+- **非同期アーキテクチャ**: 高性能のためのasyncioベース構築
+- **メモリ管理**: システムリソースベースの適応的同時実行
+- **レート制限**: 設定可能な遅延とリクエスト調整
+- **並列処理**: 複数URLの同時クローリング
+
+## 🛡️ セキュリティ機能
+
+- **出力抑制**: MCP JSONからのcrawl4ai出力の完全分離
+- **認証サポート**: トークンベースおよびクッキー認証
+- **セキュアヘッダー**: APIアクセス用カスタムヘッダーサポート
+- **エラー分離**: 有用な提案付き包括的エラーハンドリング
+
+## 📋 依存関係
 
 - `crawl4ai>=0.3.0` - Webクローリングライブラリ
 - `fastmcp>=0.1.0` - MCPサーバーフレームワーク
@@ -1140,10 +1660,10 @@ crawl/
 - `asyncio` - 非同期処理
 - `typing-extensions` - 型ヒント拡張
 
-**✅ YouTube機能の改善点:**
-- youtube-transcript-api v1.1.0+により認証不要で安定動作
-- APIキーやOAuth設定は一切不要
-- すぐに使用開始可能
+**✅ YouTube機能ステータス:**
+- YouTube トランスクリプト抽出はv1.1.0+で安定・信頼性向上
+- 認証またはAPIキー不要
+- インストール後すぐに動作
 
 ## エラーハンドリング
 
@@ -1175,6 +1695,8 @@ crawl4aiの冗長な出力がMCPのJSON通信を妨害する問題を解決し�
 
 MIT License
 
-## 開発者向け情報
+## 🤝 貢献
 
-このMCPサーバーはModel Context Protocol仕様に準拠しており、互換性のあるMCPクライアントから使用できます。FastMCPフレームワークを使用して構築されているため、簡単に拡張や変更が可能です。
+このプロジェクトはModel Context Protocol仕様を実装し、任意のMCP準拠クライアントと互換性があります。簡単な拡張と変更のためにFastMCPフレームワークで構築されています。
+
+詳細な機能ドキュメント（日本語）については、[`README_ja.md`](README_ja.md)を参照してください。
