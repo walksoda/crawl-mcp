@@ -5,7 +5,28 @@ crawl4aiライブラリの機能をModel Context Protocol (MCP)仕様に準拠�
 ## 🚀 主な機能
 
 ### コア機能
-- **高度なWebクローリング** (JavaScript実行サポート)
+
+#### 🚀 **完全JavaScript対応**
+
+JavaScript重要サイトに対応する包括的な機能セットを提供します。
+
+- 完全なPlaywright統合 - React、Vue、Angular SPAサイト完全対応
+- 動的コンテンツローディング - コンテンツ読み込み自動待機
+- カスタムJavaScript実行 - ページ上でカスタムスクリプト実行
+- DOM要素待機機能 - `wait_for_selector`で特定要素を待機
+- 人間的ブラウジングシミュレーション - 基本的なアンチボット対策回避
+
+**JavaScript重要サイト向け推奨設定:**
+```json
+{
+  "wait_for_js": true,
+  "simulate_user": true, 
+  "timeout": 30-60,
+  "generate_markdown": true
+}
+```
+
+- **高度なWebクローリング** (完全JavaScript実行サポート)
 - **深度クローリング** (設定可能な深度と複数戦略: BFS、DFS、Best-First)
 - **AI搭載コンテンツ抽出** (LLMベース分析)
 - **📄 ファイル処理機能** (Microsoft MarkItDown統合)
@@ -30,8 +51,8 @@ crawl4aiライブラリの機能をModel Context Protocol (MCP)仕様に準拠�
   - 検索結果からのタイトル・スニペット自動抽出
   - セキュリティのためセーフサーチをデフォルト有効
   - 結果分析付きバッチ検索機能
-- **複数抽出戦略**: CSSセレクター、XPath、正規表現パターン、LLMベース
-- **ブラウザ自動化**: カスタムユーザーエージェント、ヘッダー、クッキー、認証
+- **複数抽出戦略**にはCSSセレクター、XPath、正規表現パターン、LLMベースの手法があります。
+- **ブラウザ自動化**はカスタムユーザーエージェント、ヘッダー、クッキー、認証に対応しています。
 - **キャッシュシステム** (パフォーマンス最適化用複数モード)
 - **カスタムJavaScript実行** (動的コンテンツとのインタラクション)
 - **構造化データエクスポート** (JSON、Markdown、HTML形式)
@@ -81,7 +102,7 @@ python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
 
 ### 📋 MCPコマンド登録 (Claude Code CLI)
 
-Claude Code CLIでこのMCPサーバーを登録する方法：
+Claude Code CLIでこのMCPサーバーを登録する方法を説明します。
 
 #### .mcp.json設定を使用（推奨）
 1. プロジェクトディレクトリに`.mcp.json`を作成または更新：
@@ -155,12 +176,12 @@ claude mcp add crawl4ai python -m crawl4ai_mcp.server \
 
 #### 🎯 Pure StreamableHTTP使用（推奨）
 
-1. **サーバー起動**:
+1. **サーバー起動**でスタートアップスクリプトを実行します。
    ```bash
    ./scripts/start_pure_http_server.sh
    ```
 
-2. **設定適用**:
+2. **設定適用**で以下のいずれかの方法を使用します。
    - `configs/claude_desktop_config_pure_http.json`をClaude Desktopの設定ディレクトリにコピー
    - または既存の設定に以下を追加:
    ```json
@@ -173,9 +194,9 @@ claude mcp add crawl4ai python -m crawl4ai_mcp.server \
    }
    ```
 
-3. **Claude Desktop再起動**: 設定を適用
+3. **Claude Desktop再起動**で設定を適用します。
 
-4. **使用開始**: チャットでcrawl4aiツールが利用可能になります
+4. **使用開始**できます。チャットでcrawl4aiツールが利用可能になります。
 
 #### 🔄 従来のSTDIO使用
 
@@ -311,9 +332,9 @@ curl -X POST "http://127.0.0.1:8001/tools/crawl_url" \
 
 ### 📚 詳細ドキュメント
 
-- **Pure StreamableHTTP**: [PURE_STREAMABLE_HTTP.md](PURE_STREAMABLE_HTTP.md)
-- **HTTP サーバー使用方法**: [HTTP_SERVER_USAGE.md](HTTP_SERVER_USAGE.md)
-- **Legacy HTTP API**: [HTTP_API_GUIDE.md](HTTP_API_GUIDE.md)
+- **Pure StreamableHTTP**の詳細は[docs/PURE_STREAMABLE_HTTP.md](docs/PURE_STREAMABLE_HTTP.md)を参照してください。
+- **HTTP サーバー使用方法**は[docs/HTTP_SERVER_USAGE.md](docs/HTTP_SERVER_USAGE.md)で説明しています。
+- **Legacy HTTP API**は[docs/HTTP_API_GUIDE.md](docs/HTTP_API_GUIDE.md)でガイドしています。
 
 ### HTTPサーバーの起動
 
@@ -337,11 +358,11 @@ docker run -p 8000:8000 crawl4ai-mcp --transport http --port 8000
 
 ### 基本エンドポイント情報
 
-起動後、HTTP APIは以下を提供します：
-- **ベースURL**: `http://127.0.0.1:8000`
-- **OpenAPIドキュメント**: `http://127.0.0.1:8000/docs`
-- **ツールエンドポイント**: `http://127.0.0.1:8000/tools/{tool_name}`
-- **リソースエンドポイント**: `http://127.0.0.1:8000/resources/{resource_uri}`
+起動後、HTTP APIは以下のエンドポイントを提供します。
+- **ベースURL**は`http://127.0.0.1:8000`です。
+- **OpenAPIドキュメント**は`http://127.0.0.1:8000/docs`で確認できます。
+- **ツールエンドポイント**は`http://127.0.0.1:8000/tools/{tool_name}`形式です。
+- **リソースエンドポイント**は`http://127.0.0.1:8000/resources/{resource_uri}`形式です。
 
 全MCPツール（crawl_url、intelligent_extract、process_file等）は、ツールパラメータに一致するJSONペイロードを使用してHTTP POSTリクエストでアクセス可能です。
 
@@ -353,7 +374,44 @@ curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
   -d '{"url": "https://example.com", "generate_markdown": true}'
 ```
 
-詳細なHTTP API ドキュメント、使用例、統合ガイドについては、[HTTP API ガイド](docs/http_api_guide.md)を参照してください。
+詳細なHTTP API ドキュメント、使用例、統合ガイドについては、[HTTP API ガイド](docs/HTTP_API_GUIDE.md)を参照してください。
+
+## 🛠️ ツール選択ガイド
+
+### 📋 **用途に適したツールの選択**
+
+| **用途** | **推奨ツール** | **主要機能** |
+|---------|---------------|-------------|
+| 単一ページ | `crawl_url` | 基本クローリング、JS対応 |
+| 複数ページ (最大5) | `deep_crawl_site` | サイトマッピング、リンクフォロー |
+| 検索+クローリング | `search_and_crawl` | Google検索+自動クロール |
+| 困難サイト | `crawl_url_with_fallback` | 複数リトライ戦略 |
+| 特定データ抽出 | `intelligent_extract` | AI搭載抽出 |
+| パターン検索 | `extract_entities` | メール、電話、URL等 |
+| 構造化データ | `extract_structured_data` | CSS/XPath/LLMスキーマ |
+| ファイル処理 | `process_file` | PDF、Office、ZIP変換 |
+| YouTube処理 | `extract_youtube_transcript` | 字幕抽出 |
+
+### ⚡ **パフォーマンス指針**
+
+- **深度クローリング**: 最大5ページ制限（安定性重視）
+- **バッチ処理**: 同時実行制限あり
+- **タイムアウト計算**: `ページ数 × base_timeout` 推奨
+- **大容量ファイル**: 最大100MB制限
+- **リトライ戦略**: 初回失敗時は手動リトライ推奨
+
+### 🎯 **ベストプラクティス**
+
+**JavaScript重要サイト向け:**
+- 常に `wait_for_js: true` を使用
+- `simulate_user: true` で互換性向上
+- タイムアウトを30-60秒に増加
+- 特定要素には `wait_for_selector` を使用
+
+**AI機能使用時:**
+- `get_llm_config_info` でLLM設定確認
+- LLM利用不可時は非AI機能にフォールバック
+- 意味的理解には `intelligent_extract` を使用
 
 ## 🛠️ MCPツール
 
@@ -1630,7 +1688,64 @@ crawl/
 - **解決済み**: 最新バージョンで出力抑制を実装
 - 全てのcrawl4ai冗長出力が適切に抑制されています
 
-詳細なトラブルシューティングについては、[`troubleshooting_ja.md`](troubleshooting_ja.md)を参照してください。
+詳細なトラブルシューティングについては、[`docs/troubleshooting_ja.md`](docs/troubleshooting_ja.md)を参照してください。
+
+## 📊 **対応形式・機能一覧**
+
+### ✅ **Webコンテンツ**
+- **静的サイト**: HTML、CSS、JavaScript
+- **動的サイト**: React、Vue、Angular SPA
+- **複雑サイト**: JavaScript重要、非同期読み込み
+- **保護サイト**: 基本認証、クッキー、カスタムヘッダー
+
+### ✅ **メディア・ファイル**
+- **動画**: YouTube（字幕自動抽出）
+- **文書**: PDF、Word、Excel、PowerPoint、ZIP
+- **アーカイブ**: 自動抽出と処理
+- **テキスト**: Markdown、CSV、RTF、プレーンテキスト
+
+### ✅ **検索・データ**
+- **Google検索**: 31ジャンルフィルター対応
+- **エンティティ抽出**: メール、電話、URL、日付
+- **構造化データ**: CSS/XPath/LLMベース抽出
+- **バッチ処理**: 複数URL同時処理
+
+## ⚠️ **制限事項・重要な注意点**
+
+### 🚫 **既知の制限**
+- **認証サイト**: ログイン要求サイトは対応不可
+- **reCAPTCHA保護**: 重度保護サイトは成功率限定
+- **レート制限**: 手動間隔管理が推奨
+- **自動リトライ**: 未実装 - 手動リトライが必要
+- **深度クローリング**: 安定性のため最大5ページ
+
+### 🌐 **地域・言語対応**
+- **多言語サイト**: 完全Unicode対応
+- **地域検索**: 設定可能な地域設定
+- **文字エンコーディング**: 自動検出
+- **日本語コンテンツ**: 完全対応
+
+### 🔄 **エラーハンドリング戦略**
+1. **初回失敗** → 即座に手動リトライ
+2. **タイムアウト問題** → タイムアウト設定増加
+3. **継続的問題** → `crawl_url_with_fallback` 使用
+4. **代替アプローチ** → 異なるツール選択
+
+## 💡 **一般的なワークフロー**
+
+### 🔍 **研究・分析**
+```
+1. 競合分析: search_and_crawl → intelligent_extract
+2. サイト監査: crawl_url → extract_entities  
+3. コンテンツ研究: search_google → batch_crawl
+4. 詳細分析: deep_crawl_site → 構造化抽出
+```
+
+### 📈 **典型的成功パターン**
+- **Eコマースサイト**: `simulate_user: true` を使用
+- **ニュースサイト**: 動的コンテンツに `wait_for_js` 有効化
+- **ドキュメント**: URLパターンで `deep_crawl_site` 使用
+- **ソーシャルメディア**: 連絡先情報のエンティティ抽出
 
 ## 🚀 パフォーマンス機能
 
@@ -1680,16 +1795,16 @@ crawl/
 ### JSON出力の問題解決
 crawl4aiの冗長な出力がMCPのJSON通信を妨害する問題を解決しました：
 
-- **出力抑制機能**: `suppress_stdout_stderr` コンテキストマネージャーでcrawl4ai操作を完全にラップ
-- **ログ設定**: crawl4ai関連の全ログレベルをCRITICALに設定し、プロパゲーションを無効化
-- **起動スクリプト改良**: stderrを `/dev/null` にリダイレクトして残りの出力を抑制
-- **設定の統一**: 全クローリング関数で `verbose=False` と `log_console=False` を適用
+- **出力抑制機能**は`suppress_stdout_stderr` コンテキストマネージャーでcrawl4ai操作を完全にラップしています。
+- **ログ設定**ではcrawl4ai関連の全ログレベルをCRITICALに設定し、プロパゲーションを無効化しています。
+- **起動スクリプト改良**ではstderrを `/dev/null` にリダイレクトして残りの出力を抑制しています。
+- **設定の統一**では全クローリング関数で `verbose=False` と `log_console=False` を適用しています。
 
 これにより、Claude DesktopでのJSON解析エラー（`Unexpected token '|'` など）が解決されます。
 
 ## トラブルシューティング
 
-詳細なトラブルシューティング情報は `troubleshooting_ja.md` を参照してください。
+詳細なトラブルシューティング情報は `docs/troubleshooting_ja.md` を参照してください。
 
 ## ライセンス
 
@@ -1698,5 +1813,20 @@ MIT License
 ## 🤝 貢献
 
 このプロジェクトはModel Context Protocol仕様を実装し、任意のMCP準拠クライアントと互換性があります。簡単な拡張と変更のためにFastMCPフレームワークで構築されています。
+
+## 📦 DXTパッケージ対応
+
+**Claude Desktopユーザー向けワンクリックインストール**
+
+このMCPサーバーは簡単インストール用のDXT (Desktop Extensions) パッケージとして提供されています。以下のリソースが利用可能です。
+
+- **DXTパッケージ**は[`dxt-packages/crawl4ai-dxt-correct/`](dxt-packages/README_DXT_PACKAGES.md)で確認できます。
+- **インストールガイド**は[dxt-packages/README_DXT_PACKAGES.md](dxt-packages/README_DXT_PACKAGES.md)で提供しています。
+- **作成ガイド**は[dxt-packages/DXT_CREATION_GUIDE.md](dxt-packages/DXT_CREATION_GUIDE.md)で文書化されています。
+- **トラブルシューティング**情報は[dxt-packages/DXT_TROUBLESHOOTING_GUIDE.md](dxt-packages/DXT_TROUBLESHOOTING_GUIDE.md)で確認できます。
+
+`.dxt`ファイルをClaude Desktopにドラッグ&ドロップするだけで即座にセットアップ完了です。
+
+## 📚 追加ドキュメント
 
 詳細な機能ドキュメント（日本語）については、[`README_ja.md`](README_ja.md)を参照してください。

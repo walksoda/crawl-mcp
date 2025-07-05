@@ -1,0 +1,121 @@
+{
+  "dxt_version": "0.1",
+  "name": "crawl4ai-extension",
+  "display_name": "Crawl4AI Web Crawler MCP",
+  "version": "1.0.7",
+  "description": "MCP wrapper for crawl4ai library - Advanced web crawling and content extraction with YouTube transcript, Google search, and file processing capabilities",
+  "long_description": "This extension provides comprehensive web crawling capabilities through a Python MCP server. It demonstrates advanced crawling features including JavaScript execution, AI-powered content extraction, YouTube transcript processing, Google search integration, and file processing for PDFs and Office documents. Built by walksoda, powered by unclecode's crawl4ai library.",
+  "author": {
+    "name": "walksoda",
+    "email": "walksoda@users.noreply.github.com",
+    "url": "https://github.com/walksoda/crawl-mcp"
+  },
+  "server": {
+    "type": "python",
+    "entry_point": "server/main.py",
+    "mcp_config": {
+      "command": "python",
+      "args": [
+        "${__dirname}/server/main.py"
+      ],
+      "env": {
+        "PYTHONPATH": "${__dirname}/server",
+        "FASTMCP_LOG_LEVEL": "${user_config.log_level}",
+        "OPENAI_API_KEY": "${user_config.openai_api_key}",
+        "ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}",
+        "GOOGLE_API_KEY": "${user_config.google_api_key}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "crawl_url",
+      "description": "Extract content from web pages with advanced crawling capabilities"
+    },
+    {
+      "name": "deep_crawl_site", 
+      "description": "Comprehensive site mapping and recursive crawling"
+    },
+    {
+      "name": "intelligent_extract",
+      "description": "AI-powered content extraction with filtering and analysis"
+    },
+    {
+      "name": "extract_entities",
+      "description": "Pattern-based extraction of emails, phones, URLs, and other entities"
+    },
+    {
+      "name": "extract_structured_data",
+      "description": "Structured data extraction using CSS selectors or LLM schemas"
+    },
+    {
+      "name": "process_file",
+      "description": "Convert documents (PDF, Office, ZIP) to markdown"
+    },
+    {
+      "name": "extract_youtube_transcript",
+      "description": "Extract transcripts from YouTube videos (no API key required)"
+    },
+    {
+      "name": "batch_extract_youtube_transcripts",
+      "description": "Batch processing of multiple YouTube video transcripts"
+    },
+    {
+      "name": "search_google",
+      "description": "Google search with genre filtering and metadata extraction"
+    },
+    {
+      "name": "search_and_crawl",
+      "description": "Combined Google search and content extraction from top results"
+    },
+    {
+      "name": "batch_crawl",
+      "description": "Process multiple URLs concurrently with unified reporting"
+    }
+  ],
+  "keywords": ["web", "crawling", "extraction", "youtube", "google", "search", "ai", "mcp"],
+  "license": "MIT",
+  "user_config": {
+    "openai_api_key": {
+      "type": "string",
+      "title": "OpenAI API Key",
+      "description": "OpenAI API key for LLM-based content extraction and analysis (optional)",
+      "default": "",
+      "required": false,
+      "sensitive": true
+    },
+    "anthropic_api_key": {
+      "type": "string",
+      "title": "Anthropic API Key",
+      "description": "Anthropic Claude API key for advanced content processing (optional)",
+      "default": "",
+      "required": false,
+      "sensitive": true
+    },
+    "google_api_key": {
+      "type": "string",
+      "title": "Google API Key",
+      "description": "Google API key for enhanced search functionality (optional)",
+      "default": "",
+      "required": false,
+      "sensitive": true
+    },
+    "log_level": {
+      "type": "string",
+      "title": "Log Level",
+      "description": "Logging level for the MCP server",
+      "default": "INFO",
+      "required": false,
+      "enum": ["DEBUG", "INFO", "WARNING", "ERROR"]
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "apps": {
+      "claude-desktop": ">=0.10.0"
+    },
+    "runtimes": {
+      "python": ">=3.8.0 <4.0.0"
+    }
+  }
+}

@@ -1,11 +1,32 @@
 # Crawl4AI MCP Server
 
-A comprehensive Model Context Protocol (MCP) server that wraps the powerful crawl4ai library, providing advanced web crawling, content extraction, and AI-powered analysis capabilities through the standardized MCP interface.
+A comprehensive Model Context Protocol (MCP) server that wraps the powerful crawl4ai library. This server provides advanced web crawling, content extraction, and AI-powered analysis capabilities through the standardized MCP interface.
 
 ## 🚀 Key Features
 
 ### Core Capabilities
-- **Advanced Web Crawling** with JavaScript execution support
+
+#### 🚀 **Complete JavaScript Support**
+
+This feature set enables comprehensive JavaScript-heavy website handling:
+
+- Full Playwright Integration - React, Vue, Angular SPA sites fully supported
+- Dynamic Content Loading - Auto-waits for content to load
+- Custom JavaScript Execution - Run custom scripts on pages
+- DOM Element Waiting - `wait_for_selector` for specific elements  
+- Human-like Browsing Simulation - Bypass basic anti-bot measures
+
+**JavaScript-Heavy Sites Recommended Settings:**
+```json
+{
+  "wait_for_js": true,
+  "simulate_user": true, 
+  "timeout": 30-60,
+  "generate_markdown": true
+}
+```
+
+- **Advanced Web Crawling** with complete JavaScript execution support
 - **Deep Crawling** with configurable depth and multiple strategies (BFS, DFS, Best-First)
 - **AI-Powered Content Extraction** using LLM-based analysis
 - **📄 File Processing** with Microsoft MarkItDown integration
@@ -19,7 +40,7 @@ A comprehensive Model Context Protocol (MCP) server that wraps the powerful craw
   - Multi-language support with priority settings
   - Timestamped segment information and clean text output
   - Batch processing for multiple videos
-- **Entity Extraction** with 9 built-in patterns (emails, phones, URLs, dates, etc.)
+- **Entity Extraction** with 9 built-in patterns including emails, phones, URLs, and dates
 - **Intelligent Content Filtering** (BM25, pruning, LLM-based)
 - **Content Chunking** for large document processing
 - **Screenshot Capture** and media extraction
@@ -30,8 +51,8 @@ A comprehensive Model Context Protocol (MCP) server that wraps the powerful craw
   - Automatic title and snippet extraction from search results  
   - Safe search enabled by default for security
   - Batch search capabilities with result analysis
-- **Multiple Extraction Strategies**: CSS selectors, XPath, regex patterns, LLM-based
-- **Browser Automation**: Custom user agents, headers, cookies, authentication
+- **Multiple Extraction Strategies** include CSS selectors, XPath, regex patterns, and LLM-based extraction
+- **Browser Automation** supports custom user agents, headers, cookies, and authentication
 - **Caching System** with multiple modes for performance optimization
 - **Custom JavaScript Execution** for dynamic content interaction
 - **Structured Data Export** in multiple formats (JSON, Markdown, HTML)
@@ -87,7 +108,7 @@ python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
 
 ### 📋 MCP Command Registration (Claude Code CLI)
 
-You can register this MCP server with Claude Code CLI using the following method:
+You can register this MCP server with Claude Code CLI. The following methods are available:
 
 #### Using .mcp.json Configuration (Recommended)
 1. Create or update `.mcp.json` in your project directory:
@@ -110,7 +131,8 @@ You can register this MCP server with Claude Code CLI using the following method
 #### Alternative: Command Line Registration
 ```bash
 # Register the MCP server with claude command
-claude mcp add crawl4ai "/path/to/your/venv/bin/python -m crawl4ai_mcp.server" --cwd /path/to/your/crawl4ai-mcp-project
+claude mcp add crawl4ai "/path/to/your/venv/bin/python -m crawl4ai_mcp.server" \
+  --cwd /path/to/your/crawl4ai-mcp-project
 
 # With environment variables
 claude mcp add crawl4ai "/path/to/your/venv/bin/python -m crawl4ai_mcp.server" \
@@ -161,12 +183,12 @@ claude mcp add crawl4ai "python -m crawl4ai_mcp.server" \
 
 #### 🎯 Pure StreamableHTTP Usage (Recommended)
 
-1. **Start Server**:
+1. **Start Server** by running the startup script:
    ```bash
    ./scripts/start_pure_http_server.sh
    ```
 
-2. **Apply Configuration**:
+2. **Apply Configuration** using one of these methods:
    - Copy `configs/claude_desktop_config_pure_http.json` to Claude Desktop's config directory
    - Or add the following to your existing config:
    ```json
@@ -179,9 +201,9 @@ claude mcp add crawl4ai "python -m crawl4ai_mcp.server" \
    }
    ```
 
-3. **Restart Claude Desktop**: Apply settings
+3. **Restart Claude Desktop** to apply settings
 
-4. **Start Using**: crawl4ai tools are now available in chat
+4. **Start Using** the tools - crawl4ai tools are now available in chat
 
 #### 🔄 Traditional STDIO Usage
 
@@ -317,9 +339,9 @@ curl -X POST "http://127.0.0.1:8001/tools/crawl_url" \
 
 ### 📚 Detailed Documentation
 
-- **Pure StreamableHTTP**: [PURE_STREAMABLE_HTTP.md](PURE_STREAMABLE_HTTP.md)
-- **HTTP Server Usage**: [HTTP_SERVER_USAGE.md](HTTP_SERVER_USAGE.md)
-- **Legacy HTTP API**: [HTTP_API_GUIDE.md](HTTP_API_GUIDE.md)
+- **Pure StreamableHTTP**: [docs/PURE_STREAMABLE_HTTP.md](docs/PURE_STREAMABLE_HTTP.md)
+- **HTTP Server Usage**: [docs/HTTP_SERVER_USAGE.md](docs/HTTP_SERVER_USAGE.md)
+- **Legacy HTTP API**: [docs/HTTP_API_GUIDE.md](docs/HTTP_API_GUIDE.md)
 
 ### Starting the HTTP Server
 
@@ -359,7 +381,44 @@ curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
   -d '{"url": "https://example.com", "generate_markdown": true}'
 ```
 
-For detailed HTTP API documentation, examples, and integration guides, see the [HTTP API Guide](docs/http_api_guide.md).
+For detailed HTTP API documentation, examples, and integration guides, see the [HTTP API Guide](docs/HTTP_API_GUIDE.md).
+
+## 🛠️ Tool Selection Guide
+
+### 📋 **Choose the Right Tool for Your Task**
+
+| **Use Case** | **Recommended Tool** | **Key Features** |
+|-------------|---------------------|------------------|
+| Single webpage | `crawl_url` | Basic crawling, JS support |
+| Multiple pages (up to 5) | `deep_crawl_site` | Site mapping, link following |
+| Search + Crawling | `search_and_crawl` | Google search + auto-crawl |
+| Difficult sites | `crawl_url_with_fallback` | Multiple retry strategies |
+| Extract specific data | `intelligent_extract` | AI-powered extraction |
+| Find patterns | `extract_entities` | Emails, phones, URLs, etc. |
+| Structured data | `extract_structured_data` | CSS/XPath/LLM schemas |
+| File processing | `process_file` | PDF, Office, ZIP conversion |
+| YouTube content | `extract_youtube_transcript` | Subtitle extraction |
+
+### ⚡ **Performance Guidelines**
+
+- **Deep Crawling**: Limited to 5 pages max (stability focused)
+- **Batch Processing**: Concurrent limits enforced
+- **Timeout Calculation**: `pages × base_timeout` recommended
+- **Large Files**: 100MB maximum size limit
+- **Retry Strategy**: Manual retry recommended on first failure
+
+### 🎯 **Best Practices**
+
+**For JavaScript-Heavy Sites:**
+- Always use `wait_for_js: true`
+- Set `simulate_user: true` for better compatibility
+- Increase timeout to 30-60 seconds
+- Use `wait_for_selector` for specific elements
+
+**For AI Features:**
+- Configure LLM settings with `get_llm_config_info`
+- Fallback to non-AI tools if LLM unavailable
+- Use `intelligent_extract` for semantic understanding
 
 ## 🛠️ MCP Tools
 
@@ -770,7 +829,64 @@ scripts/
 - **Resolved**: Output suppression implemented in latest version
 - All crawl4ai verbose output is now properly suppressed
 
-For detailed troubleshooting, see [`troubleshooting_ja.md`](troubleshooting_ja.md).
+For detailed troubleshooting, see [`docs/troubleshooting_ja.md`](docs/troubleshooting_ja.md).
+
+## 📊 **Supported Formats & Capabilities**
+
+### ✅ **Web Content**
+- **Static Sites**: HTML, CSS, JavaScript
+- **Dynamic Sites**: React, Vue, Angular SPAs
+- **Complex Sites**: JavaScript-heavy, async loading
+- **Protected Sites**: Basic auth, cookies, custom headers
+
+### ✅ **Media & Files** 
+- **Videos**: YouTube (transcript auto-extraction)
+- **Documents**: PDF, Word, Excel, PowerPoint, ZIP
+- **Archives**: Automatic extraction and processing
+- **Text**: Markdown, CSV, RTF, plain text
+
+### ✅ **Search & Data**
+- **Google Search**: 31 genre filters available
+- **Entity Extraction**: Emails, phones, URLs, dates
+- **Structured Data**: CSS/XPath/LLM-based extraction
+- **Batch Processing**: Multiple URLs simultaneously
+
+## ⚠️ **Limitations & Important Notes**
+
+### 🚫 **Known Limitations**
+- **Authentication Sites**: Cannot bypass login requirements
+- **reCAPTCHA Protected**: Limited success on heavily protected sites  
+- **Rate Limiting**: Manual interval management recommended
+- **Automatic Retry**: Not implemented - manual retry needed
+- **Deep Crawling**: 5 page maximum for stability
+
+### 🌐 **Regional & Language Support**
+- **Multi-language Sites**: Full Unicode support
+- **Regional Search**: Configurable region settings
+- **Character Encoding**: Automatic detection
+- **Japanese Content**: Complete support
+
+### 🔄 **Error Handling Strategy**
+1. **First Failure** → Immediate manual retry
+2. **Timeout Issues** → Increase timeout settings  
+3. **Persistent Problems** → Use `crawl_url_with_fallback`
+4. **Alternative Approach** → Try different tool selection
+
+## 💡 **Common Workflows**
+
+### 🔍 **Research & Analysis**
+```
+1. Competitive Analysis: search_and_crawl → intelligent_extract
+2. Site Auditing: crawl_url → extract_entities  
+3. Content Research: search_google → batch_crawl
+4. Deep Analysis: deep_crawl_site → structured extraction
+```
+
+### 📈 **Typical Success Patterns**
+- **E-commerce Sites**: Use `simulate_user: true`
+- **News Sites**: Enable `wait_for_js` for dynamic content
+- **Documentation**: Use `deep_crawl_site` with URL patterns
+- **Social Media**: Extract entities for contact information
 
 ## 🚀 Performance Features
 
@@ -782,10 +898,10 @@ For detailed troubleshooting, see [`troubleshooting_ja.md`](troubleshooting_ja.m
 
 ## 🛡️ Security Features
 
-- **Output Suppression**: Complete isolation of crawl4ai output from MCP JSON
-- **Authentication Support**: Token-based and cookie authentication
-- **Secure Headers**: Custom header support for API access
-- **Error Isolation**: Comprehensive error handling with helpful suggestions
+- **Output Suppression** provides complete isolation of crawl4ai output from MCP JSON
+- **Authentication Support** includes token-based and cookie authentication
+- **Secure Headers** offer custom header support for API access
+- **Error Isolation** includes comprehensive error handling with helpful suggestions
 
 ## 📋 Dependencies
 
@@ -800,7 +916,10 @@ For detailed troubleshooting, see [`troubleshooting_ja.md`](troubleshooting_ja.m
 - `asyncio` - Asynchronous programming support
 - `typing-extensions` - Extended type hints
 
-**✅ YouTube Features Status:**
+**YouTube Features Status:**
+
+The following status information applies to YouTube transcript extraction:
+
 - YouTube transcript extraction is stable and reliable with v1.1.0+
 - No authentication or API keys required
 - Works out of the box after installation
@@ -811,6 +930,21 @@ MIT License
 
 ## 🤝 Contributing
 
-This project implements the Model Context Protocol specification and is compatible with any MCP-compliant client. Built with the FastMCP framework for easy extension and modification.
+This project implements the Model Context Protocol specification. It is compatible with any MCP-compliant client and built with the FastMCP framework for easy extension and modification.
+
+## 📦 DXT Package Available
+
+**One-click installation for Claude Desktop users**
+
+This MCP server is available as a DXT (Desktop Extensions) package for easy installation. The following resources are available:
+
+- **DXT Package** can be found at [`dxt-packages/crawl4ai-dxt-correct/`](dxt-packages/README_DXT_PACKAGES.md)
+- **Installation Guide** is available at [dxt-packages/README_DXT_PACKAGES.md](dxt-packages/README_DXT_PACKAGES.md)  
+- **Creation Guide** is documented at [dxt-packages/DXT_CREATION_GUIDE.md](dxt-packages/DXT_CREATION_GUIDE.md)
+- **Troubleshooting** information is at [dxt-packages/DXT_TROUBLESHOOTING_GUIDE.md](dxt-packages/DXT_TROUBLESHOOTING_GUIDE.md)
+
+Simply drag and drop the `.dxt` file into Claude Desktop for instant setup.
+
+## 📚 Additional Documentation
 
 For detailed feature documentation in Japanese, see [`README_ja.md`](README_ja.md).

@@ -578,7 +578,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
         )
 
 
-@mcp.tool
+@mcp.tool()
 async def crawl_url(request: CrawlRequest) -> CrawlResponse:
     """
     🌐 Extract content from any web page with FULL JavaScript support (React/Vue/Angular).
@@ -598,45 +598,41 @@ async def crawl_url(request: CrawlRequest) -> CrawlResponse:
       "generate_markdown": true   # Clean output format
     }
     
-    📊 WHAT TO EXPECT:
-    ✅ Success: Clean markdown, structured content, media links
-    ⚠️ May fail: Heavy CAPTCHA sites, login-required pages
-    🔄 If fails: Retry immediately (network issues common)
+    📊 vs other tools:
+    - vs deep_crawl_site: Use this for single pages; deep_crawl_site for site mapping
+    - vs intelligent_extract: Use this for full content; intelligent_extract for specific data
+    - vs extract_entities: Use this for articles; extract_entities for contact info
     
-    vs deep_crawl_site: Use this for single pages; deep_crawl_site for multiple pages (max 5)
-    vs intelligent_extract: Use this for full content; intelligent_extract for specific data
+    💪 AUTO-DETECTS & HANDLES:
+    ✅ React/Vue/Angular SPAs  ✅ PDF/Office documents  ✅ YouTube videos
+    ✅ Dynamic loading sites   ✅ AJAX content         ✅ Image/media files
     
-    FAILURE RECOVERY:
-    1. First failure → Retry immediately 
-    2. Still failing → Increase timeout to 60s
-    3. Persistent issues → Try crawl_url_with_fallback
-    
-    Example for JavaScript-heavy site:
-    {
-      "request": {
-        "url": "https://spa-website.com",
-        "wait_for_js": true,
-        "simulate_user": true,
-        "timeout": 45,
-        "generate_markdown": true
-      }
-    }
-    
-    Example for document:
-    {
-      "request": {
-        "url": "https://example.com/document.pdf", 
-        "generate_markdown": true
-      }
-    }
-    
+    Args:
+        request: CrawlRequest containing URL and extraction parameters
+        
+    Example MCP Call:
+        {
+          "request": {
+            "url": "https://example.com",
+            "wait_for_js": true,
+            "simulate_user": true,
+            "timeout": 45,
+            "generate_markdown": true
+          }
+        }
+        
     IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
-    Returns: CrawlResponse with crawled content and metadata
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
+        
+    Returns:
+        CrawlResponse with crawled content and metadata
     """
     return await _internal_crawl_url(request)
 
 
-@mcp.tool
+@mcp.tool()
 async def deep_crawl_site(
     url: str,
     max_depth: int = 2,
@@ -649,53 +645,58 @@ async def deep_crawl_site(
     base_timeout: int = 60
 ) -> Dict[str, Any]:
     """
-    🗺️ Systematically crawl multiple pages of a website (MAX 5 PAGES for stability).
+    🗺️ Site mapping tool - automatically discovers and crawls multiple related pages.
     
-    ⚠️ LIMITATION: 5 page maximum - designed for focused exploration, not full site crawling.
+    ⭐ MAIN STRENGTH: Discovers content you didn't know existed - follows internal links intelligently.
     
     USE WHEN:
-    - Documentation sections, blog categories, product catalogs
-    - Need site structure understanding  
-    - Want content from related pages automatically
+    - Analyzing entire website sections (docs, blogs, product catalogs) 
+    - Building site maps and understanding site structure
+    - Competitor research across multiple pages
+    - Discovering hidden/linked content
     
-    🎯 SMART USAGE:
-    - Use url_pattern to focus: "*docs*", "*blog*", "*products*"
-    - Start with max_pages=3 for testing
-    - Use score_threshold=0.3 for quality filtering
+    🎯 REALISTIC EXPECTATIONS:
+    - Limited to 5 pages max (stability focused)
+    - Best for well-structured sites with clear navigation
+    - May miss pages requiring JavaScript navigation
     
-    📊 REALISTIC EXPECTATIONS:
-    ✅ Perfect for: Documentation, blog sections, small catalogs
-    ❌ Not for: Full e-commerce sites, large news sites
-    ⏱️ Processing time: ~30-90 seconds depending on content
+    💡 SMART FILTERING options:
+    - url_pattern: "*docs*" (only documentation pages)
+    - url_pattern: "*blog*" (only blog posts)  
+    - url_pattern: "*product*" (only product pages)
     
-    STRATEGY GUIDE:
-    - "bfs": Broad exploration (recommended for documentation)  
-    - "dfs": Deep dive into specific paths
-    - "best_first": Quality-focused (uses relevance scoring)
+    📊 vs other tools:
+    - vs crawl_url: Use this for site exploration; crawl_url for known single pages
+    - vs search_and_crawl: Use this for internal discovery; search_and_crawl for external search first
     
-    vs crawl_url: Use this for multiple related pages; crawl_url for single page
-    vs search_and_crawl: Use this when you know the starting site; search_and_crawl for discovery
-    
-    Example for documentation:
-    {
-      "url": "https://docs.example.com/api",
-      "max_pages": 4,
-      "url_pattern": "*api*",
-      "crawl_strategy": "bfs", 
-      "max_depth": 2
-    }
-    
-    Example for blog section:
-    {
-      "url": "https://blog.example.com/category/tech",
-      "max_pages": 5,
-      "url_pattern": "*tech*",
-      "crawl_strategy": "best_first",
-      "score_threshold": 0.3
-    }
-    
+    Args:
+        url: Starting URL for deep crawling
+        max_depth: Maximum crawling depth (limited to 2 for stability)
+        max_pages: Maximum number of pages to crawl (limited to 5 for stability)
+        crawl_strategy: Strategy - 'bfs', 'dfs', or 'best_first'
+        include_external: Whether to follow external domain links
+        url_pattern: URL pattern filter (e.g., '*docs*', '*blog*')
+        score_threshold: Minimum score for URLs to be crawled (0.0 = permissive)
+        extract_media: Whether to extract media files (always disabled for performance)
+        base_timeout: Base timeout in seconds (default: 60), adjusted based on page count
+        
+    Example MCP Call:
+        {
+          "url": "https://example.com/docs",
+          "max_depth": 2,
+          "max_pages": 3,
+          "crawl_strategy": "bfs",
+          "url_pattern": "*docs*",
+          "base_timeout": 90
+        }
+        
     IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
-    Returns: Dictionary with crawled pages information and site map
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
+        
+    Returns:
+        Dictionary with crawled pages information and site map
     """
     try:
         # Create filter chain - always include domain filter for stability
@@ -895,7 +896,7 @@ async def deep_crawl_site(
         }
 
 
-@mcp.tool
+@mcp.tool()
 async def get_llm_config_info() -> Dict[str, Any]:
     """
     Get information about the current LLM configuration.
@@ -1120,7 +1121,7 @@ async def _internal_intelligent_extract(
         }
 
 
-@mcp.tool
+@mcp.tool()
 async def intelligent_extract(
     url: str,
     extraction_goal: str,
@@ -1133,52 +1134,58 @@ async def intelligent_extract(
     custom_instructions: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    🤖 AI-powered extraction of specific data points from web pages.
+    🎯 AI-powered smart extraction - finds exactly what you're looking for with LLM understanding.
     
-    ⚠️ REQUIRES: LLM configuration (check with get_llm_config_info first)
+    ⭐ MAIN STRENGTH: Semantic understanding - knows context and meaning, not just patterns.
     
     USE WHEN:
-    - Need specific data (prices, specs, contact info) not full content
-    - Want semantic understanding beyond pattern matching
-    - Complex extraction that needs AI reasoning
+    - Need specific data points (prices, specifications, key facts)
+    - Want AI to understand context and filter intelligently  
+    - Extract insights that require reasoning
     
-    🎯 LLM REQUIREMENTS:
-    - OpenAI, Anthropic, or Ollama API configured
-    - If no LLM → Falls back to pattern extraction  
-    - Check setup: call get_llm_config_info tool first
+    ⚠️ IMPORTANT REQUIREMENTS:
+    - REQUIRES LLM configuration (OpenAI/Anthropic API key)
+    - Falls back to basic extraction if LLM unavailable
+    - Best with specific, clear extraction goals
     
-    📈 SUCCESS TIPS:
-    - Be specific in extraction_goal: "product price and warranty info"
-    - Use filter_query for BM25: "price warranty specifications"
-    - For JS sites: enable wait_for_js in the crawler first
+    💡 SUCCESSFUL EXTRACTION GOALS:
+    ✅ "product prices and specifications"  ✅ "contact information and office addresses"
+    ✅ "key company financial metrics"      ✅ "article summary and main points"  
+    ✅ "technical requirements and APIs"    ✅ "pricing plans and features"
     
-    COMMON PATTERNS:
-    - E-commerce: "product name, price, availability, key features"
-    - Contact pages: "email addresses, phone numbers, business hours"  
-    - Articles: "main points, author, publication date, key quotes"
+    📊 vs other tools:
+    - vs crawl_url: Use this for targeted data; crawl_url for full content
+    - vs extract_entities: Use this for meaning; extract_entities for patterns (emails/phones)
+    - vs search_and_crawl: Use this when you have the URL; search_and_crawl to find URLs first
     
-    vs extract_entities: Use this for semantic understanding; extract_entities for regex patterns
-    vs crawl_url: Use this for specific data; crawl_url for complete content
-    
-    Example for product info:
-    {
-      "url": "https://shop.com/product",
-      "extraction_goal": "product name, price, key specifications, availability",
-      "content_filter": "bm25",
-      "filter_query": "price specifications stock available",
-      "use_llm": true
-    }
-    
-    Example for contact info:
-    {
-      "url": "https://company.com/contact", 
-      "extraction_goal": "email addresses, phone numbers, business hours",
-      "content_filter": "bm25",
-      "filter_query": "email phone contact hours"
-    }
-    
+    Args:
+        url: URL to extract content from
+        extraction_goal: Description of what to extract (e.g., "product information", "article summary")
+        content_filter: Filter type - 'bm25', 'pruning', 'llm', or 'none'
+        filter_query: Query for content filtering (required for BM25)
+        chunk_content: Whether to chunk large content for better processing
+        use_llm: Whether to use LLM for intelligent extraction
+        llm_provider: LLM provider (auto-detected from config if not specified)
+        llm_model: Specific model to use (auto-detected from config if not specified)
+        custom_instructions: Custom instructions for extraction
+        
+    Example MCP Call:
+        {
+          "url": "https://example.com/product",
+          "extraction_goal": "product prices and specifications",
+          "content_filter": "bm25",
+          "filter_query": "price specifications features",
+          "use_llm": true,
+          "chunk_content": false
+        }
+        
     IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
-    Returns: Dictionary with extracted content and metadata
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
+        
+    Returns:
+        Dictionary with extracted content and metadata
     """
     return await _internal_intelligent_extract(
         url=url,
@@ -1334,7 +1341,7 @@ async def _internal_extract_entities(
         }
 
 
-@mcp.tool
+@mcp.tool()
 async def extract_entities(
     url: str,
     entity_types: List[str],
@@ -1718,7 +1725,7 @@ Return valid JSON that matches the schema."""
         )
 
 
-@mcp.tool
+@mcp.tool()
 async def extract_structured_data(request: StructuredExtractionRequest) -> CrawlResponse:
     """
     Extract structured data from a URL using CSS selectors or LLM-based extraction.
@@ -1747,7 +1754,7 @@ async def extract_structured_data(request: StructuredExtractionRequest) -> Crawl
     return await _internal_extract_structured_data(request)
 
 
-@mcp.tool
+@mcp.tool()
 async def batch_crawl(urls: List[str], config: Optional[Dict[str, Any]] = None, base_timeout: int = 30) -> List[CrawlResponse]:
     """
     Crawl multiple URLs in batch.
@@ -1827,7 +1834,7 @@ async def batch_crawl(urls: List[str], config: Optional[Dict[str, Any]] = None, 
     return results
 
 
-@mcp.tool
+@mcp.tool()
 async def crawl_url_with_fallback(request: CrawlRequest) -> CrawlResponse:
     """
     Enhanced crawling with multiple fallback strategies using crawl4ai.
@@ -1936,7 +1943,7 @@ async def crawl_url_with_fallback(request: CrawlRequest) -> CrawlResponse:
     )
 
 
-@mcp.tool
+@mcp.tool()
 async def process_file(request: FileProcessRequest) -> FileProcessResponse:
     """
     Convert documents (PDF, Word, Excel, PowerPoint, ZIP) into readable markdown text.
@@ -2009,7 +2016,7 @@ async def process_file(request: FileProcessRequest) -> FileProcessResponse:
         )
 
 
-@mcp.tool
+@mcp.tool()
 async def get_supported_file_formats() -> Dict[str, Any]:
     """
     Get list of supported file formats for file processing.
@@ -2073,7 +2080,7 @@ async def get_supported_file_formats() -> Dict[str, Any]:
         }
 
 
-@mcp.tool
+@mcp.tool()
 async def extract_youtube_transcript(request: Dict[str, Any]) -> YouTubeTranscriptResponse:
     """
     Convert YouTube videos into searchable text transcripts with timestamps.
@@ -2192,7 +2199,7 @@ async def extract_youtube_transcript(request: Dict[str, Any]) -> YouTubeTranscri
         )
 
 
-@mcp.tool
+@mcp.tool()
 async def batch_extract_youtube_transcripts(request: Dict[str, Any]) -> YouTubeBatchResponse:
     """
     Extract transcripts from multiple YouTube videos using youtube-transcript-api.
@@ -2332,7 +2339,7 @@ async def batch_extract_youtube_transcripts(request: Dict[str, Any]) -> YouTubeB
         )
 
 
-@mcp.tool
+@mcp.tool()
 async def get_youtube_video_info(
     video_url: str,
     summarize_transcript: bool = False,
@@ -2466,7 +2473,7 @@ async def get_youtube_video_info(
         }
 
 
-@mcp.tool
+@mcp.tool()
 async def get_youtube_api_setup_guide() -> Dict[str, Any]:
     """
     Get setup information for youtube-transcript-api integration.
@@ -2561,7 +2568,7 @@ async def get_youtube_api_setup_guide() -> Dict[str, Any]:
         }
 
 
-@mcp.tool
+@mcp.tool()
 async def search_google(request: GoogleSearchRequest, include_current_date: bool = True) -> GoogleSearchResponse:
     """
     Perform Google search with genre filtering and extract structured results with metadata.
@@ -2644,7 +2651,7 @@ async def search_google(request: GoogleSearchRequest, include_current_date: bool
         )
 
 
-@mcp.tool
+@mcp.tool()
 async def batch_search_google(request: GoogleBatchSearchRequest, include_current_date: bool = True) -> GoogleBatchSearchResponse:
     """
     Perform multiple Google searches in batch with analysis.
@@ -2741,7 +2748,7 @@ async def batch_search_google(request: GoogleBatchSearchRequest, include_current
         )
 
 
-@mcp.tool
+@mcp.tool()
 async def search_and_crawl(
     search_query: str,
     num_search_results: int = 5,
@@ -2753,54 +2760,59 @@ async def search_and_crawl(
     include_current_date: bool = True
 ) -> Dict[str, Any]:
     """
-    🔍🕷️ Google search + automatic content extraction in ONE powerful step.
+    🔍+🌐 The ULTIMATE research tool - Google search + automatic full content extraction.
     
-    ⭐ COMBINED POWER: Finds relevant pages AND extracts their full content automatically.
+    ⭐ MAIN STRENGTH: Two-step automation - finds relevant pages AND gets their full content.
     
     USE WHEN:
-    - Research that needs both discovery AND content analysis
-    - Competitive analysis ("find competitor pricing pages and extract details")  
-    - Current events analysis ("latest AI news with full articles")
-    - Market research with comprehensive content
+    - Research questions needing current information + full article content
+    - Competitive analysis with detailed content examination
+    - Market research requiring comprehensive data
+    - "Find and analyze..." type requests
     
-    🎯 SMART DEFAULTS:
-    - crawl_top_results=3 (good balance of speed vs coverage)
-    - Automatic timeout scaling based on page count
-    - 31 search genres available for targeted results
+    🎯 PERFECT EXAMPLES:
+    ✅ "Research latest AI developments with full articles" 
+    ✅ "Find competitor pricing pages and analyze them"
+    ✅ "Search Python tutorials and get complete content"
+    ✅ "Find company financial reports and extract key metrics"
     
-    📊 WHAT TO EXPECT:
-    ✅ Success: Search results + full page content + analysis summary
-    ⚠️ Partial success: Some pages may fail (success rate reported)
-    ⏱️ Time: ~30-90 seconds depending on page count and complexity
+    🔧 SMART GENRE FILTERING (31 options):
+    📚 "academic" - research papers  📰 "news" - latest articles  💻 "programming" - code tutorials
+    📄 "documentation" - tech docs   🛒 "shopping" - product pages  🎓 "education" - learning resources
     
-    GENRE EXAMPLES:
-    - "academic" - Research papers, scholarly articles
-    - "news" - Latest news articles  
-    - "technical" - Documentation, tutorials
-    - "shopping" - Product pages, e-commerce
+    📊 vs other tools:
+    - vs search_google: Use this for full content; search_google for just search results
+    - vs crawl_url: Use this to find URLs first; crawl_url when you already have URLs
+    - vs intelligent_extract: Use this for discovery; intelligent_extract for known pages
     
-    vs search_google: Use this for full content analysis; search_google for URLs only
-    vs deep_crawl_site: Use this for discovery; deep_crawl_site for known sites
-    
-    Example for research:
-    {
-      "search_query": "latest AI developments 2024",
-      "num_search_results": 8,
-      "crawl_top_results": 5,
-      "search_genre": "news",
-      "include_current_date": true
-    }
-    
-    Example for competitive analysis:
-    {
-      "search_query": "competitor pricing SaaS tools",  
-      "num_search_results": 10,
-      "crawl_top_results": 4,
-      "search_genre": "technical"
-    }
-    
+    Args:
+        search_query: Google search query
+        num_search_results: Number of search results to retrieve (1-20)
+        crawl_top_results: Number of top results to crawl (1-10)
+        extract_media: Whether to extract media from crawled pages
+        generate_markdown: Whether to generate markdown content
+        search_genre: Optional search genre for content filtering
+        base_timeout: Base timeout in seconds (default: 30), adjusted based on crawl count
+        include_current_date: Whether to append current date to search query for latest results
+        
+    Example MCP Call:
+        {
+          "search_query": "AI latest developments",
+          "num_search_results": 5,
+          "crawl_top_results": 3,
+          "generate_markdown": true,
+          "search_genre": "news",
+          "base_timeout": 60,
+          "include_current_date": true
+        }
+        
     IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
-    Returns: Dictionary with search results and crawled content
+    
+    NOTE: If the first call fails, please try again. Network issues or timeouts 
+    can cause temporary failures, but retry often succeeds.
+        
+    Returns:
+        Dictionary with search results and crawled content
     """
     try:
         # Validate parameters
@@ -2926,7 +2938,7 @@ async def search_and_crawl(
         }
 
 
-@mcp.tool
+@mcp.tool()
 async def get_search_genres() -> Dict[str, Any]:
     """
     Get list of available search genres for content filtering.
@@ -2978,7 +2990,7 @@ async def get_search_genres() -> Dict[str, Any]:
         }
 
 
-@mcp.tool
+@mcp.tool()
 async def get_tool_selection_guide() -> Dict[str, Any]:
     """
     Get comprehensive tool selection guide for AI agents.
@@ -3162,7 +3174,7 @@ async def get_file_processing_examples() -> str:
     return json.dumps(examples, indent=2)
 
 
-@mcp.prompt
+@mcp.prompt()
 def crawl_website_prompt(url: str, extraction_type: str = "basic"):
     """
     Create a prompt for crawling a website with specific instructions.
@@ -3218,7 +3230,7 @@ crawl_urlツールを使用し、extract_media=trueに設定してください�
     return [{"role": "user", "content": {"type": "text", "text": content}}]
 
 
-@mcp.prompt
+@mcp.prompt()
 def analyze_crawl_results_prompt(crawl_data: str):
     """
     Create a prompt for analyzing crawl results.
@@ -3245,7 +3257,7 @@ def analyze_crawl_results_prompt(crawl_data: str):
     return [{"role": "user", "content": {"type": "text", "text": content}}]
 
 
-@mcp.prompt
+@mcp.prompt()
 def batch_crawl_setup_prompt(urls: str):
     """
     Create a prompt for setting up batch crawling.
@@ -3275,7 +3287,7 @@ batch_crawlツールを使用して以下を実行してください：
     return [{"role": "user", "content": {"type": "text", "text": content}}]
 
 
-@mcp.prompt
+@mcp.prompt()
 def process_file_prompt(file_url: str, file_type: str = "auto"):
     """
     Create a prompt for processing files with MarkItDown.

@@ -77,6 +77,10 @@ mcp-logs/
 *.mcp.log
 .mcp.json
 
+# Development configuration files
+.textlintrc
+CLAUDE.md
+
 # API keys and secrets
 secrets/
 *.key

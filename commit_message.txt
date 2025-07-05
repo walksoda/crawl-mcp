@@ -1,0 +1,29 @@
+📝 textlint品質改善とLLMツール説明最適化
+
+## 主な変更内容
+
+### textlint品質改善
+- 英語版・日本語版READMEでtextlint AI writing rulesに対応
+- 機械的な表現を自然な文章に修正（**項目: 説明**パターンなど）
+- 絵文字（✅）をテキストベースの表現に変更
+- 感嘆符を削除し、より落ち着いた表現に統一
+- コロン終わりの機械的な箇条書きを改善
+
+### LLMツール説明最適化
+- crawl4ai_mcp/server.pyのMCPツール説明を大幅改善
+- LLMがツールを適切に選択できるよう詳細な使用場面を追加
+- JavaScript対応機能を強調した分かりやすい説明
+- ツール間の違いを明確化
+- DXTパッケージ版にも同様の改善を適用
+
+### DXTパッケージ更新
+- v1.0.7パッケージを最新のツール説明で再構築
+- 121KBサイズで配布準備完了
+
+### その他
+- .gitignoreに開発用設定ファイル(.textlintrc、CLAUDE.md)を追加
+- 古いドキュメントファイル(PROJECT_STRUCTURE.md、QUICK_START.md)を削除
+
+🤖 Generated with Claude Code
+
+Co-Authored-By: Claude <noreply@anthropic.com>
