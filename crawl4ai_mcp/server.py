@@ -10,7 +10,7 @@ import json
 import os
 import sys
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Annotated
 from pydantic import BaseModel, Field
 from fastmcp import FastMCP
 from crawl4ai import AsyncWebCrawler
@@ -81,6 +81,13 @@ class CrawlRequest(BaseModel):
     # Authentication
     auth_token: Optional[str] = Field(None, description="Authentication token")
     cookies: Optional[Dict[str, str]] = Field(None, description="Custom cookies")
+    
+    # Auto-summarization for large content
+    auto_summarize: bool = Field(False, description="Automatically summarize large content using LLM")
+    max_content_tokens: int = Field(15000, description="Maximum tokens before triggering auto-summarization")
+    summary_length: str = Field("medium", description="Summary length: 'short', 'medium', 'long'")
+    llm_provider: Optional[str] = Field(None, description="LLM provider for summarization (auto-detected if not specified)")
+    llm_model: Optional[str] = Field(None, description="Specific LLM model for summarization (auto-detected if not specified)")
 
 
 class StructuredExtractionRequest(BaseModel):
@@ -236,6 +243,183 @@ youtube_processor = YouTubeProcessor()
 
 # Initialize GoogleSearchProcessor for search functionality
 google_search_processor = GoogleSearchProcessor()
+
+
+async def summarize_web_content(
+    content: str,
+    title: str = "",
+    url: str = "",
+    summary_length: str = "medium",
+    llm_provider: Optional[str] = None,
+    llm_model: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Summarize web page content using LLM when content is too large for context.
+    
+    Args:
+        content: The web page content to summarize (markdown or text)
+        title: Page title for context
+        url: Source URL for reference
+        summary_length: "short", "medium", or "long" summary
+        llm_provider: LLM provider to use
+        llm_model: Specific model to use
+        
+    Returns:
+        Dictionary with summary and metadata
+    """
+    try:
+        # Import config here to avoid circular imports
+        try:
+            from .config import get_llm_config
+        except ImportError:
+            from config import get_llm_config
+        
+        # Define summary lengths
+        length_configs = {
+            "short": {
+                "target_length": "2-3 paragraphs",
+                "detail_level": "key points and main conclusions only"
+            },
+            "medium": {
+                "target_length": "4-6 paragraphs", 
+                "detail_level": "main topics with important details and examples"
+            },
+            "long": {
+                "target_length": "8-12 paragraphs",
+                "detail_level": "comprehensive overview with subtopics, examples, and analysis"
+            }
+        }
+        
+        config = length_configs.get(summary_length, length_configs["medium"])
+        
+        # Prepare instruction for LLM
+        instruction = f"""
+        Summarize this web page content in {config['target_length']}.
+        Focus on {config['detail_level']}.
+        
+        Page Information:
+        - Title: {title}
+        - URL: {url}
+        
+        Structure your summary with:
+        1. Brief overview of the page purpose and main topic
+        2. Key sections or categories discussed
+        3. Important information, data, or insights
+        4. Relevant examples, quotes, or specific details
+        5. Conclusions or actionable information
+        
+        Make the summary informative and well-structured, preserving important technical details and maintaining the original context.
+        """
+        
+        # Get LLM configuration
+        llm_config = get_llm_config(llm_provider, llm_model)
+        
+        # Create the prompt for summarization
+        prompt = f"""
+        {instruction}
+        
+        Please provide a JSON response with the following structure:
+        {{
+            "summary": "The comprehensive summary of the content",
+            "key_topics": ["List", "of", "main", "topics", "covered"],
+            "content_type": "Type/category of the webpage (e.g., 'Documentation', 'Article', 'Blog Post')",
+            "main_insights": ["Key", "insights", "or", "takeaways"],
+            "technical_details": ["Important", "technical", "information", "if", "any"]
+        }}
+        
+        Web content to summarize:
+        {content}
+        """
+        
+        # Use the LLM config to make direct API call
+        if hasattr(llm_config, 'provider'):
+            provider_info = llm_config.provider.split('/')
+            provider = provider_info[0] if provider_info else 'openai'
+            model = provider_info[1] if len(provider_info) > 1 else 'gpt-4o'
+            
+            if provider == 'openai':
+                import openai
+                
+                # Get API key from config
+                api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
+                
+                if not api_key:
+                    raise ValueError("OpenAI API key not found")
+                
+                client = openai.AsyncOpenAI(api_key=api_key)
+                
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant that creates comprehensive summaries of web page content."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.3,
+                    max_tokens=2500  # Generous token limit for detailed summaries
+                )
+                
+                extracted_content = response.choices[0].message.content
+            else:
+                raise ValueError(f"Provider {provider} not supported in direct mode")
+        else:
+            raise ValueError("Invalid LLM config format")
+        
+        if extracted_content:
+            try:
+                import json
+                # Clean up the extracted content if it's wrapped in markdown
+                content_to_parse = extracted_content
+                if content_to_parse.startswith('```json'):
+                    content_to_parse = content_to_parse.replace('```json', '').replace('```', '').strip()
+                
+                summary_data = json.loads(content_to_parse) if isinstance(content_to_parse, str) else content_to_parse
+                
+                return {
+                    "success": True,
+                    "summary": summary_data.get("summary", "Summary generation failed"),
+                    "key_topics": summary_data.get("key_topics", []),
+                    "content_type": summary_data.get("content_type", "Unknown"),
+                    "main_insights": summary_data.get("main_insights", []),
+                    "technical_details": summary_data.get("technical_details", []),
+                    "summary_length": summary_length,
+                    "original_length": len(content),
+                    "compressed_ratio": len(summary_data.get("summary", "")) / len(content) if content else 0,
+                    "llm_provider": llm_config.get("provider") if isinstance(llm_config, dict) else "unknown",
+                    "llm_model": llm_config.get("model") if isinstance(llm_config, dict) else "unknown",
+                    "source_url": url,
+                    "source_title": title
+                }
+            except (json.JSONDecodeError, AttributeError) as e:
+                # Fallback: treat as plain text summary
+                return {
+                    "success": True,
+                    "summary": str(extracted_content),
+                    "key_topics": [],
+                    "content_type": "Unknown",
+                    "main_insights": [],
+                    "technical_details": [],
+                    "summary_length": summary_length,
+                    "original_length": len(content),
+                    "compressed_ratio": len(str(extracted_content)) / len(content) if content else 0,
+                    "llm_provider": llm_config.get("provider") if isinstance(llm_config, dict) else "unknown",
+                    "llm_model": llm_config.get("model") if isinstance(llm_config, dict) else "unknown",
+                    "fallback_mode": True,
+                    "source_url": url,
+                    "source_title": title
+                }
+        else:
+            return {
+                "success": False,
+                "error": "LLM extraction returned empty result",
+                "summary_length": summary_length
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Summarization failed: {str(e)}",
+            "summary_length": summary_length
+        }
 
 
 async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
@@ -529,25 +713,144 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     if page.media and request.extract_media:
                         all_media.extend(page.media)
                 
+                # Prepare content for potential summarization
+                combined_content = "\n\n".join(all_content) if all_content else result.cleaned_html
+                combined_markdown = "\n\n".join(all_markdown) if all_markdown else result.markdown
+                title_to_use = result.metadata.get("title", "")
+                extracted_data = {"crawled_pages": len(result.crawled_pages)} if hasattr(result, 'crawled_pages') else {}
+                
+                # Apply auto-summarization if enabled and content is large
+                if request.auto_summarize and combined_content:
+                    # Rough token estimation: 1 token ≈ 4 characters
+                    estimated_tokens = len(combined_content) // 4
+                    
+                    if estimated_tokens > request.max_content_tokens:
+                        try:
+                            # Use markdown content for summarization if available, otherwise use cleaned HTML
+                            content_for_summary = combined_markdown or combined_content
+                            
+                            summary_result = await summarize_web_content(
+                                content=content_for_summary,
+                                title=title_to_use,
+                                url=request.url,
+                                summary_length=request.summary_length,
+                                llm_provider=request.llm_provider,
+                                llm_model=request.llm_model
+                            )
+                            
+                            if summary_result.get("success"):
+                                # Replace content with summary and preserve original in extracted_data
+                                combined_content = summary_result["summary"]
+                                combined_markdown = summary_result["summary"]
+                                
+                                extracted_data.update({
+                                    "summarization_applied": True,
+                                    "original_content_length": len("\n\n".join(all_content) if all_content else result.cleaned_html),
+                                    "original_tokens_estimate": estimated_tokens,
+                                    "summary_length": request.summary_length,
+                                    "compression_ratio": summary_result.get("compressed_ratio", 0),
+                                    "key_topics": summary_result.get("key_topics", []),
+                                    "content_type": summary_result.get("content_type", "Unknown"),
+                                    "main_insights": summary_result.get("main_insights", []),
+                                    "technical_details": summary_result.get("technical_details", []),
+                                    "llm_provider": summary_result.get("llm_provider", "unknown"),
+                                    "llm_model": summary_result.get("llm_model", "unknown"),
+                                    "auto_summarization_trigger": f"Deep crawl content exceeded {request.max_content_tokens} tokens"
+                                })
+                            else:
+                                # Summarization failed, add error info but keep original content
+                                extracted_data.update({
+                                    "summarization_attempted": True,
+                                    "summarization_error": summary_result.get("error", "Unknown error"),
+                                    "original_content_preserved": True
+                                })
+                        except Exception as e:
+                            # Summarization failed, add error info but keep original content
+                            extracted_data.update({
+                                "summarization_attempted": True,
+                                "summarization_error": f"Exception during summarization: {str(e)}",
+                                "original_content_preserved": True
+                            })
+                
                 response = CrawlResponse(
                     success=True,
                     url=request.url,
-                    title=result.metadata.get("title"),
-                    content="\n\n".join(all_content) if all_content else result.cleaned_html,
-                    markdown="\n\n".join(all_markdown) if all_markdown else result.markdown,
+                    title=title_to_use,
+                    content=combined_content,
+                    markdown=combined_markdown,
                     media=all_media if request.extract_media else None,
                     screenshot=result.screenshot if request.take_screenshot else None,
-                    extracted_data={"crawled_pages": len(result.crawled_pages)} if hasattr(result, 'crawled_pages') else None
+                    extracted_data=extracted_data
                 )
             else:
+                # Check if auto-summarization should be applied
+                content_to_use = result.cleaned_html
+                markdown_to_use = result.markdown
+                extracted_data = None
+                title_to_use = result.metadata.get("title", "")
+                
+                # Apply auto-summarization if enabled and content is large
+                if request.auto_summarize and content_to_use:
+                    # Rough token estimation: 1 token ≈ 4 characters
+                    estimated_tokens = len(content_to_use) // 4
+                    
+                    if estimated_tokens > request.max_content_tokens:
+                        try:
+                            # Use markdown content for summarization if available, otherwise use cleaned HTML
+                            content_for_summary = markdown_to_use or content_to_use
+                            
+                            summary_result = await summarize_web_content(
+                                content=content_for_summary,
+                                title=title_to_use,
+                                url=request.url,
+                                summary_length=request.summary_length,
+                                llm_provider=request.llm_provider,
+                                llm_model=request.llm_model
+                            )
+                            
+                            if summary_result.get("success"):
+                                # Replace content with summary and preserve original in extracted_data
+                                content_to_use = summary_result["summary"]
+                                markdown_to_use = summary_result["summary"]  # Use same summary for both
+                                
+                                extracted_data = {
+                                    "summarization_applied": True,
+                                    "original_content_length": len(result.cleaned_html),
+                                    "original_tokens_estimate": estimated_tokens,
+                                    "summary_length": request.summary_length,
+                                    "compression_ratio": summary_result.get("compressed_ratio", 0),
+                                    "key_topics": summary_result.get("key_topics", []),
+                                    "content_type": summary_result.get("content_type", "Unknown"),
+                                    "main_insights": summary_result.get("main_insights", []),
+                                    "technical_details": summary_result.get("technical_details", []),
+                                    "llm_provider": summary_result.get("llm_provider", "unknown"),
+                                    "llm_model": summary_result.get("llm_model", "unknown"),
+                                    "auto_summarization_trigger": f"Content exceeded {request.max_content_tokens} tokens"
+                                }
+                            else:
+                                # Summarization failed, add error info but keep original content
+                                extracted_data = {
+                                    "summarization_attempted": True,
+                                    "summarization_error": summary_result.get("error", "Unknown error"),
+                                    "original_content_preserved": True
+                                }
+                        except Exception as e:
+                            # Summarization failed, add error info but keep original content
+                            extracted_data = {
+                                "summarization_attempted": True,
+                                "summarization_error": f"Exception during summarization: {str(e)}",
+                                "original_content_preserved": True
+                            }
+                
                 response = CrawlResponse(
                     success=True,
                     url=request.url,
-                    title=result.metadata.get("title"),
-                    content=result.cleaned_html,
-                    markdown=result.markdown,
+                    title=title_to_use,
+                    content=content_to_use,
+                    markdown=markdown_to_use,
                     media=result.media if request.extract_media else None,
                     screenshot=result.screenshot if request.take_screenshot else None,
+                    extracted_data=extracted_data
                 )
             return response
         else:
@@ -579,60 +882,122 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
 
 
 @mcp.tool
-async def crawl_url(request: CrawlRequest) -> CrawlResponse:
+async def crawl_url(
+    url: Annotated[str, Field(description="Target URL to crawl")],
+    css_selector: Annotated[Optional[str], Field(description="CSS selector for content extraction")] = None,
+    xpath: Annotated[Optional[str], Field(description="XPath selector for content extraction")] = None,
+    extract_media: Annotated[bool, Field(description="Whether to extract media files")] = False,
+    take_screenshot: Annotated[bool, Field(description="Whether to take a screenshot")] = False,
+    generate_markdown: Annotated[bool, Field(description="Whether to generate markdown")] = True,
+    wait_for_selector: Annotated[Optional[str], Field(description="Wait for specific element")] = None,
+    timeout: Annotated[int, Field(description="Request timeout in seconds")] = 60,
+    max_depth: Annotated[Optional[int], Field(description="Maximum crawling depth (None for single page)")] = None,
+    max_pages: Annotated[Optional[int], Field(description="Maximum number of pages to crawl")] = 10,
+    include_external: Annotated[bool, Field(description="Whether to follow external domain links")] = False,
+    crawl_strategy: Annotated[str, Field(description="Crawling strategy: 'bfs', 'dfs', or 'best_first'")] = "bfs",
+    url_pattern: Annotated[Optional[str], Field(description="URL pattern filter (e.g., '*docs*')")] = None,
+    score_threshold: Annotated[float, Field(description="Minimum score for URLs to be crawled")] = 0.3,
+    content_filter: Annotated[Optional[str], Field(description="Content filter type: 'bm25', 'pruning', 'llm'")] = None,
+    filter_query: Annotated[Optional[str], Field(description="Query for BM25 content filtering")] = None,
+    chunk_content: Annotated[bool, Field(description="Whether to chunk large content")] = False,
+    chunk_strategy: Annotated[str, Field(description="Chunking strategy: 'topic', 'regex', 'sentence'")] = "topic",
+    chunk_size: Annotated[int, Field(description="Maximum chunk size in tokens")] = 1000,
+    overlap_rate: Annotated[float, Field(description="Overlap rate between chunks (0.0-1.0)")] = 0.1,
+    user_agent: Annotated[Optional[str], Field(description="Custom user agent string")] = None,
+    headers: Annotated[Optional[Dict[str, str]], Field(description="Custom HTTP headers")] = None,
+    enable_caching: Annotated[bool, Field(description="Whether to enable caching")] = True,
+    cache_mode: Annotated[str, Field(description="Cache mode: 'enabled', 'disabled', 'bypass'")] = "enabled",
+    execute_js: Annotated[Optional[str], Field(description="JavaScript code to execute")] = None,
+    wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to complete")] = False,
+    simulate_user: Annotated[bool, Field(description="Simulate human-like browsing behavior")] = False,
+    auth_token: Annotated[Optional[str], Field(description="Authentication token")] = None,
+    cookies: Annotated[Optional[Dict[str, str]], Field(description="Custom cookies")] = None,
+    auto_summarize: Annotated[bool, Field(description="Automatically summarize large content using LLM")] = False,
+    max_content_tokens: Annotated[int, Field(description="Maximum tokens before triggering auto-summarization")] = 15000,
+    summary_length: Annotated[str, Field(description="Summary length: 'short', 'medium', 'long'")] = "medium",
+    llm_provider: Annotated[Optional[str], Field(description="LLM provider for summarization (auto-detected if not specified)")] = None,
+    llm_model: Annotated[Optional[str], Field(description="Specific LLM model for summarization (auto-detected if not specified)")] = None
+) -> CrawlResponse:
     """
-    🌐 Extract content from any web page with FULL JavaScript support (React/Vue/Angular).
+    🌐 Extract content from web pages with full JavaScript support. Auto-detects PDFs, Office docs, and YouTube videos.
     
-    ⭐ MAIN STRENGTH: Complete JavaScript rendering - handles dynamic sites other tools can't.
+    KEY PARAMETERS:
     
-    USE WHEN: 
-    - Single webpage content extraction
-    - JavaScript-heavy sites (SPAs, dynamic content)
-    - PDFs, Office docs, YouTube videos (auto-detected)
+    📄 BASIC EXTRACTION:
+    • url (required): Target URL to crawl
+    • generate_markdown (default: true): Convert to clean markdown format
+    • css_selector/xpath: Extract specific page elements
+    • extract_media (default: false): Include images/videos in response
     
-    🎯 SUCCESS SETTINGS for JavaScript sites:
-    {
-      "wait_for_js": true,        # Essential for dynamic content
-      "simulate_user": true,      # Bypass basic anti-bot measures  
-      "timeout": 30-60,          # Allow time for JS execution
-      "generate_markdown": true   # Clean output format
-    }
+    🎯 JAVASCRIPT SUPPORT:
+    • wait_for_js (default: false): Wait for JavaScript to complete - ESSENTIAL for SPAs
+    • simulate_user (default: false): Bypass basic anti-bot measures
+    • timeout (default: 60): Seconds to wait for page load (30-60 for JS sites)
+    • wait_for_selector: Wait for specific element to appear
+    • execute_js: Run custom JavaScript code on the page
     
-    📊 WHAT TO EXPECT:
-    ✅ Success: Clean markdown, structured content, media links
-    ⚠️ May fail: Heavy CAPTCHA sites, login-required pages
-    🔄 If fails: Retry immediately (network issues common)
+    🤖 AUTO-SUMMARIZATION (for large content):
+    • auto_summarize (default: false): Enable LLM-powered summarization
+    • max_content_tokens (default: 15000): Token limit before auto-summarization
+    • summary_length (default: "medium"): "short" | "medium" | "long"
+    • llm_provider: "openai" | "anthropic" (auto-detected if not specified)
+    • llm_model: Model name (auto-detected if not specified)
     
-    vs deep_crawl_site: Use this for single pages; deep_crawl_site for multiple pages (max 5)
-    vs intelligent_extract: Use this for full content; intelligent_extract for specific data
+    📋 CONTENT PROCESSING:
+    • chunk_content (default: false): Split large content into chunks
+    • chunk_size (default: 1000): Tokens per chunk
+    • content_filter: "bm25" | "pruning" | "llm" for content filtering
+    • filter_query: Search query for BM25 filtering
     
-    FAILURE RECOVERY:
-    1. First failure → Retry immediately 
-    2. Still failing → Increase timeout to 60s
-    3. Persistent issues → Try crawl_url_with_fallback
+    🔧 ADVANCED OPTIONS:
+    • user_agent: Custom browser user agent
+    • headers: Custom HTTP headers
+    • cookies: Custom cookies object
+    • cache_mode: "enabled" | "disabled" | "bypass"
+    • take_screenshot (default: false): Capture page screenshot
     
-    Example for JavaScript-heavy site:
-    {
-      "request": {
-        "url": "https://spa-website.com",
-        "wait_for_js": true,
-        "simulate_user": true,
-        "timeout": 45,
-        "generate_markdown": true
-      }
-    }
-    
-    Example for document:
-    {
-      "request": {
-        "url": "https://example.com/document.pdf", 
-        "generate_markdown": true
-      }
-    }
-    
-    IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
-    Returns: CrawlResponse with crawled content and metadata
+    EXAMPLES:
+    Basic: {"url": "https://example.com"}
+    JS Site: {"url": "https://spa.com", "wait_for_js": true, "simulate_user": true}
+    Large Content: {"url": "https://long-article.com", "auto_summarize": true, "max_content_tokens": 10000}
     """
+    # Create CrawlRequest object from individual parameters
+    request = CrawlRequest(
+        url=url,
+        css_selector=css_selector,
+        xpath=xpath,
+        extract_media=extract_media,
+        take_screenshot=take_screenshot,
+        generate_markdown=generate_markdown,
+        wait_for_selector=wait_for_selector,
+        timeout=timeout,
+        max_depth=max_depth,
+        max_pages=max_pages,
+        include_external=include_external,
+        crawl_strategy=crawl_strategy,
+        url_pattern=url_pattern,
+        score_threshold=score_threshold,
+        content_filter=content_filter,
+        filter_query=filter_query,
+        chunk_content=chunk_content,
+        chunk_strategy=chunk_strategy,
+        chunk_size=chunk_size,
+        overlap_rate=overlap_rate,
+        user_agent=user_agent,
+        headers=headers,
+        enable_caching=enable_caching,
+        cache_mode=cache_mode,
+        execute_js=execute_js,
+        wait_for_js=wait_for_js,
+        simulate_user=simulate_user,
+        auth_token=auth_token,
+        cookies=cookies,
+        auto_summarize=auto_summarize,
+        max_content_tokens=max_content_tokens,
+        summary_length=summary_length,
+        llm_provider=llm_provider,
+        llm_model=llm_model
+    )
     return await _internal_crawl_url(request)
 
 
@@ -649,53 +1014,39 @@ async def deep_crawl_site(
     base_timeout: int = 60
 ) -> Dict[str, Any]:
     """
-    🗺️ Systematically crawl multiple pages of a website (MAX 5 PAGES for stability).
+    🗺️ Crawl multiple related pages from a website (MAX 5 PAGES for stability).
     
-    ⚠️ LIMITATION: 5 page maximum - designed for focused exploration, not full site crawling.
+    KEY PARAMETERS:
     
-    USE WHEN:
-    - Documentation sections, blog categories, product catalogs
-    - Need site structure understanding  
-    - Want content from related pages automatically
+    📍 CRAWLING SCOPE:
+    • url (required): Starting URL for multi-page crawling
+    • max_pages (default: 5): Maximum pages to crawl (limit: 5 for stability)
+    • max_depth (default: 2): How many link levels to follow from start URL
+    • include_external (default: false): Allow crawling to external domains
     
-    🎯 SMART USAGE:
-    - Use url_pattern to focus: "*docs*", "*blog*", "*products*"
-    - Start with max_pages=3 for testing
-    - Use score_threshold=0.3 for quality filtering
+    🎯 TARGETING & FILTERING:
+    • url_pattern: Wildcard filter like "*docs*", "*blog*", "*api*" to focus on specific sections
+    • score_threshold (default: 0.0): Minimum relevance score (0.0-1.0) - use 0.3+ for quality filtering
+    • crawl_strategy (default: "bfs"): Crawling approach:
+      - "bfs": Broad exploration (recommended for documentation)
+      - "dfs": Deep dive into specific paths  
+      - "best_first": Quality-focused using relevance scoring
     
-    📊 REALISTIC EXPECTATIONS:
-    ✅ Perfect for: Documentation, blog sections, small catalogs
-    ❌ Not for: Full e-commerce sites, large news sites
-    ⏱️ Processing time: ~30-90 seconds depending on content
+    ⚙️ ADDITIONAL OPTIONS:
+    • extract_media (default: false): Include images/videos from all pages
+    • base_timeout (default: 60): Timeout in seconds for each page
     
-    STRATEGY GUIDE:
-    - "bfs": Broad exploration (recommended for documentation)  
-    - "dfs": Deep dive into specific paths
-    - "best_first": Quality-focused (uses relevance scoring)
+    💡 BEST PRACTICES:
+    - Start with max_pages=3 for testing, then increase if needed
+    - Use url_pattern to focus crawling: "*docs*", "*blog*", "*products*"
+    - Set score_threshold=0.3+ for higher quality content filtering
+    - Perfect for: Documentation sites, blog categories, small product catalogs
+    - NOT suitable for: Large e-commerce sites, news sites with many pages
     
-    vs crawl_url: Use this for multiple related pages; crawl_url for single page
-    vs search_and_crawl: Use this when you know the starting site; search_and_crawl for discovery
-    
-    Example for documentation:
-    {
-      "url": "https://docs.example.com/api",
-      "max_pages": 4,
-      "url_pattern": "*api*",
-      "crawl_strategy": "bfs", 
-      "max_depth": 2
-    }
-    
-    Example for blog section:
-    {
-      "url": "https://blog.example.com/category/tech",
-      "max_pages": 5,
-      "url_pattern": "*tech*",
-      "crawl_strategy": "best_first",
-      "score_threshold": 0.3
-    }
-    
-    IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
-    Returns: Dictionary with crawled pages information and site map
+    EXAMPLES:
+    Documentation: {"url": "https://docs.site.com", "url_pattern": "*api*", "max_pages": 4}
+    Blog Section: {"url": "https://blog.com/tech", "url_pattern": "*tech*", "score_threshold": 0.3}
+    Quality Focus: {"url": "https://site.com", "crawl_strategy": "best_first", "max_pages": 3}
     """
     try:
         # Create filter chain - always include domain filter for stability
@@ -1133,52 +1484,42 @@ async def intelligent_extract(
     custom_instructions: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    🤖 AI-powered extraction of specific data points from web pages.
+    🤖 AI-powered extraction of specific data from web pages using LLM semantic understanding.
     
-    ⚠️ REQUIRES: LLM configuration (check with get_llm_config_info first)
+    KEY PARAMETERS:
     
-    USE WHEN:
-    - Need specific data (prices, specs, contact info) not full content
-    - Want semantic understanding beyond pattern matching
-    - Complex extraction that needs AI reasoning
+    🎯 EXTRACTION TARGET:
+    • url (required): Target webpage URL
+    • extraction_goal (required): Specific data to extract - be precise!
+      Examples: "product name, price, availability", "contact info and business hours"
+    • custom_instructions: Additional guidance for the LLM extraction process
     
-    🎯 LLM REQUIREMENTS:
-    - OpenAI, Anthropic, or Ollama API configured
-    - If no LLM → Falls back to pattern extraction  
-    - Check setup: call get_llm_config_info tool first
+    🔍 CONTENT FILTERING (improves accuracy):
+    • content_filter (default: "bm25"): Pre-filter content before LLM processing
+      - "bm25": Keyword-based relevance filtering (recommended)
+      - "pruning": Remove irrelevant sections
+      - "llm": LLM-based content filtering
+    • filter_query: Keywords for BM25 filtering (e.g., "price specifications stock")
     
-    📈 SUCCESS TIPS:
-    - Be specific in extraction_goal: "product price and warranty info"
-    - Use filter_query for BM25: "price warranty specifications"
-    - For JS sites: enable wait_for_js in the crawler first
+    🤖 LLM CONFIGURATION:
+    • use_llm (default: true): Enable LLM processing (requires API setup)
+    • llm_provider: "openai" | "anthropic" | "ollama" (auto-detected if not specified)
+    • llm_model: Specific model name (auto-detected if not specified)
+    ⚠️ Check LLM setup first with get_llm_config_info tool
     
-    COMMON PATTERNS:
-    - E-commerce: "product name, price, availability, key features"
-    - Contact pages: "email addresses, phone numbers, business hours"  
-    - Articles: "main points, author, publication date, key quotes"
+    📊 PROCESSING OPTIONS:
+    • chunk_content (default: false): Split large content for better processing
     
-    vs extract_entities: Use this for semantic understanding; extract_entities for regex patterns
-    vs crawl_url: Use this for specific data; crawl_url for complete content
+    💡 BEST PRACTICES:
+    - Be specific in extraction_goal: "product price and warranty" not "product info"
+    - Use filter_query with relevant keywords to improve accuracy
+    - For JavaScript sites: Use crawl_url with wait_for_js first, then extract
+    - Perfect for: E-commerce data, contact information, structured content extraction
     
-    Example for product info:
-    {
-      "url": "https://shop.com/product",
-      "extraction_goal": "product name, price, key specifications, availability",
-      "content_filter": "bm25",
-      "filter_query": "price specifications stock available",
-      "use_llm": true
-    }
-    
-    Example for contact info:
-    {
-      "url": "https://company.com/contact", 
-      "extraction_goal": "email addresses, phone numbers, business hours",
-      "content_filter": "bm25",
-      "filter_query": "email phone contact hours"
-    }
-    
-    IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
-    Returns: Dictionary with extracted content and metadata
+    EXAMPLES:
+    Product Info: {"url": "https://shop.com/item", "extraction_goal": "name, price, availability", "filter_query": "price stock available"}
+    Contact Data: {"url": "https://company.com/contact", "extraction_goal": "email, phone, address", "filter_query": "contact email phone"}
+    Article Data: {"url": "https://news.com/article", "extraction_goal": "author, date, key points", "filter_query": "author published date"}
     """
     return await _internal_intelligent_extract(
         url=url,
@@ -1346,46 +1687,38 @@ async def extract_entities(
     llm_model: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Find and extract specific types of data (emails, phones, URLs, dates) from web pages.
+    📋 Extract specific entity types (emails, phones, URLs, dates) using regex patterns or LLM.
     
-    USE WHEN: User needs to find contact information, dates, links, or other structured data patterns.
-    PATTERN-BASED: Fast regex extraction for emails, phones, URLs, dates, coordinates, prices.
-    OUTPUTS: Categorized lists of found entities with context and deduplication.
+    KEY PARAMETERS:
     
-    Best for: Lead generation, contact discovery, data mining, compliance checking.
-    Built-in types: emails, phones, urls, dates, ips, social_media, prices, credit_cards, coordinates.
-    vs intelligent_extract: Use this for pattern-based extraction; use intelligent_extract for AI understanding.
+    🎯 EXTRACTION TARGET:
+    • url (required): Target webpage URL
+    • entity_types (required): List of entity types to extract
+      Regex Types: ["emails", "phones", "urls", "dates", "ips", "social_media", "prices", "credit_cards", "coordinates"]
+      LLM Types: ["names"] for people/organizations/locations (requires use_llm=true)
     
-    Example: Extract all email addresses and phone numbers from a company website.
+    🔍 REGEX EXTRACTION (default):
+    • custom_patterns: Custom regex patterns for specialized entity extraction
+    • include_context (default: true): Include surrounding text for each found entity
+    • deduplicate (default: true): Remove duplicate entities from results
     
-    Args:
-        url: URL to extract entities from
-        entity_types: Types of entities to extract
-            - For regex: emails, phones, urls, dates, social_media, etc.
-            - For LLM: names (people, organizations, locations, misc entities)
-        custom_patterns: Custom regex patterns for entity extraction (regex mode only)
-        include_context: Whether to include surrounding context for each entity
-        deduplicate: Whether to remove duplicate entities
-        use_llm: If True, use LLM for named entity recognition instead of regex
-        llm_provider: LLM provider to use (openai, anthropic, ollama) when use_llm=True
-        llm_model: LLM model to use when use_llm=True
-        
-    Example MCP Call:
-        {
-          "url": "https://example.com/contact",
-          "entity_types": ["emails", "phones", "urls"],
-          "include_context": true,
-          "deduplicate": true,
-          "use_llm": false
-        }
-        
-    IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
+    🤖 LLM EXTRACTION (for named entities):
+    • use_llm (default: false): Use AI for named entity recognition instead of regex
+    • llm_provider: "openai" | "anthropic" | "ollama" (auto-detected if not specified)
+    • llm_model: Specific model name (auto-detected if not specified)
     
-    NOTE: If the first call fails, please try again. Network issues or timeouts 
-    can cause temporary failures, but retry often succeeds.
-        
-    Returns:
-        Dictionary with extracted entities organized by type
+    💡 BEST PRACTICES:
+    - Use regex mode (default) for contact info: emails, phones, URLs, dates
+    - Use LLM mode for complex entities: people names, organizations, locations
+    - Start with common types: ["emails", "phones"] for contact discovery
+    - Enable include_context=true to understand entity context
+    - Perfect for: Lead generation, contact discovery, compliance checking
+    
+    EXAMPLES:
+    Contact Info: {"url": "https://company.com/contact", "entity_types": ["emails", "phones", "urls"]}
+    Social Media: {"url": "https://company.com", "entity_types": ["social_media", "emails"]}
+    Named Entities: {"url": "https://news.com/article", "entity_types": ["names"], "use_llm": true}
+    Custom Pattern: {"url": "https://site.com", "entity_types": ["custom"], "custom_patterns": {"custom": "\\b[A-Z]{2,3}-\\d{4}\\b"}}
     """
     if use_llm and "names" in entity_types:
         # Use LLM-based extraction for named entities
@@ -1828,30 +2161,103 @@ async def batch_crawl(urls: List[str], config: Optional[Dict[str, Any]] = None, 
 
 
 @mcp.tool
-async def crawl_url_with_fallback(request: CrawlRequest) -> CrawlResponse:
+async def crawl_url_with_fallback(
+    url: Annotated[str, Field(description="Target URL to crawl")],
+    css_selector: Annotated[Optional[str], Field(description="CSS selector for content extraction")] = None,
+    xpath: Annotated[Optional[str], Field(description="XPath selector for content extraction")] = None,
+    extract_media: Annotated[bool, Field(description="Whether to extract media files")] = False,
+    take_screenshot: Annotated[bool, Field(description="Whether to take a screenshot")] = False,
+    generate_markdown: Annotated[bool, Field(description="Whether to generate markdown")] = True,
+    wait_for_selector: Annotated[Optional[str], Field(description="Wait for specific element")] = None,
+    timeout: Annotated[int, Field(description="Request timeout in seconds")] = 60,
+    max_depth: Annotated[Optional[int], Field(description="Maximum crawling depth (None for single page)")] = None,
+    max_pages: Annotated[Optional[int], Field(description="Maximum number of pages to crawl")] = 10,
+    include_external: Annotated[bool, Field(description="Whether to follow external domain links")] = False,
+    crawl_strategy: Annotated[str, Field(description="Crawling strategy: 'bfs', 'dfs', or 'best_first'")] = "bfs",
+    url_pattern: Annotated[Optional[str], Field(description="URL pattern filter (e.g., '*docs*')")] = None,
+    score_threshold: Annotated[float, Field(description="Minimum score for URLs to be crawled")] = 0.3,
+    content_filter: Annotated[Optional[str], Field(description="Content filter type: 'bm25', 'pruning', 'llm'")] = None,
+    filter_query: Annotated[Optional[str], Field(description="Query for BM25 content filtering")] = None,
+    chunk_content: Annotated[bool, Field(description="Whether to chunk large content")] = False,
+    chunk_strategy: Annotated[str, Field(description="Chunking strategy: 'topic', 'regex', 'sentence'")] = "topic",
+    chunk_size: Annotated[int, Field(description="Maximum chunk size in tokens")] = 1000,
+    overlap_rate: Annotated[float, Field(description="Overlap rate between chunks (0.0-1.0)")] = 0.1,
+    user_agent: Annotated[Optional[str], Field(description="Custom user agent string")] = None,
+    headers: Annotated[Optional[Dict[str, str]], Field(description="Custom HTTP headers")] = None,
+    enable_caching: Annotated[bool, Field(description="Whether to enable caching")] = True,
+    cache_mode: Annotated[str, Field(description="Cache mode: 'enabled', 'disabled', 'bypass'")] = "enabled",
+    execute_js: Annotated[Optional[str], Field(description="JavaScript code to execute")] = None,
+    wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to complete")] = False,
+    simulate_user: Annotated[bool, Field(description="Simulate human-like browsing behavior")] = False,
+    auth_token: Annotated[Optional[str], Field(description="Authentication token")] = None,
+    cookies: Annotated[Optional[Dict[str, str]], Field(description="Custom cookies")] = None,
+    auto_summarize: Annotated[bool, Field(description="Automatically summarize large content using LLM")] = False,
+    max_content_tokens: Annotated[int, Field(description="Maximum tokens before triggering auto-summarization")] = 15000,
+    summary_length: Annotated[str, Field(description="Summary length: 'short', 'medium', 'long'")] = "medium",
+    llm_provider: Annotated[Optional[str], Field(description="LLM provider for summarization (auto-detected if not specified)")] = None,
+    llm_model: Annotated[Optional[str], Field(description="Specific LLM model for summarization (auto-detected if not specified)")] = None
+) -> CrawlResponse:
     """
-    Enhanced crawling with multiple fallback strategies using crawl4ai.
+    🔄 Enhanced crawling with multiple fallback strategies for difficult sites.
     
-    Args:
-        request: CrawlRequest containing URL and extraction parameters
-        
-    Example MCP Call:
-        {
-          "request": {
-            "url": "https://example.com",
-            "generate_markdown": true,
-            "timeout": 60
-          }
-        }
-        
-    IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
+    Uses multiple fallback strategies when normal crawling fails. Same parameters as crawl_url but with enhanced reliability.
     
-    NOTE: If the first call fails, please try again. Network issues or timeouts 
-    can cause temporary failures, but retry often succeeds.
-        
-    Returns:
-        CrawlResponse with crawled content and metadata
+    KEY PARAMETERS (same as crawl_url):
+    • url (required): Target URL to crawl
+    • wait_for_js (default: false): Wait for JavaScript - essential for SPAs
+    • simulate_user (default: false): Bypass anti-bot measures
+    • timeout (default: 60): Seconds to wait for page load
+    • generate_markdown (default: true): Convert to clean markdown
+    • auto_summarize (default: false): Enable LLM summarization for large content
+    • All other parameters same as crawl_url
+    
+    💡 WHEN TO USE:
+    - Normal crawl_url fails consistently
+    - Site has aggressive anti-bot protection
+    - Content requires multiple loading strategies
+    - Need maximum reliability for critical sites
+    
+    EXAMPLES:
+    Difficult Site: {"url": "https://protected-site.com", "wait_for_js": true, "simulate_user": true}
+    With Retry: {"url": "https://flaky-site.com", "timeout": 90}
     """
+    # Create CrawlRequest object from individual parameters
+    request = CrawlRequest(
+        url=url,
+        css_selector=css_selector,
+        xpath=xpath,
+        extract_media=extract_media,
+        take_screenshot=take_screenshot,
+        generate_markdown=generate_markdown,
+        wait_for_selector=wait_for_selector,
+        timeout=timeout,
+        max_depth=max_depth,
+        max_pages=max_pages,
+        include_external=include_external,
+        crawl_strategy=crawl_strategy,
+        url_pattern=url_pattern,
+        score_threshold=score_threshold,
+        content_filter=content_filter,
+        filter_query=filter_query,
+        chunk_content=chunk_content,
+        chunk_strategy=chunk_strategy,
+        chunk_size=chunk_size,
+        overlap_rate=overlap_rate,
+        user_agent=user_agent,
+        headers=headers,
+        enable_caching=enable_caching,
+        cache_mode=cache_mode,
+        execute_js=execute_js,
+        wait_for_js=wait_for_js,
+        simulate_user=simulate_user,
+        auth_token=auth_token,
+        cookies=cookies,
+        auto_summarize=auto_summarize,
+        max_content_tokens=max_content_tokens,
+        summary_length=summary_length,
+        llm_provider=llm_provider,
+        llm_model=llm_model
+    )
     # Try different crawling strategies in order of preference
     strategies = [
         # Strategy 1: Full browser with JavaScript
@@ -1937,48 +2343,119 @@ async def crawl_url_with_fallback(request: CrawlRequest) -> CrawlResponse:
 
 
 @mcp.tool
-async def process_file(request: FileProcessRequest) -> FileProcessResponse:
+async def process_file(
+    url: Annotated[str, Field(description="URL of the file to process (PDF, Office, ZIP)")],
+    max_size_mb: Annotated[int, Field(description="Maximum file size in MB")] = 100,
+    extract_all_from_zip: Annotated[bool, Field(description="Whether to extract all files from ZIP archives")] = True,
+    include_metadata: Annotated[bool, Field(description="Whether to include file metadata")] = True,
+    auto_summarize: Annotated[bool, Field(description="Automatically summarize large content using LLM")] = False,
+    max_content_tokens: Annotated[int, Field(description="Maximum tokens before triggering auto-summarization")] = 15000,
+    summary_length: Annotated[str, Field(description="Summary length: 'short', 'medium', 'long'")] = "medium",
+    llm_provider: Annotated[Optional[str], Field(description="LLM provider for summarization (auto-detected if not specified)")] = None,
+    llm_model: Annotated[Optional[str], Field(description="Specific LLM model for summarization (auto-detected if not specified)")] = None
+) -> FileProcessResponse:
     """
-    Convert documents (PDF, Word, Excel, PowerPoint, ZIP) into readable markdown text.
+    📄 Convert documents (PDF, Word, Excel, PowerPoint, ZIP) into readable markdown text with optional AI summarization.
     
-    USE WHEN: User provides a direct file URL (.pdf, .docx, .xlsx, .pptx, .zip).
-    AUTO-DETECTS: File format and applies appropriate conversion method.
-    OUTPUTS: Clean markdown text, metadata, file structure (for archives).
+    KEY PARAMETERS:
     
-    Best for: Document analysis, report processing, archive extraction, research papers.
-    Formats: PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), ZIP archives, ePub.
-    vs crawl_url: Use this for direct file links; crawl_url auto-detects and redirects here.
+    📁 FILE SOURCE:
+    • url (required): Direct URL to file (.pdf, .docx, .xlsx, .pptx, .zip)
+    • max_size_mb (default: 100): Maximum file size limit in MB
     
-    Note: crawl_url automatically uses this tool when detecting file URLs.
+    🔧 PROCESSING OPTIONS:
+    • extract_all_from_zip (default: true): Extract all files from ZIP archives
+    • include_metadata (default: true): Include file metadata (title, author, creation date)
     
-    Args:
-        request: FileProcessRequest containing file URL and processing parameters
-        
-    Example MCP Call:
-        {
-          "request": {
-            "url": "https://example.com/document.pdf",
-            "include_metadata": true,
-            "max_size_mb": 50
-          }
-        }
-        
-    IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
+    🤖 AUTO-SUMMARIZATION (for large documents):
+    • auto_summarize (default: false): Enable LLM-powered summarization
+    • max_content_tokens (default: 15000): Token limit before auto-summarization
+    • summary_length (default: "medium"): "short" | "medium" | "long"
+    • llm_provider: "openai" | "anthropic" (auto-detected if not specified)
+    • llm_model: Model name (auto-detected if not specified)
     
-    NOTE: If the first call fails, please try again. Network issues or timeouts 
-    can cause temporary failures, but retry often succeeds.
-        
-    Returns:
-        FileProcessResponse with processed content and metadata
+    💡 BEST PRACTICES:
+    - Auto-detects file format and applies appropriate conversion method
+    - Supports: PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), ZIP archives, ePub
+    - Enable auto_summarize for large documents (>15k tokens)
+    - Perfect for: Document analysis, research papers, report processing, archive extraction
+    
+    EXAMPLES:
+    Basic: {"url": "https://example.com/document.pdf"}
+    Large PDF: {"url": "https://example.com/report.pdf", "auto_summarize": true, "summary_length": "short"}
+    ZIP Archive: {"url": "https://example.com/docs.zip", "extract_all_from_zip": true, "include_metadata": true}
     """
     try:
         # Process the file
         result = await file_processor.process_file_from_url(
-            request.url,
-            max_size_mb=request.max_size_mb
+            url,
+            max_size_mb=max_size_mb
         )
         
         if result['success']:
+            # Prepare content for potential summarization
+            content_to_use = result.get('content', '')
+            summarization_applied = False
+            summarization_info = {}
+            final_metadata = result.get('metadata', {}) if include_metadata else None
+            
+            # Apply auto-summarization if enabled and content is large
+            if auto_summarize and content_to_use:
+                # Rough token estimation: 1 token ≈ 4 characters
+                estimated_tokens = len(content_to_use) // 4
+                
+                if estimated_tokens > max_content_tokens:
+                    try:
+                        # Use summarize_web_content function for document summarization
+                        summary_result = await summarize_web_content(
+                            content=content_to_use,
+                            title=result.get('title', ''),
+                            url=url,
+                            summary_length=summary_length,
+                            llm_provider=llm_provider,
+                            llm_model=llm_model
+                        )
+                        
+                        if summary_result.get("success"):
+                            # Replace content with summary and preserve original info
+                            content_to_use = summary_result["summary"]
+                            summarization_applied = True
+                            summarization_info = {
+                                "original_tokens_estimate": estimated_tokens,
+                                "summary_length": summary_length,
+                                "compression_ratio": summary_result.get("compressed_ratio", 0),
+                                "key_topics": summary_result.get("key_topics", []),
+                                "content_type": summary_result.get("content_type", "Unknown"),
+                                "main_insights": summary_result.get("main_insights", []),
+                                "technical_details": summary_result.get("technical_details", []),
+                                "llm_provider": summary_result.get("llm_provider", "unknown"),
+                                "llm_model": summary_result.get("llm_model", "unknown"),
+                                "auto_summarization_trigger": f"Document exceeded {max_content_tokens} tokens"
+                            }
+                            
+                            # Add summarization info to metadata
+                            if final_metadata is None:
+                                final_metadata = {}
+                            final_metadata['summarization'] = summarization_info
+                        else:
+                            # Summarization failed, add error info to metadata
+                            if final_metadata is None:
+                                final_metadata = {}
+                            final_metadata['summarization'] = {
+                                "summarization_attempted": True,
+                                "summarization_error": summary_result.get("error", "Unknown error"),
+                                "original_content_preserved": True
+                            }
+                    except Exception as e:
+                        # Summarization failed, add error info to metadata
+                        if final_metadata is None:
+                            final_metadata = {}
+                        final_metadata['summarization'] = {
+                            "summarization_attempted": True,
+                            "summarization_error": f"Exception during summarization: {str(e)}",
+                            "original_content_preserved": True
+                        }
+            
             response = FileProcessResponse(
                 success=True,
                 url=result.get('url'),
@@ -1986,15 +2463,15 @@ async def process_file(request: FileProcessRequest) -> FileProcessResponse:
                 file_type=result.get('file_type'),
                 size_bytes=result.get('size_bytes'),
                 is_archive=result.get('is_archive', False),
-                content=result.get('content'),
+                content=content_to_use,
                 title=result.get('title'),
-                metadata=result.get('metadata') if request.include_metadata else None,
-                archive_contents=result.get('archive_contents') if result.get('is_archive') and request.extract_all_from_zip else None
+                metadata=final_metadata,
+                archive_contents=result.get('archive_contents') if result.get('is_archive') and extract_all_from_zip else None
             )
         else:
             response = FileProcessResponse(
                 success=False,
-                url=request.url,
+                url=url,
                 error=result.get('error'),
                 file_type=result.get('file_type')
             )
@@ -2004,7 +2481,7 @@ async def process_file(request: FileProcessRequest) -> FileProcessResponse:
     except Exception as e:
         return FileProcessResponse(
             success=False,
-            url=request.url,
+            url=url,
             error=f"File processing error: {str(e)}"
         )
 
@@ -2074,120 +2551,168 @@ async def get_supported_file_formats() -> Dict[str, Any]:
 
 
 @mcp.tool
-async def extract_youtube_transcript(request: Dict[str, Any]) -> YouTubeTranscriptResponse:
+async def extract_youtube_transcript(
+    url: Annotated[str, Field(description="YouTube video URL")],
+    languages: Annotated[Optional[List[str]], Field(description="Preferred languages in order of preference")] = ["ja", "en"],
+    translate_to: Annotated[Optional[str], Field(description="Target language for translation")] = None,
+    include_timestamps: Annotated[bool, Field(description="Include timestamps in transcript")] = True,
+    preserve_formatting: Annotated[bool, Field(description="Preserve original formatting")] = True,
+    include_metadata: Annotated[bool, Field(description="Include video metadata")] = True,
+    auto_summarize: Annotated[bool, Field(description="Automatically summarize long transcripts using LLM")] = False,
+    max_content_tokens: Annotated[int, Field(description="Maximum tokens before triggering auto-summarization")] = 15000,
+    summary_length: Annotated[str, Field(description="Summary length: 'short', 'medium', 'long'")] = "medium",
+    llm_provider: Annotated[Optional[str], Field(description="LLM provider for summarization (auto-detected if not specified)")] = None,
+    llm_model: Annotated[Optional[str], Field(description="Specific LLM model for summarization (auto-detected if not specified)")] = None
+) -> YouTubeTranscriptResponse:
     """
-    Convert YouTube videos into searchable text transcripts with timestamps.
+    🎥 Convert YouTube videos into searchable text transcripts with timestamps and optional AI summarization.
     
-    USE WHEN: User provides YouTube URL and wants video content as text.
-    NO AUTH REQUIRED: Works instantly with public videos that have captions.
-    OUTPUTS: Full transcript, clean text, timestamps, language info, video metadata.
+    KEY PARAMETERS:
     
-    Best for: Video content analysis, research, accessibility, content summarization.
-    Languages: Auto-detects available languages, supports translation.
-    vs crawl_url: Use this for YouTube-specific features; crawl_url auto-detects and redirects here.
+    📹 VIDEO SOURCE:
+    • url (required): YouTube video URL
+    • languages (default: ["ja", "en"]): Preferred transcript languages in order
+    • translate_to: Target language for automatic translation
     
-    Note: crawl_url automatically uses this tool when detecting YouTube URLs.
+    📝 TRANSCRIPT OPTIONS:
+    • include_timestamps (default: true): Include time markers in transcript
+    • preserve_formatting (default: true): Keep original text formatting
+    • include_metadata (default: true): Include video metadata (title, duration, etc.)
     
-    This function uses the youtube-transcript-api library for simple and reliable transcript extraction
-    without complex authentication requirements.
+    🤖 AUTO-SUMMARIZATION (for long transcripts):
+    • auto_summarize (default: false): Enable LLM-powered summarization
+    • max_content_tokens (default: 15000): Token limit before auto-summarization
+    • summary_length (default: "medium"): "short" | "medium" | "long"
+    • llm_provider: "openai" | "anthropic" (auto-detected if not specified)
+    • llm_model: Model name (auto-detected if not specified)
     
-    Features:
-    - Simple youtube-transcript-api integration
-    - Support for multiple languages with automatic fallback
-    - Automatic language preference handling
-    - Both manual and auto-generated captions
-    - Basic video information extraction
+    💡 BEST PRACTICES:
+    - No authentication required - works with public videos that have captions
+    - Auto-detects available languages and falls back appropriately
+    - Enable auto_summarize for long videos (>15k tokens)
+    - Perfect for: Content analysis, research, accessibility, meeting transcripts
     
-    No Setup Required:
-    - Works directly with public YouTube videos that have transcripts
-    - No API keys or authentication needed
-    - Automatically handles language preferences
-    
-    Args:
-        request: YouTubeTranscriptRequest containing URL and extraction parameters
-        
-    Example MCP Call:
-        {
-          "request": {
-            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-            "languages": ["en", "ja"],
-            "include_timestamps": true,
-            "format": "text"
-          }
-        }
-        
-    IMPORTANT: Pass 'request' as a dictionary object, NOT as a JSON string.
-    
-    NOTE: If the first call fails, please try again. Network issues or timeouts 
-    can cause temporary failures, but retry often succeeds.
-        
-    Returns:
-        YouTubeTranscriptResponse with transcript data or error information
+    EXAMPLES:
+    Basic: {"url": "https://www.youtube.com/watch?v=abc123"}
+    Multi-language: {"url": "https://youtu.be/abc123", "languages": ["en", "es"], "translate_to": "fr"}
+    With Summary: {"url": "https://youtu.be/abc123", "auto_summarize": true, "summary_length": "short"}
     """
     try:
-        # Convert dict to YouTubeTranscriptRequest for validation
-        try:
-            transcript_request = YouTubeTranscriptRequest(**request)
-        except Exception as e:
-            return YouTubeTranscriptResponse(
-                success=False,
-                error=f"Invalid request parameters: {str(e)}"
-            )
-        
         # Check if URL is valid YouTube URL
-        if not youtube_processor.is_youtube_url(transcript_request.url):
+        if not youtube_processor.is_youtube_url(url):
             return YouTubeTranscriptResponse(
                 success=False,
-                url=transcript_request.url,
+                url=url,
                 error="URL is not a valid YouTube video URL"
             )
         
         # Process with youtube-transcript-api
         result = await youtube_processor.process_youtube_url(
-            url=transcript_request.url,
-            languages=transcript_request.languages,
-            translate_to=transcript_request.translate_to,
-            include_timestamps=transcript_request.include_timestamps,
-            preserve_formatting=transcript_request.preserve_formatting,
-            include_metadata=transcript_request.include_metadata
+            url=url,
+            languages=languages,
+            translate_to=translate_to,
+            include_timestamps=include_timestamps,
+            preserve_formatting=preserve_formatting,
+            include_metadata=include_metadata
         )
         
         if result['success']:
             transcript_data = result['transcript']
             language_info = result['language_info']
             
+            # Prepare content for potential summarization
+            content_to_use = transcript_data['clean_text'] or transcript_data['full_text']
+            summarization_applied = False
+            summarization_info = {}
+            
+            # Apply auto-summarization if enabled and content is large
+            if auto_summarize and content_to_use:
+                # Rough token estimation: 1 token ≈ 4 characters
+                estimated_tokens = len(content_to_use) // 4
+                
+                if estimated_tokens > max_content_tokens:
+                    try:
+                        # Use YouTube processor's summarization function
+                        summary_result = await youtube_processor.summarize_transcript(
+                            transcript_text=content_to_use,
+                            summary_length=summary_length,
+                            include_timestamps=include_timestamps,
+                            llm_provider=llm_provider,
+                            llm_model=llm_model
+                        )
+                        
+                        if summary_result.get("success"):
+                            # Replace content with summary and preserve original in metadata
+                            content_to_use = summary_result["summary"]
+                            summarization_applied = True
+                            summarization_info = {
+                                "original_tokens_estimate": estimated_tokens,
+                                "summary_length": summary_length,
+                                "compression_ratio": summary_result.get("compressed_ratio", 0),
+                                "key_topics": summary_result.get("key_topics", []),
+                                "content_type": summary_result.get("content_type", "Unknown"),
+                                "main_insights": summary_result.get("main_insights", []),
+                                "technical_details": summary_result.get("technical_details", []),
+                                "llm_provider": summary_result.get("llm_provider", "unknown"),
+                                "llm_model": summary_result.get("llm_model", "unknown"),
+                                "auto_summarization_trigger": f"Transcript exceeded {max_content_tokens} tokens"
+                            }
+                        else:
+                            # Summarization failed, add error info but keep original content
+                            summarization_info = {
+                                "summarization_attempted": True,
+                                "summarization_error": summary_result.get("error", "Unknown error"),
+                                "original_content_preserved": True
+                            }
+                    except Exception as e:
+                        # Summarization failed, add error info but keep original content
+                        summarization_info = {
+                            "summarization_attempted": True,
+                            "summarization_error": f"Exception during summarization: {str(e)}",
+                            "original_content_preserved": True
+                        }
+            
+            # Update transcript data with potentially summarized content
+            final_transcript_data = {
+                'full_text': content_to_use if summarization_applied else transcript_data['full_text'],
+                'clean_text': content_to_use if summarization_applied else transcript_data['clean_text'],
+                'segments': transcript_data.get('segments', []) if not summarization_applied else [],
+                'segment_count': transcript_data.get('segment_count', 0),
+                'word_count': len(content_to_use.split()) if summarization_applied else transcript_data.get('word_count', 0),
+                'duration_seconds': transcript_data.get('duration_seconds', 0),
+                'duration_formatted': transcript_data.get('duration_formatted', '0s'),
+                'summarization_applied': summarization_applied
+            }
+            
+            # Add summarization info to metadata
+            final_metadata = result.get('metadata', {})
+            if summarization_info:
+                final_metadata['summarization'] = summarization_info
+            
             return YouTubeTranscriptResponse(
                 success=True,
                 url=result['url'],
                 video_id=result['video_id'],
-                transcript={
-                    'full_text': transcript_data['full_text'],
-                    'clean_text': transcript_data['clean_text'],
-                    'segments': transcript_data.get('segments', []),
-                    'segment_count': transcript_data.get('segment_count', 0),
-                    'word_count': transcript_data.get('word_count', 0),
-                    'duration_seconds': transcript_data.get('duration_seconds', 0),
-                    'duration_formatted': transcript_data.get('duration_formatted', '0s')
-                },
+                transcript=final_transcript_data,
                 language_info={
                     'source_language': language_info['source_language'],
                     'final_language': language_info['final_language'],
                     'is_translated': language_info['is_translated']
                 },
                 processing_method=result['processing_method'],
-                metadata=result.get('metadata')
+                metadata=final_metadata
             )
         else:
             return YouTubeTranscriptResponse(
                 success=False,
-                url=transcript_request.url,
+                url=url,
                 error=result.get('error', 'Unknown error during transcript extraction')
             )
                 
     except Exception as e:
         return YouTubeTranscriptResponse(
             success=False,
-            url=request.get('url', 'unknown'),
+            url=url,
             error=f"YouTube transcript processing error: {str(e)}"
         )
 
@@ -2753,54 +3278,39 @@ async def search_and_crawl(
     include_current_date: bool = True
 ) -> Dict[str, Any]:
     """
-    🔍🕷️ Google search + automatic content extraction in ONE powerful step.
+    🔍🕷️ Perform Google search and automatically crawl top results for full content analysis.
     
-    ⭐ COMBINED POWER: Finds relevant pages AND extracts their full content automatically.
+    KEY PARAMETERS:
     
-    USE WHEN:
-    - Research that needs both discovery AND content analysis
-    - Competitive analysis ("find competitor pricing pages and extract details")  
-    - Current events analysis ("latest AI news with full articles")
-    - Market research with comprehensive content
+    🔍 SEARCH CONFIGURATION:
+    • search_query (required): Search terms - be specific for better results
+    • num_search_results (default: 5): How many search results to retrieve (max: 20)
+    • search_genre: Target specific content types for better results
+      Options: "academic", "news", "technical", "shopping", "pdf", "documentation", etc.
+    • include_current_date (default: true): Add current date to query for latest results
     
-    🎯 SMART DEFAULTS:
-    - crawl_top_results=3 (good balance of speed vs coverage)
-    - Automatic timeout scaling based on page count
-    - 31 search genres available for targeted results
+    🕷️ CRAWLING CONFIGURATION:
+    • crawl_top_results (default: 3): How many top results to fully crawl (max: 10)
+    • extract_media (default: false): Include images/videos from crawled pages
+    • generate_markdown (default: true): Convert crawled content to clean markdown
+    • base_timeout (default: 30): Base timeout - auto-scales with crawl count
     
-    📊 WHAT TO EXPECT:
-    ✅ Success: Search results + full page content + analysis summary
-    ⚠️ Partial success: Some pages may fail (success rate reported)
-    ⏱️ Time: ~30-90 seconds depending on page count and complexity
+    📊 PROCESSING DETAILS:
+    - Combines search discovery with full content extraction
+    - Auto-scales timeout: base_timeout + 10s per additional URL
+    - Returns both search results AND full page content
+    - Processing time: ~30-90 seconds depending on page count
     
-    GENRE EXAMPLES:
-    - "academic" - Research papers, scholarly articles
-    - "news" - Latest news articles  
-    - "technical" - Documentation, tutorials
-    - "shopping" - Product pages, e-commerce
+    💡 BEST PRACTICES:
+    - Start with crawl_top_results=3, increase if needed
+    - Use search_genre for targeted results: "news" for current events, "technical" for docs
+    - Be specific in search_query: "GPT-4 pricing 2024" not "AI pricing"
+    - Perfect for: Research, competitive analysis, content discovery, market research
     
-    vs search_google: Use this for full content analysis; search_google for URLs only
-    vs deep_crawl_site: Use this for discovery; deep_crawl_site for known sites
-    
-    Example for research:
-    {
-      "search_query": "latest AI developments 2024",
-      "num_search_results": 8,
-      "crawl_top_results": 5,
-      "search_genre": "news",
-      "include_current_date": true
-    }
-    
-    Example for competitive analysis:
-    {
-      "search_query": "competitor pricing SaaS tools",  
-      "num_search_results": 10,
-      "crawl_top_results": 4,
-      "search_genre": "technical"
-    }
-    
-    IMPORTANT: All parameters are passed directly, NOT as a nested 'request' object.
-    Returns: Dictionary with search results and crawled content
+    EXAMPLES:
+    Research: {"search_query": "latest AI developments 2024", "search_genre": "news", "crawl_top_results": 5}
+    Competition: {"search_query": "competitor SaaS pricing", "search_genre": "technical", "crawl_top_results": 4}
+    Academic: {"search_query": "machine learning papers", "search_genre": "academic", "num_search_results": 10}
     """
     try:
         # Validate parameters

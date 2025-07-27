@@ -417,13 +417,15 @@ For detailed HTTP API documentation, examples, and integration guides, see the [
 
 **For AI Features:**
 - Configure LLM settings with `get_llm_config_info`
+- Use auto-summarization for large documents with `auto_summarize: true`
 - Fallback to non-AI tools if LLM unavailable
 - Use `intelligent_extract` for semantic understanding
+- Customize summary length based on needs ('short' for quick overviews, 'long' for detailed analysis)
 
 ## 🛠️ MCP Tools
 
 ### `crawl_url`
-Advanced web crawling with deep crawling support and intelligent filtering.
+Advanced web crawling with deep crawling support, intelligent filtering, and automatic summarization for large content.
 
 **Key Parameters:**
 - `url`: Target URL to crawl
@@ -435,6 +437,11 @@ Advanced web crawling with deep crawling support and intelligent filtering.
 - `user_agent`: Custom user agent string
 - `headers`: Custom HTTP headers
 - `cookies`: Authentication cookies
+- `auto_summarize`: Automatically summarize large content using LLM
+- `max_content_tokens`: Maximum tokens before triggering auto-summarization (default: 15000)
+- `summary_length`: Summary length setting ('short', 'medium', 'long')
+- `llm_provider`: LLM provider for summarization (auto-detected if not specified)
+- `llm_model`: Specific LLM model for summarization (auto-detected if not specified)
 
 ### `deep_crawl_site`
 Dedicated tool for comprehensive site mapping and recursive crawling.
@@ -946,5 +953,14 @@ This MCP server is available as a DXT (Desktop Extensions) package for easy inst
 Simply drag and drop the `.dxt` file into Claude Desktop for instant setup.
 
 ## 📚 Additional Documentation
+
+## 📝 Recent Updates
+
+### Auto-Summarization Feature (Latest)
+- **LLM-Powered Content Summarization**: Automatically summarizes large web content using configurable LLM providers
+- **Configurable Token Limits**: Set custom thresholds (default: 15,000 tokens) for triggering summarization
+- **Multiple Summary Lengths**: Choose from 'short', 'medium', or 'long' summaries based on your needs
+- **Multi-Provider Support**: Auto-detects and uses available LLM providers (OpenAI, Anthropic, etc.)
+- **Seamless Integration**: Works transparently with all crawling tools without changing existing workflows
 
 For detailed feature documentation in Japanese, see [`README_ja.md`](README_ja.md).

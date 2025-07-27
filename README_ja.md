@@ -410,8 +410,10 @@ curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
 
 **AI機能使用時:**
 - `get_llm_config_info` でLLM設定確認
+- 大容量ドキュメントには `auto_summarize: true` で自動要約使用
 - LLM利用不可時は非AI機能にフォールバック
 - 意味的理解には `intelligent_extract` を使用
+- 用途に応じて要約の長さをカスタマイズ（'short'は概要用、'long'は詳細分析用）
 
 ## 🛠️ MCPツール
 
@@ -653,7 +655,7 @@ result = await intelligent_extract(
 ```
 
 ### `crawl_url`
-高度なWebクローリングと深度クローリングサポート、インテリジェントフィルタリング。
+高度なWebクローリングと深度クローリングサポート、インテリジェントフィルタリング、大容量コンテンツの自動要約機能。
 
 **主要パラメータ:**
 - `url`: クローリング対象URL
@@ -665,6 +667,11 @@ result = await intelligent_extract(
 - `user_agent`: カスタムユーザーエージェント文字列
 - `headers`: カスタムHTTPヘッダー
 - `cookies`: 認証クッキー
+- `auto_summarize`: LLMを使用した大容量コンテンツの自動要約
+- `max_content_tokens`: 自動要約をトリガーする最大トークン数（デフォルト: 15000）
+- `summary_length`: 要約の長さ設定（'short'、'medium'、'long'）
+- `llm_provider`: 要約用LLMプロバイダー（未指定時は自動検出）
+- `llm_model`: 要約用特定LLMモデル（未指定時は自動検出）
 
 ### `deep_crawl_site`
 包括的サイトマッピングと再帰クローリング専用ツール。
@@ -1828,5 +1835,14 @@ MIT License
 `.dxt`ファイルをClaude Desktopにドラッグ&ドロップするだけで即座にセットアップ完了です。
 
 ## 📚 追加ドキュメント
+
+## 📝 最新アップデート
+
+### 自動要約機能（最新版）
+- **LLM搭載コンテンツ要約**: 設定可能なLLMプロバイダーを使用して大容量Webコンテンツを自動要約
+- **設定可能トークン制限**: 要約をトリガーするカスタム閾値設定（デフォルト: 15,000トークン）
+- **複数要約長**: ニーズに基づいて'short'、'medium'、'long'から要約の長さを選択
+- **マルチプロバイダー対応**: 利用可能なLLMプロバイダー（OpenAI、Anthropic等）を自動検出・使用
+- **シームレス統合**: 既存ワークフローを変更せずに全クローリングツールで透明に動作
 
 詳細な機能ドキュメント（日本語）については、[`README_ja.md`](README_ja.md)を参照してください。
