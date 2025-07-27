@@ -1,22 +1,289 @@
 """
 Google Search Processing Module
-Handles Google search queries and result processing
+Handles Google search queries and result processing with Custom Search API fallback
 """
 
 import asyncio
 import re
+import os
+import time
 from typing import Dict, List, Optional, Any, Union, Tuple
 from urllib.parse import urlparse, urljoin
 from googlesearch import search
 import aiohttp
 import logging
 from bs4 import BeautifulSoup
+from dataclasses import dataclass
+from collections import defaultdict
+from datetime import datetime, timedelta
+
+
+@dataclass
+class SearchRequest:
+    """Represents a search request with rate limiting info"""
+    timestamp: datetime
+    method: str  # 'googlesearch' or 'custom_search'
+    status: str  # 'success', 'error', '429'
+
+
+class RateLimiter:
+    """Rate limiting manager for search APIs"""
+    
+    def __init__(self):
+        self.requests = defaultdict(list)  # method -> list of SearchRequest
+        self.rpm_limits = {
+            'googlesearch': int(os.getenv('GOOGLESEARCH_PYTHON_RPM', '60')),
+            'custom_search': int(os.getenv('CUSTOM_SEARCH_API_RPM', '100'))
+        }
+    
+    def can_make_request(self, method: str) -> bool:
+        """Check if a request can be made without exceeding rate limit"""
+        now = datetime.now()
+        cutoff = now - timedelta(minutes=1)
+        
+        # Clean old requests
+        self.requests[method] = [
+            req for req in self.requests[method] 
+            if req.timestamp > cutoff
+        ]
+        
+        return len(self.requests[method]) < self.rpm_limits[method]
+    
+    def record_request(self, method: str, status: str):
+        """Record a completed request"""
+        self.requests[method].append(SearchRequest(
+            timestamp=datetime.now(),
+            method=method,
+            status=status
+        ))
+    
+    def get_wait_time(self, method: str) -> float:
+        """Get suggested wait time in seconds before next request"""
+        if self.can_make_request(method):
+            return 0.0
+        
+        # Find oldest request in current window
+        now = datetime.now()
+        cutoff = now - timedelta(minutes=1)
+        
+        oldest_request = min(
+            (req for req in self.requests[method] if req.timestamp > cutoff),
+            key=lambda r: r.timestamp,
+            default=None
+        )
+        
+        if oldest_request:
+            wait_until = oldest_request.timestamp + timedelta(minutes=1)
+            wait_seconds = (wait_until - now).total_seconds()
+            return max(0.0, wait_seconds + 1.0)  # Add 1 second buffer
+        
+        return 0.0
+
+
+class CustomSearchAPIClient:
+    """Google Custom Search API client"""
+    
+    def __init__(self):
+        self.api_key = os.getenv('GOOGLE_SEARCH_API_KEY')
+        self.search_engine_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID')
+        self.base_url = "https://www.googleapis.com/customsearch/v1"
+        
+    def is_configured(self) -> bool:
+        """Check if Custom Search API is properly configured"""
+        return bool(self.api_key and self.search_engine_id)
+    
+    async def search(
+        self,
+        query: str,
+        num_results: int = 10,
+        language: str = 'en',
+        region: str = 'us'
+    ) -> Dict[str, Any]:
+        """Perform search using Google Custom Search API"""
+        if not self.is_configured():
+            return {
+                'success': False,
+                'error': 'Custom Search API not configured. Missing API key or search engine ID.',
+                'suggestion': 'Set GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_ENGINE_ID in environment'
+            }
+        
+        try:
+            # Build request parameters
+            params = {
+                'key': self.api_key,
+                'cx': self.search_engine_id,
+                'q': query,
+                'num': min(10, num_results),  # Custom Search API max is 10 per request
+                'gl': region,
+                'hl': language,
+                'safe': 'active'
+            }
+            
+            results = []
+            start_index = 1
+            results_collected = 0
+            
+            async with aiohttp.ClientSession() as session:
+                while results_collected < num_results and start_index <= 91:  # Max 100 results total
+                    current_params = params.copy()
+                    current_params['start'] = start_index
+                    current_params['num'] = min(10, num_results - results_collected)
+                    
+                    async with session.get(self.base_url, params=current_params) as response:
+                        if response.status == 429:
+                            return {
+                                'success': False,
+                                'error': 'Custom Search API rate limit exceeded',
+                                'status_code': 429,
+                                'suggestion': 'Reduce search frequency or upgrade API quota'
+                            }
+                        elif response.status != 200:
+                            return {
+                                'success': False,
+                                'error': f'Custom Search API error: HTTP {response.status}',
+                                'status_code': response.status
+                            }
+                        
+                        data = await response.json()
+                        
+                        if 'error' in data:
+                            return {
+                                'success': False,
+                                'error': f"Custom Search API error: {data['error'].get('message', 'Unknown error')}",
+                                'api_error': data['error']
+                            }
+                        
+                        # Process search results
+                        if 'items' in data:
+                            for i, item in enumerate(data['items']):
+                                try:
+                                    parsed_url = urlparse(item['link'])
+                                    domain = parsed_url.netloc
+                                    
+                                    result = {
+                                        'rank': results_collected + i + 1,
+                                        'url': item['link'],
+                                        'domain': domain,
+                                        'title': item.get('title', 'No title'),
+                                        'snippet': item.get('snippet', 'No description available'),
+                                        'type': self._classify_url(item['link'])
+                                    }
+                                    
+                                    # Add additional metadata if available
+                                    if 'pagemap' in item:
+                                        result['metadata'] = item['pagemap']
+                                    
+                                    results.append(result)
+                                    results_collected += 1
+                                    
+                                except Exception:
+                                    continue
+                        
+                        # Check if we have more results to fetch
+                        search_info = data.get('searchInformation', {})
+                        total_results = int(search_info.get('totalResults', '0'))
+                        
+                        if results_collected >= num_results or len(data.get('items', [])) < 10:
+                            break
+                        
+                        start_index += 10
+                        
+                        # Add delay between requests to be respectful
+                        await asyncio.sleep(0.1)
+            
+            if not results:
+                return {
+                    'success': False,
+                    'error': 'No search results found',
+                    'query': query,
+                    'suggestion': 'Try a different search query'
+                }
+            
+            return {
+                'success': True,
+                'query': query,
+                'total_results': len(results),
+                'results': results,
+                'processing_method': 'google_custom_search_api'
+            }
+            
+        except aiohttp.ClientError as e:
+            return {
+                'success': False,
+                'error': f'Network error: {str(e)}',
+                'suggestion': 'Check internet connection and try again'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Custom Search API error: {str(e)}'
+            }
+    
+    def _classify_url(self, url: str) -> str:
+        """Classify URL by type based on domain and path (shared with GoogleSearchProcessor)"""
+        try:
+            parsed = urlparse(url.lower())
+            domain = parsed.netloc
+            path = parsed.path
+            
+            # Social media platforms
+            if any(social in domain for social in ['youtube.com', 'youtu.be']):
+                return 'video'
+            elif any(social in domain for social in ['twitter.com', 'x.com', 'facebook.com', 'linkedin.com']):
+                return 'social_media'
+            elif any(social in domain for social in ['reddit.com', 'quora.com', 'stackoverflow.com']):
+                return 'forum'
+            
+            # News and media
+            elif any(news in domain for news in ['bbc.com', 'cnn.com', 'reuters.com', 'nytimes.com']):
+                return 'news'
+            
+            # Academic and education
+            elif any(edu in domain for edu in ['.edu', '.ac.', 'scholar.google', 'arxiv.org']):
+                return 'academic'
+            
+            # Government and official
+            elif any(gov in domain for gov in ['.gov', '.mil', '.org']):
+                return 'official'
+            
+            # E-commerce
+            elif any(shop in domain for shop in ['amazon.com', 'ebay.com', 'etsy.com']):
+                return 'ecommerce'
+            
+            # Documentation
+            elif any(doc in domain for doc in ['github.com', 'docs.', 'wiki']):
+                return 'documentation'
+            
+            # File types
+            elif any(filetype in path for filetype in ['.pdf', '.doc', '.ppt']):
+                return 'document'
+            
+            else:
+                return 'general'
+                
+        except Exception:
+            return 'unknown'
 
 
 class GoogleSearchProcessor:
-    """Process Google search queries and return structured results"""
+    """Process Google search queries and return structured results with Custom Search API fallback"""
     
     def __init__(self):
+        # Rate limiting and API clients
+        self.rate_limiter = RateLimiter()
+        self.custom_search_client = CustomSearchAPIClient()
+        
+        # Search mode configuration
+        self.search_mode = os.getenv('GOOGLE_SEARCH_MODE', 'hybrid').lower()
+        self.max_retries = int(os.getenv('GOOGLE_SEARCH_MAX_RETRIES', '3'))
+        self.fallback_delay = float(os.getenv('GOOGLE_SEARCH_FALLBACK_DELAY', '2.0'))
+        
+        # Validation for search mode
+        valid_modes = ['googlesearch_only', 'custom_search_only', 'hybrid']
+        if self.search_mode not in valid_modes:
+            logging.warning(f"Invalid GOOGLE_SEARCH_MODE '{self.search_mode}'. Using 'hybrid'")
+            self.search_mode = 'hybrid'
+        
         self.search_patterns = [
             # Domain-specific search patterns
             r'site:([^\s]+)',
@@ -78,7 +345,14 @@ class GoogleSearchProcessor:
         search_genre: Optional[str] = None,
         include_snippets: bool = True
     ) -> Dict[str, Any]:
-        """Perform Google search and return structured results with optional genre filtering"""
+        """
+        Perform Google search with flexible API selection and fallback.
+        
+        Supports three modes:
+        - googlesearch_only: Use only googlesearch-python library
+        - custom_search_only: Use only Google Custom Search API
+        - hybrid: Try googlesearch-python first, fallback to Custom Search API on 429 errors
+        """
         try:
             # Validate query first
             validation = self.validate_query(query)
@@ -95,59 +369,167 @@ class GoogleSearchProcessor:
             # Limit results to reasonable range
             num_results = max(1, min(100, num_results))
             
-            # Perform search
-            search_results = []
-            try:
-                # Run search in executor to avoid blocking
-                loop = asyncio.get_event_loop()
+            # Route to appropriate search method based on configuration
+            if self.search_mode == 'custom_search_only':
+                return await self._search_with_custom_api(
+                    enhanced_query, num_results, language, region, search_genre, validation
+                )
+            elif self.search_mode == 'googlesearch_only':
+                return await self._search_with_googlesearch(
+                    enhanced_query, num_results, language, region, search_genre, validation
+                )
+            else:  # hybrid mode
+                return await self._search_with_fallback(
+                    enhanced_query, num_results, language, region, search_genre, validation
+                )
                 
-                def do_search():
-                    return list(search(
-                        enhanced_query,
-                        num_results=num_results,
-                        lang=language,
-                        sleep_interval=1.0,  # Respectful delay between requests
-                        region=region,
-                        safe='active'  # Always use safe search as requested
-                    ))
-                
-                urls = await loop.run_in_executor(None, do_search)
-                
-                # Process results and try to get titles/snippets
-                for i, url in enumerate(urls):
-                    if not url:
-                        continue
-                        
-                    try:
-                        parsed_url = urlparse(url)
-                        domain = parsed_url.netloc
-                        
-                        # Try to extract title and snippet with a lightweight request
-                        title, snippet = await self._extract_title_and_snippet(url)
-                        
-                        # Extract basic information
-                        result = {
-                            'rank': i + 1,
-                            'url': url,
-                            'domain': domain,
-                            'title': title,
-                            'snippet': snippet,
-                            'type': self._classify_url(url)
-                        }
-                        
-                        search_results.append(result)
-                        
-                    except Exception as e:
-                        # Skip malformed URLs but continue processing
-                        continue
-                
-            except Exception as search_error:
-                return {
-                    'success': False,
-                    'error': f'Google search failed: {str(search_error)}',
-                    'query': query,
-                    'suggestion': 'Try a different search query or check your internet connection'
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Search processing error: {str(e)}',
+                'query': query
+            }
+    
+    async def _search_with_fallback(
+        self,
+        query: str,
+        num_results: int,
+        language: str,
+        region: str,
+        search_genre: Optional[str],
+        validation: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Hybrid search with automatic fallback on 429 errors"""
+        attempts = []
+        
+        # Try googlesearch-python first
+        if self.rate_limiter.can_make_request('googlesearch'):
+            googlesearch_result = await self._search_with_googlesearch(
+                query, num_results, language, region, search_genre, validation,
+                record_rate_limit=True
+            )
+            attempts.append(('googlesearch-python', googlesearch_result))
+            
+            # If successful or non-429 error, return result
+            if googlesearch_result['success'] or not self._is_rate_limit_error(googlesearch_result):
+                return googlesearch_result
+            
+            # 429 error detected, wait and try Custom Search API
+            logging.warning(f"429 error detected with googlesearch-python, falling back to Custom Search API")
+            await asyncio.sleep(self.fallback_delay)
+        else:
+            # Rate limit prevents googlesearch request
+            wait_time = self.rate_limiter.get_wait_time('googlesearch')
+            attempts.append(('googlesearch-python', {
+                'success': False,
+                'error': f'Rate limit reached. Wait {wait_time:.1f} seconds',
+                'rate_limited': True
+            }))
+        
+        # Try Custom Search API as fallback
+        if self.custom_search_client.is_configured() and self.rate_limiter.can_make_request('custom_search'):
+            custom_search_result = await self._search_with_custom_api(
+                query, num_results, language, region, search_genre, validation,
+                record_rate_limit=True
+            )
+            attempts.append(('google_custom_search_api', custom_search_result))
+            
+            if custom_search_result['success']:
+                # Add fallback information to successful result
+                custom_search_result['fallback_info'] = {
+                    'primary_method': 'googlesearch-python',
+                    'fallback_method': 'google_custom_search_api',
+                    'fallback_reason': 'Rate limit or 429 error',
+                    'attempts': attempts
                 }
+                return custom_search_result
+        else:
+            if not self.custom_search_client.is_configured():
+                attempts.append(('google_custom_search_api', {
+                    'success': False,
+                    'error': 'Custom Search API not configured',
+                    'suggestion': 'Set GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_ENGINE_ID'
+                }))
+            else:
+                wait_time = self.rate_limiter.get_wait_time('custom_search')
+                attempts.append(('google_custom_search_api', {
+                    'success': False,
+                    'error': f'Rate limit reached. Wait {wait_time:.1f} seconds',
+                    'rate_limited': True
+                }))
+        
+        # Both methods failed
+        return {
+            'success': False,
+            'error': 'All search methods failed or rate limited',
+            'query': query,
+            'fallback_info': {
+                'search_mode': 'hybrid',
+                'attempts': attempts,
+                'suggestion': 'Wait for rate limits to reset or configure missing API credentials'
+            }
+        }
+    
+    async def _search_with_googlesearch(
+        self,
+        query: str,
+        num_results: int,
+        language: str,
+        region: str,
+        search_genre: Optional[str],
+        validation: Dict[str, Any],
+        record_rate_limit: bool = False
+    ) -> Dict[str, Any]:
+        """Search using googlesearch-python library with 429 error detection"""
+        try:
+            search_results = []
+            
+            # Run search in executor to avoid blocking
+            loop = asyncio.get_event_loop()
+            
+            def do_search():
+                return list(search(
+                    query,
+                    num_results=num_results,
+                    lang=language,
+                    sleep_interval=1.0,  # Respectful delay between requests
+                    region=region,
+                    safe='active'  # Always use safe search as requested
+                ))
+            
+            urls = await loop.run_in_executor(None, do_search)
+            
+            # Record successful request
+            if record_rate_limit:
+                self.rate_limiter.record_request('googlesearch', 'success')
+            
+            # Process results and try to get titles/snippets
+            for i, url in enumerate(urls):
+                if not url:
+                    continue
+                    
+                try:
+                    parsed_url = urlparse(url)
+                    domain = parsed_url.netloc
+                    
+                    # Try to extract title and snippet with a lightweight request
+                    title, snippet = await self._extract_title_and_snippet(url)
+                    
+                    # Extract basic information
+                    result = {
+                        'rank': i + 1,
+                        'url': url,
+                        'domain': domain,
+                        'title': title,
+                        'snippet': snippet,
+                        'type': self._classify_url(url)
+                    }
+                    
+                    search_results.append(result)
+                    
+                except Exception:
+                    # Skip malformed URLs but continue processing
+                    continue
             
             if not search_results:
                 return {
@@ -171,7 +553,7 @@ class GoogleSearchProcessor:
             return {
                 'success': True,
                 'query': query,
-                'enhanced_query': enhanced_query,
+                'enhanced_query': query,
                 'total_results': len(search_results),
                 'results': search_results,
                 'search_metadata': {
@@ -180,9 +562,9 @@ class GoogleSearchProcessor:
                         'num_results_requested': num_results,
                         'language': language,
                         'region': region,
-                        'safe_search': True,  # Always enabled
+                        'safe_search': True,
                         'search_genre': search_genre,
-                        'enhanced_query': enhanced_query
+                        'enhanced_query': query
                     },
                     'result_stats': {
                         'total_results': len(search_results),
@@ -195,11 +577,191 @@ class GoogleSearchProcessor:
             }
             
         except Exception as e:
+            error_msg = str(e).lower()
+            
+            # Record error for rate limiting
+            if record_rate_limit:
+                status = '429' if '429' in error_msg or 'too many requests' in error_msg else 'error'
+                self.rate_limiter.record_request('googlesearch', status)
+            
+            # Detect 429 errors
+            if '429' in error_msg or 'too many requests' in error_msg or 'rate limit' in error_msg:
+                return {
+                    'success': False,
+                    'error': f'Rate limit exceeded: {str(e)}',
+                    'status_code': 429,
+                    'query': query,
+                    'suggestion': 'Wait before retrying or use Custom Search API'
+                }
+            
             return {
                 'success': False,
-                'error': f'Search processing error: {str(e)}',
-                'query': query
+                'error': f'googlesearch-python error: {str(e)}',
+                'query': query,
+                'suggestion': 'Try a different search query or check your internet connection'
             }
+    
+    async def _search_with_custom_api(
+        self,
+        query: str,
+        num_results: int,
+        language: str,
+        region: str,
+        search_genre: Optional[str],
+        validation: Dict[str, Any],
+        record_rate_limit: bool = False
+    ) -> Dict[str, Any]:
+        """Search using Google Custom Search API"""
+        result = await self.custom_search_client.search(
+            query, num_results, language, region
+        )
+        
+        # Record request for rate limiting
+        if record_rate_limit:
+            status = '429' if result.get('status_code') == 429 else ('success' if result['success'] else 'error')
+            self.rate_limiter.record_request('custom_search', status)
+        
+        if result['success']:
+            # Add metadata to match googlesearch format
+            results = result['results']
+            domains = [r['domain'] for r in results]
+            unique_domains = list(set(domains))
+            domain_counts = {domain: domains.count(domain) for domain in unique_domains}
+            
+            type_counts = {}
+            for r in results:
+                result_type = r['type']
+                type_counts[result_type] = type_counts.get(result_type, 0) + 1
+            
+            result['search_metadata'] = {
+                'query_info': validation,
+                'search_params': {
+                    'num_results_requested': num_results,
+                    'language': language,
+                    'region': region,
+                    'safe_search': True,
+                    'search_genre': search_genre,
+                    'enhanced_query': query
+                },
+                'result_stats': {
+                    'total_results': len(results),
+                    'unique_domains': len(unique_domains),
+                    'domain_distribution': domain_counts,
+                    'result_types': type_counts
+                }
+            }
+        
+        return result
+    
+    def _is_rate_limit_error(self, result: Dict[str, Any]) -> bool:
+        """Check if result indicates a rate limiting error"""
+        if not result.get('success', True):
+            error_msg = result.get('error', '').lower()
+            return (
+                result.get('status_code') == 429 or
+                '429' in error_msg or
+                'rate limit' in error_msg or
+                'too many requests' in error_msg
+            )
+        return False
+    
+    def get_search_configuration(self) -> Dict[str, Any]:
+        """Get current search configuration and API status"""
+        return {
+            'search_mode': self.search_mode,
+            'max_retries': self.max_retries,
+            'fallback_delay': self.fallback_delay,
+            'googlesearch_python': {
+                'available': True,
+                'rpm_limit': self.rate_limiter.rpm_limits['googlesearch'],
+                'can_make_request': self.rate_limiter.can_make_request('googlesearch'),
+                'wait_time': self.rate_limiter.get_wait_time('googlesearch')
+            },
+            'custom_search_api': {
+                'available': self.custom_search_client.is_configured(),
+                'configured': self.custom_search_client.is_configured(),
+                'api_key_set': bool(self.custom_search_client.api_key),
+                'search_engine_id_set': bool(self.custom_search_client.search_engine_id),
+                'rpm_limit': self.rate_limiter.rpm_limits['custom_search'],
+                'can_make_request': self.rate_limiter.can_make_request('custom_search'),
+                'wait_time': self.rate_limiter.get_wait_time('custom_search')
+            },
+            'rate_limiting': {
+                'enabled': True,
+                'window_minutes': 1,
+                'current_requests': {
+                    'googlesearch': len([
+                        req for req in self.rate_limiter.requests['googlesearch']
+                        if req.timestamp > datetime.now() - timedelta(minutes=1)
+                    ]),
+                    'custom_search': len([
+                        req for req in self.rate_limiter.requests['custom_search']
+                        if req.timestamp > datetime.now() - timedelta(minutes=1)
+                    ])
+                }
+            }
+        }
+    
+    def get_rate_limit_status(self) -> Dict[str, Any]:
+        """Get detailed rate limiting status for both search methods"""
+        now = datetime.now()
+        cutoff = now - timedelta(minutes=1)
+        
+        def analyze_requests(method: str):
+            requests = self.rate_limiter.requests[method]
+            recent_requests = [req for req in requests if req.timestamp > cutoff]
+            
+            status_counts = {'success': 0, 'error': 0, '429': 0}
+            for req in recent_requests:
+                status_counts[req.status] = status_counts.get(req.status, 0) + 1
+            
+            return {
+                'total_requests_last_minute': len(recent_requests),
+                'limit': self.rate_limiter.rpm_limits[method],
+                'remaining': max(0, self.rate_limiter.rpm_limits[method] - len(recent_requests)),
+                'can_make_request': self.rate_limiter.can_make_request(method),
+                'wait_time_seconds': self.rate_limiter.get_wait_time(method),
+                'status_breakdown': status_counts,
+                'error_rate': (status_counts['error'] + status_counts['429']) / max(1, len(recent_requests))
+            }
+        
+        return {
+            'googlesearch_python': analyze_requests('googlesearch'),
+            'custom_search_api': analyze_requests('custom_search'),
+            'timestamp': now.isoformat(),
+            'recommendation': self._get_usage_recommendation()
+        }
+    
+    def _get_usage_recommendation(self) -> str:
+        """Get usage recommendation based on current state"""
+        config = self.get_search_configuration()
+        
+        if self.search_mode == 'googlesearch_only':
+            if config['googlesearch_python']['can_make_request']:
+                return "Ready to search with googlesearch-python"
+            else:
+                wait_time = config['googlesearch_python']['wait_time']
+                return f"Wait {wait_time:.1f} seconds before next googlesearch-python request"
+        
+        elif self.search_mode == 'custom_search_only':
+            if not config['custom_search_api']['configured']:
+                return "Configure Custom Search API credentials (GOOGLE_SEARCH_API_KEY, GOOGLE_SEARCH_ENGINE_ID)"
+            elif config['custom_search_api']['can_make_request']:
+                return "Ready to search with Custom Search API"
+            else:
+                wait_time = config['custom_search_api']['wait_time']
+                return f"Wait {wait_time:.1f} seconds before next Custom Search API request"
+        
+        else:  # hybrid mode
+            if config['googlesearch_python']['can_make_request']:
+                return "Ready to search (will try googlesearch-python first)"
+            elif config['custom_search_api']['configured'] and config['custom_search_api']['can_make_request']:
+                return "googlesearch-python rate limited, but Custom Search API available as fallback"
+            elif not config['custom_search_api']['configured']:
+                wait_time = config['googlesearch_python']['wait_time']
+                return f"googlesearch-python rate limited. Wait {wait_time:.1f}s or configure Custom Search API for fallback"
+            else:
+                return "Both search methods rate limited. Wait for limits to reset"
     
     def _enhance_query_with_genre(self, query: str, genre: Optional[str]) -> str:
         """Enhance search query based on specified genre"""
@@ -529,9 +1091,8 @@ class GoogleSearchProcessor:
             domain_distribution = {domain: all_domains.count(domain) for domain in unique_domains}
             type_distribution = {rtype: all_types.count(rtype) for rtype in set(all_types)}
             
-            # Find most common domains and types
+            # Find most common domains
             top_domains = sorted(domain_distribution.items(), key=lambda x: x[1], reverse=True)[:10]
-            top_types = sorted(type_distribution.items(), key=lambda x: x[1], reverse=True)
             
             return {
                 'success': True,

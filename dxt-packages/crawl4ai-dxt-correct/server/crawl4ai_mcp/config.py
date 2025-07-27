@@ -141,7 +141,7 @@ class ConfigManager:
         
         return MCPLLMConfig(
             default_provider=config_data.get('default_provider', 'openai'),
-            default_model=config_data.get('default_model', 'gpt-4o-mini'),
+            default_model=config_data.get('default_model', 'gpt-4.1'),
             providers=providers
         )
     
@@ -155,7 +155,7 @@ class ConfigManager:
                     api_key=None,  # No direct API key by default
                     api_key_env='OPENAI_API_KEY',
                     base_url=None,
-                    models=['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo']
+                    models=['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo']
                 ),
                 'anthropic': LLMProviderConfig(
                     api_key=None,  # No direct API key by default
@@ -195,7 +195,7 @@ class ConfigManager:
     def get_default_model(self) -> str:
         """Get the default LLM model"""
         if not self.llm_config:
-            return 'gpt-4o-mini'
+            return 'gpt-4.1'
         return self.llm_config.default_model
     
     def get_api_key(self, provider: str) -> Optional[str]:

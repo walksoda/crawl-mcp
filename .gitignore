@@ -105,6 +105,15 @@ check_*.py
 docs/_build/
 site/
 
+# Development documentation (temporary/working documents)
+docs/*_STRATEGY_*.md
+docs/*_MEMO_*.md
+docs/*_NOTES_*.md
+docs/*_DRAFT_*.md
+docs/*_WIP_*.md
+docs/DEV_*.md
+docs/TEMP_*.md
+
 # Backup files
 *.bak
 *.backup
@@ -148,4 +157,4 @@ celerybeat.pid
 dmypy.json
 
 # Pyre type checker
-.pyre/
+.pyre/docs/PDF_PROCESSING_SPECIFICATIONS_backup.md
