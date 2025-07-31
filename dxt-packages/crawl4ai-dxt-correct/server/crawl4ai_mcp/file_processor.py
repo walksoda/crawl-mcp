@@ -245,59 +245,6 @@ class FileProcessor:
                         'title': getattr(result, 'title', None),
                         'metadata': getattr(result, 'metadata', {})
                     }
-                except Exception as convert_error:
-                    # Handle MissingDependencyException for PDF files
-                    if 'MissingDependencyException' in str(convert_error) or 'pdf' in str(convert_error).lower():
-                        try:
-                            # Try to install PDF dependencies
-                            import subprocess
-                            import sys
-                            subprocess.check_call([
-                                sys.executable, "-m", "pip", "install", 
-                                "pdfminer-six>=20250506", "--quiet"
-                            ])
-                            
-                            # Recreate MarkItDown instance to pick up new dependencies
-                            self.markitdown = MarkItDown()
-                            
-                            # Retry conversion
-                            result = self.markitdown.convert(temp_file.name)
-                            return {
-                                'success': True,
-                                'url': url,
-                                'file_type': file_type,
-                                'size_bytes': len(file_data),
-                                'is_archive': False,
-                                'content': result.text_content,
-                                'title': getattr(result, 'title', None),
-                                'metadata': getattr(result, 'metadata', {})
-                            }
-                        except Exception as retry_error:
-                            return {
-                                'success': False,
-                                'url': url,
-                                'file_type': file_type,
-                                'size_bytes': len(file_data),
-                                'is_archive': False,
-                                'content': None,
-                                'title': None,
-                                'metadata': None,
-                                'archive_contents': None,
-                                'error': f"File conversion failed after dependency installation attempt:\n - Original error: {str(convert_error)}\n - Retry error: {str(retry_error)}"
-                            }
-                    else:
-                        return {
-                            'success': False,
-                            'url': url,
-                            'file_type': file_type,
-                            'size_bytes': len(file_data),
-                            'is_archive': False,
-                            'content': None,
-                            'title': None,
-                            'metadata': None,
-                            'archive_contents': None,
-                            'error': f"File conversion failed: {str(convert_error)}"
-                        }
                 finally:
                     # Clean up temp file
                     try:

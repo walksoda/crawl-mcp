@@ -110,6 +110,29 @@ class YouTubeProcessor:
                 'api_version': 'youtube-transcript-api-1.1.0+'
             }
     
+    def get_available_transcript_languages(self, video_id: str) -> List[Dict[str, Any]]:
+        """Get available transcript languages for a video"""
+        try:
+            # Get transcript list to determine available languages
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            
+            available_languages = []
+            
+            for transcript in transcript_list:
+                lang_info = {
+                    'language': transcript.language,
+                    'language_code': transcript.language_code,
+                    'is_generated': transcript.is_generated,
+                    'is_translatable': transcript.is_translatable
+                }
+                available_languages.append(lang_info)
+            
+            return available_languages
+            
+        except Exception as e:
+            # Return empty list if no transcripts available or error occurs
+            return []
+    
     async def extract_transcript(
         self,
         video_id: str,
