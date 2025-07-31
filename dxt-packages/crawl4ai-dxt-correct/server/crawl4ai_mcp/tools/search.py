@@ -38,22 +38,6 @@ async def search_google(
     
     Returns web search results with titles, snippets, URLs, and metadata.
     Supports targeted search genres for better results.
-    
-    Parameters:
-    - request: GoogleSearchRequest with query and search parameters
-      - query: Search terms (required)
-      - num_results: Number of results to return 1-100 (default: 10)
-      - search_genre: Target content type - 'academic', 'news', 'technical', etc. (default: None)
-      - language: Search language e.g. 'en', 'ja' (default: 'en')
-      - region: Search region e.g. 'us', 'jp' (default: 'us')
-      - safe_search: Enable safe search filtering (default: True)
-    - include_current_date: Append current date to query for latest results (default: True)
-    
-    Use search_google for search results only; use search_and_crawl to also get full content.
-    
-    Examples:
-    {"request": {"query": "AI news", "search_genre": "news"}}
-    {"request": {"query": "research papers", "search_genre": "academic"}}
     """
     try:
         # Extract parameters from request dictionary
@@ -120,21 +104,6 @@ async def batch_search_google(
     
     Process multiple search queries concurrently with controlled rate limiting.
     Includes batch processing statistics and result analysis.
-    
-    Parameters:
-    - request: GoogleBatchSearchRequest with multiple queries and parameters
-      - queries: List of search queries (required)
-      - num_results_per_query: Results per query 1-100 (default: 10)
-      - max_concurrent: Concurrent searches 1-5 (default: 3)
-      - search_genre: Content type filter (default: None)
-      - language: Search language (default: 'en')
-      - region: Search region (default: 'us')
-    - include_current_date: Append current date to queries for latest results (default: True)
-    
-    Example:
-    {"request": {"queries": ["AI news", "machine learning"], "max_concurrent": 2}}
-    
-    Returns GoogleBatchSearchResponse with batch results and analysis.
     """
     try:
         # Extract parameters from request dictionary
@@ -242,20 +211,6 @@ async def search_and_crawl(
     
     Combines search discovery with full content extraction. Auto-scales timeout based on crawl count.
     Returns both search results and full page content.
-    
-    Parameters:
-    - search_query: Search terms, be specific for better results (required)
-    - num_search_results: Number of search results to retrieve (default: 5, max: 20)
-    - crawl_top_results: Number of top results to crawl (default: 3, max: 10)
-    - extract_media: Include images/videos from crawled pages (default: False)
-    - generate_markdown: Convert crawled content to markdown (default: True)
-    - search_genre: Content type filter - 'academic', 'news', 'technical', etc. (default: None)
-    - base_timeout: Base timeout, auto-scales with crawl count (default: 30)
-    - include_current_date: Add current date to query (default: True)
-    
-    Examples:
-    {"search_query": "AI developments 2024", "search_genre": "news"}
-    {"search_query": "competitor pricing", "crawl_top_results": 5}
     """
     try:
         # Validate parameters

@@ -40,23 +40,6 @@ async def extract_youtube_transcript(
     
     Works with public videos that have captions. No authentication required.
     Auto-detects available languages and falls back appropriately.
-    
-    Parameters:
-    - url: YouTube video URL (required)
-    - languages: Preferred transcript languages (default: ["ja", "en"])
-    - translate_to: Target language for translation (default: None)
-    - include_timestamps: Include time markers (default: True)
-    - preserve_formatting: Preserve original formatting (default: True)
-    - include_metadata: Include video metadata (default: True)
-    - auto_summarize: Enable LLM summarization for long transcripts (default: False)
-    - max_content_tokens: Token limit before summarization (default: 15000)
-    - summary_length: Summary length - 'short', 'medium', 'long' (default: 'medium')
-    - llm_provider: LLM provider for summarization (default: auto-detected)
-    - llm_model: Specific LLM model (default: auto-detected)
-    
-    Examples:
-    {"url": "https://www.youtube.com/watch?v=abc123"}
-    {"url": "https://youtu.be/abc123", "auto_summarize": true}
     """
     try:
         # Check if URL is valid YouTube URL
@@ -170,19 +153,6 @@ async def batch_extract_youtube_transcripts(
     
     Processes multiple YouTube URLs concurrently with controlled rate limiting.
     No authentication required for public videos with captions.
-    
-    Parameters:
-    - request: YouTubeBatchRequest with URLs and extraction parameters
-      - urls: List of YouTube video URLs (required)
-      - languages: Preferred languages (default: ["ja", "en"])
-      - max_concurrent: Concurrent processing limit (default: 3, max: 5)
-      - include_timestamps: Include timestamps (default: True)
-      - translate_to: Target translation language (default: None)
-    
-    Example:
-    {"request": {"urls": ["https://youtube.com/watch?v=abc"], "max_concurrent": 3}}
-    
-    Returns individual results and batch processing statistics.
     """
     try:
         # Extract parameters from request
@@ -286,20 +256,6 @@ async def get_youtube_video_info(
     
     Retrieves basic video information and transcript availability using youtube-transcript-api.
     No authentication required for public videos.
-    
-    Parameters:
-    - video_url: YouTube video URL (required)
-    - summarize_transcript: Summarize long transcripts using LLM (default: False)
-    - max_tokens: Token limit before triggering summarization (default: 25000)
-    - llm_provider: LLM provider for summarization (default: auto-detected)
-    - llm_model: Specific model to use (default: auto-detected)
-    - summary_length: Summary length - 'short', 'medium', 'long' (default: 'medium')
-    - include_timestamps: Preserve key timestamps in summary (default: True)
-    
-    Example:
-    {"video_url": "https://youtube.com/watch?v=abc", "summarize_transcript": true}
-    
-    Returns video information and transcript details (summarized if requested).
     """
     try:
         # Check if URL is valid YouTube URL
@@ -387,10 +343,6 @@ async def get_youtube_api_setup_guide() -> Dict[str, Any]:
     
     Provides information about current youtube-transcript-api setup.
     No authentication or API keys required for basic transcript extraction.
-    
-    Parameters: None
-    
-    Returns setup information, capabilities, and usage tips.
     """
     try:
         return {

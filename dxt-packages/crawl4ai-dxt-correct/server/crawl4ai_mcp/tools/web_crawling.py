@@ -721,20 +721,6 @@ async def crawl_url(
     
     Core web crawling tool with comprehensive configuration options.
     Essential for SPAs: set wait_for_js=true for JavaScript-heavy sites.
-    
-    Key parameters:
-    - url: Target URL to crawl (required)
-    - wait_for_js: Wait for JavaScript completion (default: False, essential for SPAs)
-    - generate_markdown: Convert to markdown format (default: True)
-    - auto_summarize: Enable LLM-powered summarization (default: False)
-    - content_filter: Filter content using 'bm25', 'pruning', or 'llm' (default: None)
-    - timeout: Request timeout in seconds (default: 60)
-    - extract_media: Include images/videos (default: False)
-    - simulate_user: Bypass anti-bot measures (default: False)
-    
-    Examples:
-    {"url": "https://example.com"}
-    {"url": "https://spa-app.com", "wait_for_js": true}
     """
     # Create CrawlRequest object from individual parameters
     request = CrawlRequest(
