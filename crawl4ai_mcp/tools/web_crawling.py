@@ -6,6 +6,7 @@ Contains complete web crawling functionality and content extraction tools.
 
 import asyncio
 import json
+import os
 from typing import Any, Dict, List, Optional, Annotated
 from pydantic import Field
 
@@ -560,17 +561,177 @@ async def _internal_intelligent_extract(
                 "processing_method": "basic_crawl_only"
             }
         
-        # TODO: Implement LLM extraction logic here
-        # For now, return the crawled content with extraction goal info
-        return {
-            "url": url,
-            "success": True,
-            "extracted_content": crawl_result.content,
-            "extraction_goal": extraction_goal,
-            "processing_method": "crawl_with_filtering",
-            "content_length": len(crawl_result.content) if crawl_result.content else 0,
-            "note": "LLM-based intelligent extraction not yet fully implemented"
-        }
+        # Implement LLM-based intelligent extraction
+        try:
+            # Import config
+            try:
+                from ..config import get_llm_config
+            except ImportError:
+                from config import get_llm_config
+            
+            # Get LLM configuration
+            llm_config = get_llm_config(llm_provider, llm_model)
+            
+            # Prepare extraction prompt
+            extraction_prompt = f"""
+            You are an expert content analyst. Your task is to extract specific information from web content based on the extraction goal.
+            
+            EXTRACTION GOAL: {extraction_goal}
+            
+            INSTRUCTIONS:
+            - Focus specifically on information relevant to the extraction goal
+            - Extract concrete data, statistics, quotes, and specific details
+            - Maintain accuracy and preserve exact information from the source
+            - Organize findings in a structured, easy-to-understand format
+            - If the content doesn't contain relevant information, clearly state that
+            
+            {f"ADDITIONAL INSTRUCTIONS: {custom_instructions}" if custom_instructions else ""}
+            
+            Please provide a JSON response with the following structure:
+            {{
+                "extracted_data": "The specific information extracted according to the goal",
+                "key_findings": ["List", "of", "main", "findings"],
+                "relevant_quotes": ["Important", "quotes", "from", "source"],
+                "statistics_data": ["Numerical", "data", "and", "statistics"],
+                "sources_references": ["References", "to", "specific", "sections"],
+                "extraction_confidence": "High/Medium/Low - confidence in extraction quality",
+                "missing_information": ["Information", "sought", "but", "not", "found"]
+            }}
+            
+            CONTENT TO ANALYZE:
+            {crawl_result.content[:50000]}  # Limit content to prevent token overflow
+            """
+            
+            # Make LLM API call
+            provider_info = llm_config.provider.split('/')
+            provider = provider_info[0] if provider_info else 'openai'
+            model = provider_info[1] if len(provider_info) > 1 else 'gpt-4o'
+            
+            extracted_content = None
+            
+            if provider == 'openai':
+                import openai
+                
+                api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
+                if not api_key:
+                    raise ValueError("OpenAI API key not found")
+                
+                client = openai.AsyncOpenAI(api_key=api_key, base_url=llm_config.base_url)
+                
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": "You are an expert content analyst specializing in precise information extraction."},
+                        {"role": "user", "content": extraction_prompt}
+                    ],
+                    temperature=0.1,  # Low temperature for consistent extraction
+                    max_tokens=4000
+                )
+                
+                extracted_content = response.choices[0].message.content
+                
+            elif provider == 'anthropic':
+                import anthropic
+                
+                api_key = llm_config.api_token or os.environ.get('ANTHROPIC_API_KEY')
+                if not api_key:
+                    raise ValueError("Anthropic API key not found")
+                
+                client = anthropic.AsyncAnthropic(api_key=api_key)
+                
+                response = await client.messages.create(
+                    model=model,
+                    max_tokens=4000,
+                    temperature=0.1,
+                    messages=[
+                        {"role": "user", "content": extraction_prompt}
+                    ]
+                )
+                
+                extracted_content = response.content[0].text
+                
+            else:
+                # Fallback for unsupported providers
+                return {
+                    "url": url,
+                    "success": False,
+                    "error": f"LLM provider '{provider}' not supported for intelligent extraction"
+                }
+            
+            # Parse JSON response
+            if extracted_content:
+                try:
+                    import json
+                    # Clean up the extracted content if it's wrapped in markdown
+                    content_to_parse = extracted_content
+                    if content_to_parse.startswith('```json'):
+                        content_to_parse = content_to_parse.replace('```json', '').replace('```', '').strip()
+                    
+                    extraction_data = json.loads(content_to_parse) if isinstance(content_to_parse, str) else content_to_parse
+                    
+                    return {
+                        "url": url,
+                        "success": True,
+                        "extraction_goal": extraction_goal,
+                        "extracted_data": extraction_data.get("extracted_data", ""),
+                        "key_findings": extraction_data.get("key_findings", []),
+                        "relevant_quotes": extraction_data.get("relevant_quotes", []),
+                        "statistics_data": extraction_data.get("statistics_data", []),
+                        "sources_references": extraction_data.get("sources_references", []),
+                        "extraction_confidence": extraction_data.get("extraction_confidence", "Medium"),
+                        "missing_information": extraction_data.get("missing_information", []),
+                        "processing_method": "llm_intelligent_extraction",
+                        "llm_provider": provider,
+                        "llm_model": model,
+                        "original_content_length": len(crawl_result.content) if crawl_result.content else 0,
+                        "custom_instructions_used": bool(custom_instructions)
+                    }
+                    
+                except (json.JSONDecodeError, AttributeError) as e:
+                    # Fallback: treat as plain text extraction
+                    return {
+                        "url": url,
+                        "success": True,
+                        "extraction_goal": extraction_goal,
+                        "extracted_data": str(extracted_content),
+                        "key_findings": [],
+                        "relevant_quotes": [],
+                        "statistics_data": [],
+                        "sources_references": [],
+                        "extraction_confidence": "Medium",
+                        "missing_information": [],
+                        "processing_method": "llm_intelligent_extraction_fallback",
+                        "llm_provider": provider,
+                        "llm_model": model,
+                        "original_content_length": len(crawl_result.content) if crawl_result.content else 0,
+                        "custom_instructions_used": bool(custom_instructions),
+                        "json_parse_error": str(e)
+                    }
+            else:
+                return {
+                    "url": url,
+                    "success": False,
+                    "error": "LLM extraction returned empty result"
+                }
+                
+        except Exception as llm_error:
+            # LLM processing failed, return crawled content with error info
+            return {
+                "url": url,
+                "success": True,  # Still return success since we have crawled content
+                "extraction_goal": extraction_goal,
+                "extracted_data": crawl_result.content,
+                "key_findings": [],
+                "relevant_quotes": [],
+                "statistics_data": [],
+                "sources_references": [],
+                "extraction_confidence": "Low",
+                "missing_information": [],
+                "processing_method": "crawl_fallback_due_to_llm_error",
+                "llm_error": str(llm_error),
+                "original_content_length": len(crawl_result.content) if crawl_result.content else 0,
+                "custom_instructions_used": bool(custom_instructions)
+            }
         
     except Exception as e:
         return {
@@ -670,13 +831,251 @@ async def _internal_llm_extract_entities(
 async def _internal_extract_structured_data(request: StructuredExtractionRequest) -> CrawlResponse:
     """
     Internal extract structured data implementation.
-    TODO: Implement CSS/LLM-based structured data extraction.
+    Supports both CSS selector and LLM-based extraction methods.
     """
-    return CrawlResponse(
-        success=False,
-        url=request.url,
-        error="Structured data extraction not yet implemented in modular architecture"
-    )
+    try:
+        # First crawl the URL to get the content
+        crawl_request = CrawlRequest(
+            url=request.url,
+            generate_markdown=True
+        )
+        
+        crawl_result = await _internal_crawl_url(crawl_request)
+        
+        if not crawl_result.success:
+            return CrawlResponse(
+                success=False,
+                url=request.url,
+                error=f"Failed to crawl URL for structured extraction: {crawl_result.error}"
+            )
+        
+        extracted_data = {}
+        
+        if request.extraction_type == "css" and request.css_selectors:
+            # CSS selector-based extraction
+            try:
+                from bs4 import BeautifulSoup
+                
+                soup = BeautifulSoup(crawl_result.content, 'html.parser')
+                
+                for field_name, css_selector in request.css_selectors.items():
+                    elements = soup.select(css_selector)
+                    if elements:
+                        if len(elements) == 1:
+                            # Single element
+                            extracted_data[field_name] = elements[0].get_text(strip=True)
+                        else:
+                            # Multiple elements
+                            extracted_data[field_name] = [elem.get_text(strip=True) for elem in elements]
+                    else:
+                        extracted_data[field_name] = None
+                
+                return CrawlResponse(
+                    success=True,
+                    url=request.url,
+                    title=crawl_result.title,
+                    content=crawl_result.content,
+                    markdown=crawl_result.markdown,
+                    extracted_data={
+                        "structured_data": extracted_data,
+                        "extraction_method": "css_selectors",
+                        "schema_fields": list(request.schema.keys()) if request.schema else [],
+                        "extracted_fields": list(extracted_data.keys())
+                    }
+                )
+                
+            except ImportError:
+                return CrawlResponse(
+                    success=False,
+                    url=request.url,
+                    error="BeautifulSoup4 not installed. Install with: pip install beautifulsoup4"
+                )
+                
+        elif request.extraction_type == "llm":
+            # LLM-based extraction
+            try:
+                # Import config
+                try:
+                    from ..config import get_llm_config
+                except ImportError:
+                    from config import get_llm_config
+                
+                # Get LLM configuration
+                llm_config = get_llm_config(request.llm_provider, request.llm_model)
+                
+                # Prepare schema description
+                schema_description = ""
+                if request.schema:
+                    schema_items = []
+                    for field, description in request.schema.items():
+                        schema_items.append(f"- {field}: {description}")
+                    schema_description = "\n".join(schema_items)
+                
+                # Prepare extraction prompt
+                structured_prompt = f"""
+                You are an expert data extraction specialist. Extract structured data from the given web content according to the specified schema.
+
+                SCHEMA FIELDS TO EXTRACT:
+                {schema_description}
+
+                EXTRACTION INSTRUCTIONS:
+                - Extract information for each field in the schema
+                - Maintain accuracy and preserve exact information from the source
+                - If a field's information is not found, set it to null
+                - Return data in valid JSON format matching the schema structure
+                - Focus on extracting concrete, factual information
+                
+                {f"ADDITIONAL INSTRUCTIONS: {request.instruction}" if request.instruction else ""}
+
+                Please provide a JSON response with the following structure:
+                {{
+                    "structured_data": {{
+                        // Fields matching the requested schema
+                    }},
+                    "extraction_confidence": "High/Medium/Low",
+                    "found_fields": ["list", "of", "successfully", "extracted", "fields"],
+                    "missing_fields": ["list", "of", "fields", "not", "found"],
+                    "additional_context": "Any relevant context or notes about the extraction"
+                }}
+
+                WEB CONTENT TO ANALYZE:
+                {crawl_result.content[:40000]}  # Limit content to prevent token overflow
+                """
+                
+                # Make LLM API call
+                provider_info = llm_config.provider.split('/')
+                provider = provider_info[0] if provider_info else 'openai'
+                model = provider_info[1] if len(provider_info) > 1 else 'gpt-4o'
+                
+                extracted_content = None
+                
+                if provider == 'openai':
+                    import openai
+                    
+                    api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
+                    if not api_key:
+                        raise ValueError("OpenAI API key not found")
+                    
+                    client = openai.AsyncOpenAI(api_key=api_key, base_url=llm_config.base_url)
+                    
+                    response = await client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": "You are an expert data extraction specialist focused on accuracy and structured output."},
+                            {"role": "user", "content": structured_prompt}
+                        ],
+                        temperature=0.1,  # Low temperature for consistent extraction
+                        max_tokens=4000
+                    )
+                    
+                    extracted_content = response.choices[0].message.content
+                    
+                elif provider == 'anthropic':
+                    import anthropic
+                    
+                    api_key = llm_config.api_token or os.environ.get('ANTHROPIC_API_KEY')
+                    if not api_key:
+                        raise ValueError("Anthropic API key not found")
+                    
+                    client = anthropic.AsyncAnthropic(api_key=api_key)
+                    
+                    response = await client.messages.create(
+                        model=model,
+                        max_tokens=4000,
+                        temperature=0.1,
+                        messages=[
+                            {"role": "user", "content": structured_prompt}
+                        ]
+                    )
+                    
+                    extracted_content = response.content[0].text
+                    
+                else:
+                    return CrawlResponse(
+                        success=False,
+                        url=request.url,
+                        error=f"LLM provider '{provider}' not supported for structured extraction"
+                    )
+                
+                # Parse JSON response
+                if extracted_content:
+                    try:
+                        import json
+                        # Clean up the extracted content if it's wrapped in markdown
+                        content_to_parse = extracted_content
+                        if content_to_parse.startswith('```json'):
+                            content_to_parse = content_to_parse.replace('```json', '').replace('```', '').strip()
+                        
+                        extraction_result = json.loads(content_to_parse) if isinstance(content_to_parse, str) else content_to_parse
+                        
+                        return CrawlResponse(
+                            success=True,
+                            url=request.url,
+                            title=crawl_result.title,
+                            content=crawl_result.content,
+                            markdown=crawl_result.markdown,
+                            extracted_data={
+                                "structured_data": extraction_result.get("structured_data", {}),
+                                "extraction_method": "llm_based",
+                                "extraction_confidence": extraction_result.get("extraction_confidence", "Medium"),
+                                "found_fields": extraction_result.get("found_fields", []),
+                                "missing_fields": extraction_result.get("missing_fields", []),
+                                "additional_context": extraction_result.get("additional_context", ""),
+                                "schema_fields": list(request.schema.keys()) if request.schema else [],
+                                "llm_provider": provider,
+                                "llm_model": model,
+                                "custom_instruction_used": bool(request.instruction)
+                            }
+                        )
+                        
+                    except (json.JSONDecodeError, AttributeError) as e:
+                        # Fallback: treat as plain text
+                        return CrawlResponse(
+                            success=True,
+                            url=request.url,
+                            title=crawl_result.title,
+                            content=crawl_result.content,
+                            markdown=crawl_result.markdown,
+                            extracted_data={
+                                "structured_data": {"raw_extraction": str(extracted_content)},
+                                "extraction_method": "llm_based_fallback",
+                                "extraction_confidence": "Low",
+                                "found_fields": [],
+                                "missing_fields": list(request.schema.keys()) if request.schema else [],
+                                "additional_context": f"JSON parsing failed: {str(e)}",
+                                "schema_fields": list(request.schema.keys()) if request.schema else [],
+                                "llm_provider": provider,
+                                "llm_model": model,
+                                "json_parse_error": str(e)
+                            }
+                        )
+                else:
+                    return CrawlResponse(
+                        success=False,
+                        url=request.url,
+                        error="LLM structured extraction returned empty result"
+                    )
+                    
+            except Exception as llm_error:
+                return CrawlResponse(
+                    success=False,
+                    url=request.url,
+                    error=f"LLM structured extraction failed: {str(llm_error)}"
+                )
+        
+        else:
+            return CrawlResponse(
+                success=False,
+                url=request.url,
+                error=f"Unsupported extraction type: {request.extraction_type}. Supported types: 'css', 'llm'"
+            )
+            
+    except Exception as e:
+        return CrawlResponse(
+            success=False,
+            url=request.url,
+            error=f"Structured data extraction error: {str(e)}"
+        )
 
 
 # MCP Tool implementations
