@@ -335,21 +335,6 @@ async def process_file(
     
     Supports: PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), ZIP archives, ePub.
     Auto-detects file format and applies appropriate conversion method.
-    
-    Parameters:
-    - url: Direct URL to file (required)
-    - max_size_mb: Maximum file size limit (default: 100)
-    - extract_all_from_zip: Extract all files from ZIP archives (default: True)
-    - include_metadata: Include file metadata (default: True)
-    - auto_summarize: Enable LLM summarization for large documents (default: False)
-    - max_content_tokens: Token limit before summarization (default: 15000)
-    - summary_length: Summary length - 'short', 'medium', 'long' (default: 'medium')
-    - llm_provider: LLM provider (default: auto-detected)
-    - llm_model: Specific LLM model (default: auto-detected)
-    
-    Examples:
-    {"url": "https://example.com/document.pdf"}
-    {"url": "https://example.com/report.pdf", "auto_summarize": true}
     """
     try:
         # Check if file format is supported
@@ -569,21 +554,6 @@ async def enhanced_process_large_content(
     
     Uses BM25 filtering and intelligent chunking to reduce token usage while preserving semantic boundaries.
     Supports hierarchical summarization for progressive content refinement.
-    
-    Parameters:
-    - url: Target URL to process (required)
-    - chunking_strategy: Content segmentation method - 'topic', 'sentence', 'overlap', 'regex' (default: 'topic')
-    - filtering_strategy: Content filtering method - 'bm25', 'pruning', 'llm' (default: 'bm25')
-    - filter_query: Keywords for BM25 filtering (default: None)
-    - max_chunk_tokens: Maximum tokens per chunk (default: 8000)
-    - chunk_overlap: Token overlap between chunks (default: 500)
-    - similarity_threshold: Minimum similarity threshold for relevant chunks (default: 0.7)
-    - extract_top_chunks: Number of relevant chunks to extract (default: 10)
-    - summarize_chunks: Whether to summarize individual chunks (default: True)
-    - merge_strategy: Strategy for merging summaries - 'hierarchical', 'linear' (default: 'hierarchical')
-    - final_summary_length: Final summary length - 'short', 'medium', 'long' (default: 'medium')
-    
-    Ideal for large PDFs, long articles, and technical documentation.
     """
     start_time = time.time()
     
