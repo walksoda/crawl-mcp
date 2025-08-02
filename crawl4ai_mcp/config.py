@@ -155,7 +155,7 @@ class ConfigManager:
                     api_key=None,  # No direct API key by default
                     api_key_env='OPENAI_API_KEY',
                     base_url=None,
-                    models=['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo']
+                    models=['gpt-4.1', 'gpt-o4-mini']
                 ),
                 'anthropic': LLMProviderConfig(
                     api_key=None,  # No direct API key by default
@@ -175,7 +175,7 @@ class ConfigManager:
                     base_url=None,
                     base_url_env='AZURE_OPENAI_ENDPOINT',
                     api_version='2025-04-01-preview',
-                    models=['gpt-4.1', 'gpt-4.1-nano', 'o4-mini', 'o3', 'o3-mini', 'o1', 'o1-mini', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-35-turbo']
+                    models=['gpt-4.1', 'gpt-o4-mini']
                 )
             }
         )

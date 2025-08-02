@@ -160,3 +160,7 @@ dmypy.json
 .pyre/docs/PDF_PROCESSING_SPECIFICATIONS_backup.md
 FINAL_VERIFICATION_REPORT.md
 tool_verification_report.json
+SILENT_STARTUP.md
+start_mcp_silent.sh
+.gitignore
+run_mcp_silent.py

@@ -5,13 +5,47 @@ A Model Context Protocol server that provides web crawling and content extractio
 capabilities using the crawl4ai library.
 """
 
-import asyncio
-import json
 import os
 import sys
+import warnings
+
+# Set environment variables before any imports
+os.environ["FASTMCP_QUIET"] = "1"
+os.environ["FASTMCP_NO_BANNER"] = "1"
+os.environ["PYTHONWARNINGS"] = "ignore"
+
+# Prevent bash job control errors completely
+os.environ["TERM"] = "dumb"
+os.environ["SHELL"] = "/bin/sh"
+
+# Redirect all output streams to devnull immediately
+devnull_fd = os.open(os.devnull, os.O_WRONLY)
+os.dup2(devnull_fd, 2)  # stderr
+os.close(devnull_fd)
+
+# Suppress all warnings as early as possible
+warnings.filterwarnings("ignore")
+warnings.simplefilter("ignore")
+
+# Additional stderr suppression
+sys.stderr = open(os.devnull, 'w')
+sys.stdout = sys.stdout  # Keep stdout for MCP communication
+
+import asyncio
+import json
 import logging
 from typing import Any, Dict, List, Optional, Union, Annotated
 from pydantic import BaseModel, Field
+
+# Ensure logging is completely disabled
+logging.disable(logging.CRITICAL)
+logging.getLogger().disabled = True
+
+# Additional Pydantic warning suppression
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*class-based.*config.*deprecated.*")
+warnings.filterwarnings("ignore", module="pydantic.*")
 from fastmcp import FastMCP
 from crawl4ai import AsyncWebCrawler
 from crawl4ai import (
@@ -345,8 +379,12 @@ for logger_name in ["crawl4ai", "playwright", "asyncio", "urllib3"]:
     logger.handlers.clear()
     logger.propagate = False
 
-# Initialize FastMCP server
+# Initialize FastMCP server with minimal output
 mcp = FastMCP("Crawl4AI MCP Server")
+
+# Disable FastMCP debug logging
+logging.getLogger("fastmcp").setLevel(logging.CRITICAL)
+logging.getLogger("mcp").setLevel(logging.CRITICAL)
 
 # Initialize FileProcessor for MarkItDown integration
 file_processor = FileProcessor()
@@ -1221,6 +1259,10 @@ def process_file_prompt_wrapper(file_url: str, file_type: str = "auto"):
 def main():
     """Main entry point for the MCP server."""
     import sys
+    
+    # Ensure all output is suppressed
+    warnings.filterwarnings("ignore")
+    logging.disable(logging.CRITICAL)
     
     if len(sys.argv) > 1 and sys.argv[1] == "--help":
         print("Crawl4AI MCP Server")

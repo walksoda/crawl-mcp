@@ -40,6 +40,8 @@ async def extract_youtube_transcript(
     
     Works with public videos that have captions. No authentication required.
     Auto-detects available languages and falls back appropriately.
+    
+    Note: Automatic transcription may contain errors.
     """
     try:
         # Check if URL is valid YouTube URL
@@ -153,6 +155,8 @@ async def batch_extract_youtube_transcripts(
     
     Processes multiple YouTube URLs concurrently with controlled rate limiting.
     No authentication required for public videos with captions.
+    
+    Note: Automatic transcription may contain errors.
     """
     try:
         # Extract parameters from request
@@ -256,6 +260,8 @@ async def get_youtube_video_info(
     
     Retrieves basic video information and transcript availability using youtube-transcript-api.
     No authentication required for public videos.
+    
+    Note: Automatic transcription may contain errors.
     """
     try:
         # Check if URL is valid YouTube URL
