@@ -164,3 +164,4 @@ SILENT_STARTUP.md
 start_mcp_silent.sh
 .gitignore
 run_mcp_silent.py
+commit_message.txt
