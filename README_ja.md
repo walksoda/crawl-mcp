@@ -70,34 +70,11 @@ JavaScript重要サイトに対応する包括的な機能セットを提供し�
 
 ## 📦 インストール
 
-### 🚀 方法1: GitHub直接実行（推奨）
-```bash
-uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
-```
-
-### 🖥️ 方法2: Claude Desktop統合  
-```json
-{
-  "mcpServers": {
-    "crawl-mcp": {
-      "transport": "stdio",
-      "command": "uvx",
-      "args": [
-        "--from", 
-        "git+https://github.com/walksoda/crawl-mcp", 
-        "crawl-mcp"
-      ]
-    }
-  }
-}
-```
-
-### 🔧 方法3: ローカル開発
+### 🔧 ローカル開発セットアップ
 ```bash
 git clone https://github.com/walksoda/crawl-mcp.git
 cd crawl-mcp
 uv sync
-uvx crawl-mcp
 ```
 
 ### クイックセットアップ（従来方式）

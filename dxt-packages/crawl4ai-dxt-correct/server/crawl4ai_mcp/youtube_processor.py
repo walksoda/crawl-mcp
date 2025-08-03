@@ -147,53 +147,51 @@ class YouTubeProcessor:
             if languages is None:
                 languages = ['ja', 'en', 'en-US', 'en-GB']
             
-            # Get transcript
+            # Get transcript using modern API approach with enhanced error handling
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            
             if translate_to:
                 # Get any available transcript and translate
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-                transcript = transcript_list.find_transcript(languages)
-                translated_transcript = transcript.translate(translate_to)
-                transcript_data = translated_transcript.fetch()
-                source_language = transcript.language_code
-                final_language = translate_to
-                is_translated = True
-            else:
-                # Get transcript in preferred language
-                transcript_data = YouTubeTranscriptApi.get_transcript(
-                    video_id, 
-                    languages=languages
-                )
-                # Determine which language was actually used
                 try:
-                    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-                    # Find the actual language used
-                    source_language = 'unknown'
-                    final_language = 'unknown'
+                    transcript = transcript_list.find_transcript(languages)
+                    translated_transcript = transcript.translate(translate_to)
+                    transcript_data = translated_transcript.fetch()
+                    source_language = transcript.language_code
+                    final_language = translate_to
+                    is_translated = True
+                except Exception as e:
+                    # Try to get any available transcript for translation
+                    try:
+                        transcript = transcript_list.find_transcript(['en', 'ja', 'es', 'fr', 'de', 'it', 'pt', 'ru'])
+                        translated_transcript = transcript.translate(translate_to)
+                        transcript_data = translated_transcript.fetch()
+                        source_language = transcript.language_code
+                        final_language = translate_to
+                        is_translated = True
+                    except Exception as e2:
+                        return {
+                            'success': False,
+                            'error': f'No transcripts available for translation to {translate_to}. Original error: {str(e)}',
+                            'video_id': video_id,
+                            'available_transcripts': [t.language_code for t in transcript_list],
+                            'suggestion': 'Try get_youtube_video_info to see available transcript languages'
+                        }
+            else:
+                # Get transcript in preferred language using modern approach
+                try:
+                    transcript = transcript_list.find_transcript(languages)
+                    transcript_data = transcript.fetch()
+                    source_language = transcript.language_code
+                    final_language = transcript.language_code
                     is_translated = False
-                    
-                    for lang in languages:
-                        try:
-                            found_transcript = transcript_list.find_transcript([lang])
-                            source_language = found_transcript.language_code
-                            final_language = lang
-                            is_translated = False
-                            break
-                        except:
-                            continue
-                    
-                    # If we couldn't match, try to get any available transcript info
-                    if source_language == 'unknown':
-                        try:
-                            for transcript in transcript_list:
-                                source_language = transcript.language_code
-                                final_language = transcript.language_code
-                                break
-                        except:
-                            pass
-                except Exception:
-                    source_language = 'unknown'
-                    final_language = 'unknown'
-                    is_translated = False
+                except Exception as e:
+                    return {
+                        'success': False,
+                        'error': f'No transcripts found in requested languages {languages}. Error: {str(e)}',
+                        'video_id': video_id,
+                        'available_transcripts': [t.language_code for t in transcript_list],
+                        'suggestion': 'Try get_youtube_video_info to see available transcript languages, or use batch_extract_youtube_transcripts for alternative methods'
+                    }
             
             if not transcript_data:
                 return {

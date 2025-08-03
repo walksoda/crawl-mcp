@@ -70,34 +70,11 @@ This feature set enables comprehensive JavaScript-heavy website handling:
 
 ## 📦 Installation
 
-### 🚀 Method 1: GitHub Direct Execution (Recommended)
-```bash
-uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
-```
-
-### 🖥️ Method 2: Claude Desktop Integration  
-```json
-{
-  "mcpServers": {
-    "crawl-mcp": {
-      "transport": "stdio",
-      "command": "uvx",
-      "args": [
-        "--from", 
-        "git+https://github.com/walksoda/crawl-mcp", 
-        "crawl-mcp"
-      ]
-    }
-  }
-}
-```
-
-### 🔧 Method 3: Local Development
+### 🔧 Local Development Setup
 ```bash
 git clone https://github.com/walksoda/crawl-mcp.git
 cd crawl-mcp
 uv sync
-uvx crawl-mcp
 ```
 
 ### Quick Setup (Traditional)
