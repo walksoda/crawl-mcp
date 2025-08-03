@@ -1,4 +1,15 @@
-# Crawl4AI MCP Server
+# Crawl-MCP: Unofficial MCP Server for crawl4ai
+
+> **⚠️ Important**: This is an **unofficial** MCP server implementation for the excellent [crawl4ai](https://github.com/unclecode/crawl4ai) library.  
+> **Not affiliated** with the original crawl4ai project.
+
+## 🔄 What This Project Does
+This project wraps the powerful **crawl4ai** web crawling library (by [unclecode](https://github.com/unclecode)) to make it accessible through the **Model Context Protocol (MCP)** interface.
+
+### 🏗️ Project Structure
+- **Original Library**: [crawl4ai](https://github.com/unclecode/crawl4ai) by unclecode
+- **MCP Wrapper**: This repository (walksoda)
+- **Implementation**: Unofficial third-party integration
 
 A comprehensive Model Context Protocol (MCP) server that wraps the powerful crawl4ai library. This server provides advanced web crawling, content extraction, and AI-powered analysis capabilities through the standardized MCP interface.
 
@@ -59,7 +70,38 @@ This feature set enables comprehensive JavaScript-heavy website handling:
 
 ## 📦 Installation
 
-### Quick Setup
+### 🚀 Method 1: GitHub Direct Execution (Recommended)
+**No PyPI required! Direct execution from GitHub:**
+```bash
+uvx --from git+https://github.com/walksoda/crawl crawl-mcp
+```
+
+### 🖥️ Method 2: Claude Desktop Integration  
+```json
+{
+  "mcpServers": {
+    "crawl4ai-unofficial": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from", 
+        "git+https://github.com/walksoda/crawl", 
+        "crawl-mcp"
+      ]
+    }
+  }
+}
+```
+
+### 🔧 Method 3: Local Development
+```bash
+git clone https://github.com/walksoda/crawl.git
+cd crawl
+uv sync
+uvx crawl-mcp
+```
+
+### Quick Setup (Traditional)
 
 **Linux/macOS:**
 ```bash
@@ -964,3 +1006,16 @@ Simply drag and drop the `.dxt` file into Claude Desktop for instant setup.
 - **Seamless Integration**: Works transparently with all crawling tools without changing existing workflows
 
 For detailed feature documentation in Japanese, see [`README_ja.md`](README_ja.md).
+
+## ⚠️ Disclaimer & Credits
+
+### Credits
+- **Original Library**: [crawl4ai](https://github.com/unclecode/crawl4ai) by [unclecode](https://github.com/unclecode)
+- **License**: Please check crawl4ai's [license terms](https://github.com/unclecode/crawl4ai/blob/main/LICENSE)
+- **MCP Implementation**: [walksoda](https://github.com/walksoda)
+
+### Important Notes
+- This is an **unofficial** implementation - not supported by the crawl4ai team
+- For crawl4ai-specific issues, please refer to the [official repository](https://github.com/unclecode/crawl4ai)
+- For MCP wrapper issues, use this repository's [Issues](https://github.com/walksoda/crawl/issues)
+- Always respect the original crawl4ai license terms and usage guidelines

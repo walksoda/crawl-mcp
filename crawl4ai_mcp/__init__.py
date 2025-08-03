@@ -1,12 +1,23 @@
 """
-Crawl4AI MCP Server
+Crawl4AI MCP Server - Unofficial Implementation
 
-A Model Context Protocol server wrapping crawl4ai functionality.
+An unofficial Model Context Protocol server that wraps the excellent crawl4ai
+library to provide advanced web crawling capabilities through MCP interface.
+
+Original crawl4ai: https://github.com/unclecode/crawl4ai by unclecode
+This MCP wrapper: https://github.com/walksoda/crawl by walksoda
+
+This is NOT an official crawl4ai project.
 """
 
 __version__ = "0.1.0"
-__author__ = "Your Name"
-__email__ = "your.email@example.com"
+__author__ = "walksoda"
+__email__ = "walksoda@users.noreply.github.com"
+__original_lib__ = "crawl4ai"
+__original_author__ = "unclecode"
+__original_url__ = "https://github.com/unclecode/crawl4ai"
+__license__ = "MIT"
+__status__ = "Unofficial Third-party Implementation"
 
 # Comprehensive Tool Selection Guide for AI Agents
 # This guide helps AI systems choose the most appropriate tool for different tasks

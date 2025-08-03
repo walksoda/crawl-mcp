@@ -1,8 +1,18 @@
 """
-Crawl4AI MCP Server
+Crawl4AI MCP Server - Unofficial Implementation
 
-A Model Context Protocol server that provides web crawling and content extraction
-capabilities using the crawl4ai library.
+An unofficial Model Context Protocol server that provides advanced web crawling
+and content extraction capabilities by wrapping the crawl4ai library.
+
+🔗 Original Library: https://github.com/unclecode/crawl4ai by unclecode
+🔗 This MCP Wrapper: https://github.com/walksoda/crawl by walksoda
+
+⚠️  This is NOT an official crawl4ai project.
+    This is a third-party implementation for MCP integration.
+
+Author: walksoda
+License: MIT (see LICENSE file)
+Status: Unofficial third-party wrapper
 """
 
 import os

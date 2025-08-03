@@ -106,13 +106,13 @@ docs/_build/
 site/
 
 # Development documentation (temporary/working documents)
-docs/*_STRATEGY_*.md
-docs/*_MEMO_*.md
-docs/*_NOTES_*.md
-docs/*_DRAFT_*.md
-docs/*_WIP_*.md
-docs/DEV_*.md
-docs/TEMP_*.md
+docs/*STRATEGY_*.md
+docs/*MEMO_*.md
+docs/*NOTES_*.md
+docs/*DRAFT_*.md
+docs/*WIP_*.md
+docs/*DEV_*.md
+docs/*TEMP_*.md
 
 # Backup files
 *.bak

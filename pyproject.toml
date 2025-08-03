@@ -1,0 +1,69 @@
+[project]
+name = "crawl-mcp"
+version = "0.1.0"
+description = "Unofficial MCP server wrapper for crawl4ai - Advanced web crawling through Model Context Protocol"
+authors = [{name = "walksoda", email = "walksoda@users.noreply.github.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = ["mcp", "crawl4ai", "web-crawling", "model-context-protocol", "fastmcp", "unofficial"]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9", 
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Markup :: HTML"
+]
+
+dependencies = [
+    "crawl4ai>=0.7.2",
+    "fastmcp>=2.10.6",
+    "pydantic>=2.0.0",
+    "asyncio",
+    "typing-extensions",
+    "python-dotenv>=1.0.0",
+    "scikit-learn>=1.3.0",
+    "numpy>=1.24.0",
+    "markitdown>=0.0.1a2",
+    "pdfminer-six>=20250506",
+    "mammoth>=1.9.1",
+    "openpyxl>=3.1.5",
+    "python-pptx>=1.0.2",
+    "xlrd>=2.0.1",
+    "googlesearch-python>=1.3.0",
+    "aiohttp>=3.8.0",
+    "beautifulsoup4>=4.12.0",
+    "youtube-transcript-api>=1.1.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/walksoda/crawl"
+"Bug Reports" = "https://github.com/walksoda/crawl/issues"
+"Source" = "https://github.com/walksoda/crawl"
+"Documentation" = "https://github.com/walksoda/crawl#readme"
+"Original Library" = "https://github.com/unclecode/crawl4ai"
+
+[project.scripts]
+crawl-mcp = "crawl4ai_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["crawl4ai_mcp"]
+
+[tool.hatch.envs.default.scripts]
+dev = 'npx @modelcontextprotocol/inspector hatch run python -m crawl4ai_mcp.server'
+test = "python -m pytest tests/"
+build = "hatch build"
+publish-test = "hatch publish -r test"
+server = "python -m crawl4ai_mcp.server"
+server-http = "python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000"
