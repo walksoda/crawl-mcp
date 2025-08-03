@@ -1127,6 +1127,8 @@ from .tools import (
     get_tool_selection_guide
 )
 
+# get_system_diagnostics is defined in this file, not imported from tools
+
 # Apply MCP decorators to all tools
 
 # YouTube tools
@@ -1158,7 +1160,7 @@ mcp.tool(get_search_genres)
 mcp.tool(get_llm_config_info)
 mcp.tool(batch_crawl)
 mcp.tool(get_tool_selection_guide)
-mcp.tool(get_system_diagnostics)
+# get_system_diagnostics will be registered after its definition
 
 # to avoid conflict with batch_crawl from utilities module
 @mcp.resource("uri://crawl4ai/config")
@@ -1563,6 +1565,10 @@ async def get_system_diagnostics() -> Dict[str, Any]:
                 "For UVX environments, consider switching to STDIO local setup"
             ]
         }
+
+
+# Register get_system_diagnostics as MCP tool after its definition
+mcp.tool(get_system_diagnostics)
 
 
 def main():
