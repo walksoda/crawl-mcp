@@ -1074,13 +1074,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     f"2. For system dependencies: sudo apt-get install libnss3 libnspr4 libasound2\n" \
                     f"3. Run diagnostics: get_system_diagnostics()"
         
-        # Check if we have installation status information
-        try:
-            if _playwright_installation_status and _playwright_installation_status.get('needs_manual_setup'):
-                error_message += f"\n\n📊 Installation Status: {_playwright_installation_status}"
-        except (NameError, KeyError):
-            # Ignore if global variable not accessible
-            pass
+        # Installation status simplified to avoid global variable issues
         
         return CrawlResponse(
             success=False,
@@ -1330,8 +1324,6 @@ def setup_lightweight_playwright_browsers():
     import os
     from pathlib import Path
     
-    global _playwright_installation_status
-    
     # Detect UVX environment
     is_uvx_env = 'UV_PROJECT_ENVIRONMENT' in os.environ or 'UVX' in str(sys.executable)
     
@@ -1404,29 +1396,15 @@ def setup_lightweight_playwright_browsers():
                 # Other installation errors will be handled below
                 pass
         
-        # For UVX environments, add additional diagnostic information
-        if is_uvx_env and installation_attempted and not (webkit_installed or chromium_installed):
-            # Store error info for later diagnostic reporting
-            _playwright_installation_status = {
-                'uvx_environment': True,
-                'installation_attempted': True,
-                'webkit_installed': webkit_installed,
-                'chromium_installed': chromium_installed,
-                'cache_dirs_checked': [str(d) for d in possible_cache_dirs if d.exists()],
-                'needs_manual_setup': True
-            }
+        # For UVX environments, return simple status
+        # Installation monitoring simplified to avoid global state issues
         
     except Exception as e:
-        # Store diagnostic info even for unexpected errors
-        _playwright_installation_status = {
-            'uvx_environment': is_uvx_env,
-            'setup_error': str(e),
-            'needs_manual_setup': True
-        }
+        # Exception handling simplified - no global state
+        pass
 
 
-# Global variable to store installation status
-_playwright_installation_status = {}
+# Installation status storage (module level) - removed to avoid syntax errors
 
 
 async def get_system_diagnostics() -> Dict[str, Any]:
@@ -1509,11 +1487,11 @@ async def get_system_diagnostics() -> Dict[str, Any]:
                             'executables': [str(f) for f in chrome_executables[:3]]  # Limit for brevity
                         })
         
-        # Installation status from setup function
-        try:
-            installation_status = _playwright_installation_status.copy() if _playwright_installation_status else {}
-        except (NameError, KeyError):
-            installation_status = {}
+        # Installation status (simplified without global state)
+        installation_status = {
+            "note": "Installation status tracking simplified to avoid global variable issues",
+            "recommendation": "Run browser installation commands manually if needed"
+        }
         
         # Generate recommendations
         recommendations = []
