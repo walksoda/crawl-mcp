@@ -1,4 +1,15 @@
-# Crawl4AI MCP サーバー
+# Crawl-MCP: crawl4aiの非公式MCPサーバー
+
+> **⚠️ 重要**: これは優れた[crawl4ai](https://github.com/unclecode/crawl4ai)ライブラリの**非公式**MCPサーバー実装です。  
+> **元のcrawl4aiプロジェクトとは関係ありません。**
+
+## 🔄 このプロジェクトの概要
+このプロジェクトは、強力な**crawl4ai**ウェブクローリングライブラリ（[unclecode](https://github.com/unclecode)作）を**Model Context Protocol (MCP)**インターフェースでアクセス可能にするものです。
+
+### 🏗️ プロジェクト構造
+- **元ライブラリ**: [crawl4ai](https://github.com/unclecode/crawl4ai) by unclecode
+- **MCPラッパー**: このリポジトリ (walksoda)
+- **実装**: 非公式サードパーティ統合
 
 crawl4aiライブラリの機能をModel Context Protocol (MCP)仕様に準拠してラップしたサーバーです。fastmcpフレームワークを使用して実装されています。
 
@@ -57,9 +68,40 @@ JavaScript重要サイトに対応する包括的な機能セットを提供し�
 - **カスタムJavaScript実行** (動的コンテンツとのインタラクション)
 - **構造化データエクスポート** (JSON、Markdown、HTML形式)
 
-## セットアップ
+## 📦 インストール
 
-### 1. 仮想環境の作成・セットアップ
+### 🚀 方法1: GitHub直接実行（推奨）
+**PyPI不要！GitHubから直接実行：**
+```bash
+uvx --from git+https://github.com/walksoda/crawl crawl-mcp
+```
+
+### 🖥️ 方法2: Claude Desktop統合  
+```json
+{
+  "mcpServers": {
+    "crawl4ai-unofficial": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from", 
+        "git+https://github.com/walksoda/crawl", 
+        "crawl-mcp"
+      ]
+    }
+  }
+}
+```
+
+### 🔧 方法3: ローカル開発
+```bash
+git clone https://github.com/walksoda/crawl.git
+cd crawl
+uv sync
+uvx crawl-mcp
+```
+
+### クイックセットアップ（従来方式）
 
 **Linux/macOS:**
 ```bash
@@ -71,7 +113,7 @@ JavaScript重要サイトに対応する包括的な機能セットを提供し�
 setup_windows.bat
 ```
 
-### 2. 手動セットアップ
+### 手動セットアップ
 
 ```bash
 # 仮想環境の作成
@@ -1846,3 +1888,16 @@ MIT License
 - **シームレス統合**: 既存ワークフローを変更せずに全クローリングツールで透明に動作
 
 詳細な機能ドキュメント（日本語）については、[`README_ja.md`](README_ja.md)を参照してください。
+
+## ⚠️ 免責事項・クレジット
+
+### クレジット
+- **元ライブラリ**: [crawl4ai](https://github.com/unclecode/crawl4ai) by [unclecode](https://github.com/unclecode)
+- **ライセンス**: crawl4aiの[ライセンス条項](https://github.com/unclecode/crawl4ai/blob/main/LICENSE)をご確認ください
+- **MCP実装**: [walksoda](https://github.com/walksoda)
+
+### 重要な注意事項
+- これは**非公式**実装です - crawl4aiチームによるサポートはありません
+- crawl4ai固有の問題については、[公式リポジトリ](https://github.com/unclecode/crawl4ai)をご参照ください
+- MCPラッパーに関する問題は、このリポジトリの[Issues](https://github.com/walksoda/crawl/issues)をご利用ください
+- 常に元のcrawl4aiライブラリのライセンス条項および利用ガイドラインを尊重してください
