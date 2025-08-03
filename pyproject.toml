@@ -44,10 +44,10 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/walksoda/crawl"
-"Bug Reports" = "https://github.com/walksoda/crawl/issues"
-"Source" = "https://github.com/walksoda/crawl"
-"Documentation" = "https://github.com/walksoda/crawl#readme"
+"Homepage" = "https://github.com/walksoda/crawl-mcp"
+"Bug Reports" = "https://github.com/walksoda/crawl-mcp/issues"
+"Source" = "https://github.com/walksoda/crawl-mcp"
+"Documentation" = "https://github.com/walksoda/crawl-mcp#readme"
 "Original Library" = "https://github.com/unclecode/crawl4ai"
 
 [project.scripts]

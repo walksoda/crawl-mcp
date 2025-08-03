@@ -71,21 +71,20 @@ JavaScript重要サイトに対応する包括的な機能セットを提供し�
 ## 📦 インストール
 
 ### 🚀 方法1: GitHub直接実行（推奨）
-**PyPI不要！GitHubから直接実行：**
 ```bash
-uvx --from git+https://github.com/walksoda/crawl crawl-mcp
+uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
 ```
 
 ### 🖥️ 方法2: Claude Desktop統合  
 ```json
 {
   "mcpServers": {
-    "crawl4ai-unofficial": {
+    "crawl-mcp": {
       "transport": "stdio",
       "command": "uvx",
       "args": [
         "--from", 
-        "git+https://github.com/walksoda/crawl", 
+        "git+https://github.com/walksoda/crawl-mcp", 
         "crawl-mcp"
       ]
     }
@@ -95,8 +94,8 @@ uvx --from git+https://github.com/walksoda/crawl crawl-mcp
 
 ### 🔧 方法3: ローカル開発
 ```bash
-git clone https://github.com/walksoda/crawl.git
-cd crawl
+git clone https://github.com/walksoda/crawl-mcp.git
+cd crawl-mcp
 uv sync
 uvx crawl-mcp
 ```
@@ -1899,5 +1898,5 @@ MIT License
 ### 重要な注意事項
 - これは**非公式**実装です - crawl4aiチームによるサポートはありません
 - crawl4ai固有の問題については、[公式リポジトリ](https://github.com/unclecode/crawl4ai)をご参照ください
-- MCPラッパーに関する問題は、このリポジトリの[Issues](https://github.com/walksoda/crawl/issues)をご利用ください
+- MCPラッパーに関する問題は、このリポジトリの[Issues](https://github.com/walksoda/crawl-mcp/issues)をご利用ください
 - 常に元のcrawl4aiライブラリのライセンス条項および利用ガイドラインを尊重してください

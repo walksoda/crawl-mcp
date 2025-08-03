@@ -5,7 +5,7 @@ An unofficial Model Context Protocol server that provides advanced web crawling
 and content extraction capabilities by wrapping the crawl4ai library.
 
 🔗 Original Library: https://github.com/unclecode/crawl4ai by unclecode
-🔗 This MCP Wrapper: https://github.com/walksoda/crawl by walksoda
+🔗 This MCP Wrapper: https://github.com/walksoda/crawl-mcp by walksoda
 
 ⚠️  This is NOT an official crawl4ai project.
     This is a third-party implementation for MCP integration.

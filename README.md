@@ -71,21 +71,20 @@ This feature set enables comprehensive JavaScript-heavy website handling:
 ## 📦 Installation
 
 ### 🚀 Method 1: GitHub Direct Execution (Recommended)
-**No PyPI required! Direct execution from GitHub:**
 ```bash
-uvx --from git+https://github.com/walksoda/crawl crawl-mcp
+uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
 ```
 
 ### 🖥️ Method 2: Claude Desktop Integration  
 ```json
 {
   "mcpServers": {
-    "crawl4ai-unofficial": {
+    "crawl-mcp": {
       "transport": "stdio",
       "command": "uvx",
       "args": [
         "--from", 
-        "git+https://github.com/walksoda/crawl", 
+        "git+https://github.com/walksoda/crawl-mcp", 
         "crawl-mcp"
       ]
     }
@@ -95,8 +94,8 @@ uvx --from git+https://github.com/walksoda/crawl crawl-mcp
 
 ### 🔧 Method 3: Local Development
 ```bash
-git clone https://github.com/walksoda/crawl.git
-cd crawl
+git clone https://github.com/walksoda/crawl-mcp.git
+cd crawl-mcp
 uv sync
 uvx crawl-mcp
 ```
@@ -1017,5 +1016,5 @@ For detailed feature documentation in Japanese, see [`README_ja.md`](README_ja.m
 ### Important Notes
 - This is an **unofficial** implementation - not supported by the crawl4ai team
 - For crawl4ai-specific issues, please refer to the [official repository](https://github.com/unclecode/crawl4ai)
-- For MCP wrapper issues, use this repository's [Issues](https://github.com/walksoda/crawl/issues)
+- For MCP wrapper issues, use this repository's [Issues](https://github.com/walksoda/crawl-mcp/issues)
 - Always respect the original crawl4ai license terms and usage guidelines
