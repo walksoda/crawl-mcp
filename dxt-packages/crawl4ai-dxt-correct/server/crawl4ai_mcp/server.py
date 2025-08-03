@@ -1452,13 +1452,35 @@ async def get_system_diagnostics() -> Dict[str, Any]:
             'python_path': sys.path[:3]  # First 3 entries for brevity
         }
         
-        # Check Playwright installation
+        # Check Playwright installation with robust version detection
         playwright_available = False
         playwright_version = None
         try:
             import playwright
             playwright_available = True
-            playwright_version = playwright.__version__
+            
+            # Try multiple methods to get version
+            try:
+                # Method 1: Try importlib.metadata (Python 3.8+)
+                from importlib.metadata import version
+                playwright_version = version('playwright')
+            except Exception:
+                try:
+                    # Method 2: Try pkg_resources (fallback)
+                    import pkg_resources
+                    playwright_version = pkg_resources.get_distribution('playwright').version
+                except Exception:
+                    try:
+                        # Method 3: Try direct attribute access
+                        playwright_version = playwright.__version__
+                    except Exception:
+                        # Method 4: Check if we can get it from the sync_api
+                        try:
+                            from playwright.sync_api import Playwright
+                            playwright_version = "Available (version detection failed)"
+                        except Exception:
+                            playwright_version = "Unknown"
+                            
         except ImportError:
             pass
         
@@ -1571,13 +1593,24 @@ async def get_system_diagnostics() -> Dict[str, Any]:
         }
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        
         return {
             "success": False,
             "error": f"Diagnostics failed: {str(e)}",
+            "error_type": type(e).__name__,
+            "error_details": error_details,
+            "partial_info": {
+                "python_executable": str(sys.executable),
+                "platform": os.name,
+                "working_directory": os.getcwd()
+            },
             "recommendations": [
-                "Try running system diagnostic again",
-                "Check if crawl4ai dependencies are properly installed",
-                "For UVX environments, consider switching to STDIO local setup"
+                "Check the error_details field for specific failure information",
+                "Verify that crawl4ai dependencies are properly installed",
+                "For UVX environments, consider switching to STDIO local setup",
+                "Try running: pip install --upgrade playwright crawl4ai"
             ]
         }
 
