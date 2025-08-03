@@ -789,10 +789,11 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
             # Fallback for older versions without content_filter support
             config = CrawlerRunConfig(**config_params)
 
-        # Setup browser configuration
+        # Setup browser configuration with lightweight WebKit preference
         browser_config = {
             "headless": True,
-            "verbose": False
+            "verbose": False,
+            "browser_type": "webkit"  # Use lightweight WebKit by default
         }
         
         if request.user_agent:
@@ -803,20 +804,37 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
 
         # Suppress output to avoid JSON parsing errors
         with suppress_stdout_stderr():
-            async with AsyncWebCrawler(**browser_config) as crawler:
-                # Handle authentication
-                if request.cookies:
-                    # Set cookies if provided
-                    await crawler.set_cookies(request.cookies)
-                
-                # Execute custom JavaScript if provided
-                if request.execute_js:
-                    config.js_code = request.execute_js
-                
-                # Run crawler with config
-                arun_params = {"url": request.url, "config": config}
-                
-                result = await crawler.arun(**arun_params)
+            # Try WebKit first, fallback to Chromium if needed
+            result = None
+            browsers_to_try = ["webkit", "chromium"]
+            
+            for browser_type in browsers_to_try:
+                try:
+                    current_browser_config = browser_config.copy()
+                    current_browser_config["browser_type"] = browser_type
+                    
+                    async with AsyncWebCrawler(**current_browser_config) as crawler:
+                        # Handle authentication
+                        if request.cookies:
+                            # Set cookies if provided
+                            await crawler.set_cookies(request.cookies)
+                        
+                        # Execute custom JavaScript if provided
+                        if request.execute_js:
+                            config.js_code = request.execute_js
+                        
+                        # Run crawler with config
+                        arun_params = {"url": request.url, "config": config}
+                        
+                        result = await crawler.arun(**arun_params)
+                        break  # Success, no need to try other browsers
+                        
+                except Exception as browser_error:
+                    # If this is the last browser to try, raise the error
+                    if browser_type == browsers_to_try[-1]:
+                        raise browser_error
+                    # Otherwise, try the next browser
+                    continue
         
         # Handle different result types (single result vs list from deep crawling)
         if isinstance(result, list):
@@ -1266,9 +1284,77 @@ def process_file_prompt_wrapper(file_url: str, file_type: str = "auto"):
     return process_file_prompt(file_url, file_type)
 
 
+def setup_lightweight_playwright_browsers():
+    """Setup lightweight Playwright browsers if they are not installed."""
+    try:
+        import subprocess
+        import sys
+        from pathlib import Path
+        
+        # Check if Playwright browsers are installed
+        # Common Playwright cache directories
+        possible_cache_dirs = [
+            Path.home() / ".cache" / "ms-playwright",
+            Path.home() / "Library" / "Caches" / "ms-playwright",  # macOS
+            Path.home() / "AppData" / "Local" / "ms-playwright"    # Windows
+        ]
+        
+        webkit_installed = False
+        chromium_installed = False
+        
+        for cache_dir in possible_cache_dirs:
+            if cache_dir.exists():
+                # Check for WebKit
+                webkit_dirs = list(cache_dir.glob("webkit-*"))
+                if webkit_dirs:
+                    for webkit_dir in webkit_dirs:
+                        if list(webkit_dir.rglob("*")):
+                            webkit_installed = True
+                            break
+                
+                # Check for Chromium
+                chromium_dirs = list(cache_dir.glob("chromium-*"))
+                if chromium_dirs:
+                    for chromium_dir in chromium_dirs:
+                        if list(chromium_dir.rglob("chrome*")):
+                            chromium_installed = True
+                            break
+                
+                if webkit_installed or chromium_installed:
+                    break
+        
+        # Install browsers if needed (prioritize webkit for lightweight setup)
+        if not webkit_installed and not chromium_installed:
+            try:
+                # First try WebKit (most lightweight)
+                result = subprocess.run([
+                    sys.executable, "-m", "playwright", "install", "webkit"
+                ], capture_output=True, text=True, timeout=300)
+                
+                if result.returncode != 0:
+                    # If WebKit fails, try Chromium headless shell
+                    subprocess.run([
+                        sys.executable, "-m", "playwright", "install", "--only-shell"
+                    ], capture_output=True, text=True, timeout=300)
+                
+            except subprocess.TimeoutExpired:
+                # Installation taking too long, continue anyway
+                pass
+            except Exception:
+                # Installation failed, but continue - the system might have browsers installed differently
+                pass
+        
+    except Exception:
+        # If anything fails, just continue - the system might have browsers installed differently
+        pass
+
+
 def main():
     """Main entry point for the MCP server."""
     import sys
+    
+    # Setup lightweight Playwright browsers if needed
+    setup_lightweight_playwright_browsers()
     
     # Ensure all output is suppressed
     warnings.filterwarnings("ignore")

@@ -532,11 +532,20 @@ class GoogleSearchProcessor:
                     continue
             
             if not search_results:
+                # Generate simplified query suggestions
+                suggestions = self._generate_simplified_query_suggestions(query)
+                suggestion_text = 'Try a broader or different search query'
+                
+                if suggestions:
+                    quoted_suggestions = [f"'{s}'" for s in suggestions]
+                    suggestion_text = f"Try these simpler searches: {', '.join(quoted_suggestions)}"
+                
                 return {
                     'success': False,
                     'error': 'No search results found',
                     'query': query,
-                    'suggestion': 'Try a broader or different search query'
+                    'suggestion': suggestion_text,
+                    'alternative_queries': suggestions
                 }
             
             # Generate search statistics
@@ -650,6 +659,15 @@ class GoogleSearchProcessor:
                     'result_types': type_counts
                 }
             }
+        else:
+            # For failed searches, add simplified query suggestions if no results found
+            if ('No search results found' in result.get('error', '') or 
+                result.get('total_results', 0) == 0):
+                suggestions = self._generate_simplified_query_suggestions(query)
+                if suggestions:
+                    quoted_suggestions = [f"'{s}'" for s in suggestions]
+                    result['suggestion'] = f"Try these simpler searches: {', '.join(quoted_suggestions)}"
+                    result['alternative_queries'] = suggestions
         
         return result
     
@@ -963,6 +981,65 @@ class GoogleSearchProcessor:
         except Exception as e:
             # For any other error, return generic information
             return "Unable to fetch details", f"Error: {str(e)[:50]}"
+    
+    def _generate_simplified_query_suggestions(self, query: str) -> List[str]:
+        """Generate simplified query suggestions by reducing keywords"""
+        try:
+            if not query or not query.strip():
+                return []
+            
+            # Clean and normalize query
+            query = query.strip().lower()
+            
+            # Remove common search operators and quotes
+            query_clean = re.sub(r'["\(\)\[\]]', ' ', query)
+            query_clean = re.sub(r'\s+', ' ', query_clean).strip()
+            
+            # Split into words and filter out common stop words and operators
+            stop_words = {
+                'and', 'or', 'not', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 
+                'of', 'with', 'by', 'from', 'as', 'is', 'are', 'was', 'were', 'be', 
+                'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 
+                'would', 'could', 'should', 'may', 'might', 'can', 'site:', 'filetype:'
+            }
+            
+            words = [word for word in query_clean.split() if word and len(word) > 1 and word not in stop_words]
+            
+            if len(words) <= 1:
+                return []  # Can't simplify further
+            
+            suggestions = []
+            
+            # Strategy 1: Take first half of words
+            if len(words) >= 4:
+                first_half = ' '.join(words[:len(words)//2])
+                if first_half:
+                    suggestions.append(first_half)
+            
+            # Strategy 2: Take most important 2-3 words (assuming they're at the beginning)
+            if len(words) >= 3:
+                core_terms = ' '.join(words[:2])
+                if core_terms and core_terms not in suggestions:
+                    suggestions.append(core_terms)
+            
+            # Strategy 3: Individual high-value words (longer than 3 chars)
+            single_words = [word for word in words[:3] if len(word) > 3]
+            for word in single_words[:2]:
+                if word not in suggestions:
+                    suggestions.append(word)
+            
+            # Strategy 4: Try different combinations if we have 3+ words
+            if len(words) >= 3:
+                # Take every other word
+                alt_combo = ' '.join(words[::2])
+                if alt_combo and alt_combo not in suggestions and len(alt_combo.split()) > 1:
+                    suggestions.append(alt_combo)
+            
+            # Limit to top 3 suggestions
+            return suggestions[:3]
+            
+        except Exception:
+            return []
     
     def _classify_url(self, url: str) -> str:
         """Classify URL by type based on domain and path"""

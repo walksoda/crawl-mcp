@@ -263,10 +263,11 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
             # Fallback for older versions without content_filter support
             config = CrawlerRunConfig(**config_params)
 
-        # Setup browser configuration
+        # Setup browser configuration with lightweight WebKit preference
         browser_config = {
             "headless": True,
-            "verbose": False
+            "verbose": False,
+            "browser_type": "webkit"  # Use lightweight WebKit by default
         }
         
         if request.user_agent:
@@ -277,20 +278,37 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
 
         # Suppress output to avoid JSON parsing errors
         with suppress_stdout_stderr():
-            async with AsyncWebCrawler(**browser_config) as crawler:
-                # Handle authentication
-                if request.cookies:
-                    # Set cookies if provided
-                    await crawler.set_cookies(request.cookies)
-                
-                # Execute custom JavaScript if provided
-                if request.execute_js:
-                    config.js_code = request.execute_js
-                
-                # Run crawler with config
-                arun_params = {"url": request.url, "config": config}
-                
-                result = await crawler.arun(**arun_params)
+            # Try WebKit first, fallback to Chromium if needed
+            result = None
+            browsers_to_try = ["webkit", "chromium"]
+            
+            for browser_type in browsers_to_try:
+                try:
+                    current_browser_config = browser_config.copy()
+                    current_browser_config["browser_type"] = browser_type
+                    
+                    async with AsyncWebCrawler(**current_browser_config) as crawler:
+                        # Handle authentication
+                        if request.cookies:
+                            # Set cookies if provided
+                            await crawler.set_cookies(request.cookies)
+                        
+                        # Execute custom JavaScript if provided
+                        if request.execute_js:
+                            config.js_code = request.execute_js
+                        
+                        # Run crawler with config
+                        arun_params = {"url": request.url, "config": config}
+                        
+                        result = await crawler.arun(**arun_params)
+                        break  # Success, no need to try other browsers
+                        
+                except Exception as browser_error:
+                    # If this is the last browser to try, raise the error
+                    if browser_type == browsers_to_try[-1]:
+                        raise browser_error
+                    # Otherwise, try the next browser
+                    continue
         
         # Handle different result types (single result vs list from deep crawling)
         if isinstance(result, list):

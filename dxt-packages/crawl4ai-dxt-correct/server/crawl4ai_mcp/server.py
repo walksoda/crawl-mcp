@@ -1256,9 +1256,77 @@ def process_file_prompt_wrapper(file_url: str, file_type: str = "auto"):
     return process_file_prompt(file_url, file_type)
 
 
+def setup_lightweight_playwright_browsers():
+    """Setup lightweight Playwright browsers if they are not installed."""
+    try:
+        import subprocess
+        import sys
+        from pathlib import Path
+        
+        # Check if Playwright browsers are installed
+        # Common Playwright cache directories
+        possible_cache_dirs = [
+            Path.home() / ".cache" / "ms-playwright",
+            Path.home() / "Library" / "Caches" / "ms-playwright",  # macOS
+            Path.home() / "AppData" / "Local" / "ms-playwright"    # Windows
+        ]
+        
+        webkit_installed = False
+        chromium_installed = False
+        
+        for cache_dir in possible_cache_dirs:
+            if cache_dir.exists():
+                # Check for WebKit
+                webkit_dirs = list(cache_dir.glob("webkit-*"))
+                if webkit_dirs:
+                    for webkit_dir in webkit_dirs:
+                        if list(webkit_dir.rglob("*")):
+                            webkit_installed = True
+                            break
+                
+                # Check for Chromium
+                chromium_dirs = list(cache_dir.glob("chromium-*"))
+                if chromium_dirs:
+                    for chromium_dir in chromium_dirs:
+                        if list(chromium_dir.rglob("chrome*")):
+                            chromium_installed = True
+                            break
+                
+                if webkit_installed or chromium_installed:
+                    break
+        
+        # Install browsers if needed (prioritize webkit for lightweight setup)
+        if not webkit_installed and not chromium_installed:
+            try:
+                # First try WebKit (most lightweight)
+                result = subprocess.run([
+                    sys.executable, "-m", "playwright", "install", "webkit"
+                ], capture_output=True, text=True, timeout=300)
+                
+                if result.returncode != 0:
+                    # If WebKit fails, try Chromium headless shell
+                    subprocess.run([
+                        sys.executable, "-m", "playwright", "install", "--only-shell"
+                    ], capture_output=True, text=True, timeout=300)
+                
+            except subprocess.TimeoutExpired:
+                # Installation taking too long, continue anyway
+                pass
+            except Exception:
+                # Installation failed, but continue - the system might have browsers installed differently
+                pass
+        
+    except Exception:
+        # If anything fails, just continue - the system might have browsers installed differently
+        pass
+
+
 def main():
     """Main entry point for the MCP server."""
     import sys
+    
+    # Setup lightweight Playwright browsers if needed
+    setup_lightweight_playwright_browsers()
     
     # Ensure all output is suppressed
     warnings.filterwarnings("ignore")
