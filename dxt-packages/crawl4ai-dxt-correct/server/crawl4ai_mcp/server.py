@@ -1075,9 +1075,12 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     f"3. Run diagnostics: get_system_diagnostics()"
         
         # Check if we have installation status information
-        global _playwright_installation_status
-        if _playwright_installation_status and _playwright_installation_status.get('needs_manual_setup'):
-            error_message += f"\n\n📊 Installation Status: {_playwright_installation_status}"
+        try:
+            if _playwright_installation_status and _playwright_installation_status.get('needs_manual_setup'):
+                error_message += f"\n\n📊 Installation Status: {_playwright_installation_status}"
+        except (NameError, KeyError):
+            # Ignore if global variable not accessible
+            pass
         
         return CrawlResponse(
             success=False,
@@ -1327,6 +1330,8 @@ def setup_lightweight_playwright_browsers():
     import os
     from pathlib import Path
     
+    global _playwright_installation_status
+    
     # Detect UVX environment
     is_uvx_env = 'UV_PROJECT_ENVIRONMENT' in os.environ or 'UVX' in str(sys.executable)
     
@@ -1402,7 +1407,6 @@ def setup_lightweight_playwright_browsers():
         # For UVX environments, add additional diagnostic information
         if is_uvx_env and installation_attempted and not (webkit_installed or chromium_installed):
             # Store error info for later diagnostic reporting
-            global _playwright_installation_status
             _playwright_installation_status = {
                 'uvx_environment': True,
                 'installation_attempted': True,
@@ -1414,7 +1418,6 @@ def setup_lightweight_playwright_browsers():
         
     except Exception as e:
         # Store diagnostic info even for unexpected errors
-        global _playwright_installation_status
         _playwright_installation_status = {
             'uvx_environment': is_uvx_env,
             'setup_error': str(e),
@@ -1435,6 +1438,7 @@ async def get_system_diagnostics() -> Dict[str, Any]:
     """
     import sys
     import os
+    import time
     import subprocess
     from pathlib import Path
     
@@ -1506,7 +1510,10 @@ async def get_system_diagnostics() -> Dict[str, Any]:
                         })
         
         # Installation status from setup function
-        installation_status = _playwright_installation_status.copy() if _playwright_installation_status else {}
+        try:
+            installation_status = _playwright_installation_status.copy() if _playwright_installation_status else {}
+        except (NameError, KeyError):
+            installation_status = {}
         
         # Generate recommendations
         recommendations = []
@@ -1539,16 +1546,17 @@ async def get_system_diagnostics() -> Dict[str, Any]:
         can_create_crawler = False
         crawler_error = None
         try:
+            # Test if we can import crawler (doesn't actually create instance)
             from crawl4ai import AsyncWebCrawler
-            # Test if we can create a crawler instance (doesn't actually launch browser)
-            test_config = {"headless": True, "browser_type": "webkit"}
             can_create_crawler = True
+        except ImportError as e:
+            crawler_error = f"Import error: {str(e)}"
         except Exception as e:
-            crawler_error = str(e)
+            crawler_error = f"Unexpected error: {str(e)}"
         
         return {
             "success": True,
-            "timestamp": str(asyncio.get_event_loop().time()),
+            "timestamp": str(int(time.time())),
             "environment": python_info,
             "playwright": {
                 "available": playwright_available,
