@@ -524,13 +524,43 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 
     except Exception as e:
         error_message = f"Crawling error: {str(e)}"
-        if "playwright" in str(e).lower() or "browser" in str(e).lower():
-            error_message += "\n\nNote: This might be a browser setup issue. Please ensure Playwright is properly installed."
+        
+        # Enhanced error handling for browser and UVX issues
+        if "playwright" in str(e).lower() or "browser" in str(e).lower() or "executable doesn't exist" in str(e).lower():
+            import os
+            import sys
+            is_uvx_env = 'UV_PROJECT_ENVIRONMENT' in os.environ or 'UVX' in str(sys.executable)
+            
+            if is_uvx_env:
+                error_message += "\n\n🔧 UVX Environment Browser Setup Required:\n" \
+                    f"1. Run system diagnostics: get_system_diagnostics()\n" \
+                    f"2. Manual browser installation:\n" \
+                    f"   - uvx --with playwright playwright install webkit\n" \
+                    f"   - Or system-wide: playwright install webkit\n" \
+                    f"3. Restart Claude Desktop after installation\n" \
+                    f"4. If issues persist, consider STDIO local setup\n\n" \
+                    f"💡 WebKit is lightweight (~180MB) vs Chromium (~281MB)"
+            else:
+                error_message += "\n\n🔧 Browser Setup Required:\n" \
+                    f"1. Install Playwright browsers:\n" \
+                    f"   playwright install webkit  # Lightweight option\n" \
+                    f"   playwright install chromium  # Full compatibility\n" \
+                    f"2. For system dependencies: sudo apt-get install libnss3 libnspr4 libasound2\n" \
+                    f"3. Run diagnostics: get_system_diagnostics()"
             
         return CrawlResponse(
             success=False,
             url=request.url,
-            error=error_message
+            error=error_message,
+            extracted_data={
+                'error_type': 'browser_setup_required',
+                'uvx_environment': 'UV_PROJECT_ENVIRONMENT' in os.environ or 'UVX' in str(sys.executable),
+                'diagnostic_tool': 'get_system_diagnostics',
+                'installation_commands': [
+                    'playwright install webkit',
+                    'playwright install chromium'
+                ]
+            }
         )
 
 

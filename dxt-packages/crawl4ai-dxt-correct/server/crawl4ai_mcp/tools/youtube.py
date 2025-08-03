@@ -72,11 +72,37 @@ async def extract_youtube_transcript(
         )
         
         if not result['success']:
+            # Enhanced error messaging for different environments
+            import os
+            import sys
+            is_uvx_env = 'UV_PROJECT_ENVIRONMENT' in os.environ or 'UVX' in str(sys.executable)
+            
+            base_error = result.get('error', 'Unknown error during transcript extraction')
+            
+            # Add UVX-specific guidance if applicable
+            if is_uvx_env:
+                enhanced_error = f"{base_error}\n\nUVX Environment Detected:\n" \
+                    f"- If this worked in STDIO local setup, the issue may be UVX environment isolation\n" \
+                    f"- YouTube API may behave differently in UVX vs local environments\n" \
+                    f"- Try running system diagnostics: get_system_diagnostics()\n" \
+                    f"- Consider switching to STDIO local setup for YouTube functionality"
+            else:
+                enhanced_error = f"{base_error}\n\nTroubleshooting:\n" \
+                    f"- Correct method name: 'extract_youtube_transcript' (not 'get_transcript')\n" \
+                    f"- Alternative methods: get_youtube_video_info, batch_extract_youtube_transcripts\n" \
+                    f"- Check if video has available captions"
+            
             return YouTubeTranscriptResponse(
                 success=False,
                 url=url,
                 video_id=video_id,
-                error=result.get('error', 'Unknown error during transcript extraction')
+                error=enhanced_error,
+                metadata={
+                    'uvx_environment': is_uvx_env,
+                    'correct_method_name': 'extract_youtube_transcript',
+                    'alternative_methods': ['get_youtube_video_info', 'batch_extract_youtube_transcripts'],
+                    'diagnostic_tool': 'get_system_diagnostics'
+                }
             )
         
         # Get transcript data
