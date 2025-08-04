@@ -47,11 +47,19 @@ class YouTubeProcessor:
         except Exception:
             return None
     
+    def _get_transcript_list(self, video_id):
+        """
+        youtube-transcript-api v1.2.1の新APIを使用してtranscript_listを返す。
+        """
+        from youtube_transcript_api import YouTubeTranscriptApi
+        api = YouTubeTranscriptApi()
+        return api.list(video_id)
+
     def get_video_info(self, video_id: str) -> Dict[str, Any]:
         """Get basic video information and available transcripts"""
         try:
             # Get transcript list to determine available languages
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            transcript_list = self._get_transcript_list(video_id)
             
             available_languages = []
             manual_transcripts = []
@@ -114,7 +122,7 @@ class YouTubeProcessor:
         """Get available transcript languages for a video"""
         try:
             # Get transcript list to determine available languages
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            transcript_list = self._get_transcript_list(video_id)
             
             available_languages = []
             
@@ -148,7 +156,7 @@ class YouTubeProcessor:
                 languages = ['ja', 'en', 'en-US', 'en-GB']
             
             # Get transcript using modern API approach with enhanced error handling
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            transcript_list = self._get_transcript_list(video_id)
             
             if translate_to:
                 # Get any available transcript and translate

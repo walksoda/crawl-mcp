@@ -13,6 +13,28 @@ $ErrorActionPreference = 'Stop'
 # Language detection
 $lang = if ($env:LANG -match '^ja' -or $env:CRAWL4AI_LANG -eq 'ja') { 'ja' } else { 'en' }
 
+# Get Playwright version from requirements.txt
+function Get-PlaywrightVersionFromRequirements {
+    param([string[]]$RequirementsPaths)
+    
+    foreach ($path in $RequirementsPaths) {
+        if (Test-Path $path) {
+            $content = Get-Content $path -ErrorAction SilentlyContinue
+            foreach ($line in $content) {
+                if ($line -match '^playwright==(.+)$') {
+                    return "playwright==$($matches[1])"
+                }
+                if ($line -match '^playwright>=(.+)$') {
+                    return "playwright>=$($matches[1])"
+                }
+            }
+        }
+    }
+    
+    # Default fallback
+    return 'playwright==1.54.0'
+}
+
 # Check Python installation
 function Test-PythonEnvironment {
     try {
@@ -53,7 +75,15 @@ function Test-PythonEnvironment {
 }
 
 # Localized message functions
-function Get-LocalizedMsg($key) {
+function Get-LocalizedMsg($key, $playwrightSpec = $null) {
+    # Get Playwright version if not provided
+    if (-not $playwrightSpec -and $key -eq 'next_steps') {
+        $playwrightSpec = Get-PlaywrightVersionFromRequirements @(
+            '..\\requirements.txt',
+            '.\\requirements.txt',
+            '..\\dxt-packages\\crawl4ai-dxt-correct\\requirements.txt'
+        )
+    }
     $messages = @{
         'admin_required' = @{
             'ja' = '管理者権限で再実行してください。'
@@ -81,7 +111,7 @@ function Get-LocalizedMsg($key) {
 Chromiumキャッシュ手動インストール手順:
   python -m venv venv
   venv\Scripts\activate
-  pip install playwright
+  pip install {0}
   python -m playwright install chromium
 '@
             'en' = @'
@@ -93,7 +123,7 @@ Next steps:
 Manual Chromium cache installation steps:
   python -m venv venv
   venv\Scripts\activate
-  pip install playwright
+  pip install {0}
   python -m playwright install chromium
 '@
         }
@@ -103,7 +133,14 @@ Manual Chromium cache installation steps:
         }
     }
     
-    return $messages[$key][$lang]
+    $message = $messages[$key][$lang]
+    
+    # Format message with playwright version if needed
+    if ($key -eq 'next_steps' -and $playwrightSpec) {
+        $message = $message -f $playwrightSpec
+    }
+    
+    return $message
 }
 
 function Write-Info($msg) { Write-Host \"[INFO] $msg\" -ForegroundColor Cyan }
@@ -252,13 +289,20 @@ function Install-ChromiumCache {
         $pythonExe = Join-Path $tempVenvDir "Scripts\python.exe"
         $pipExe = Join-Path $tempVenvDir "Scripts\pip.exe"
         
+        # Get Playwright version from requirements.txt
+        $playwrightSpec = Get-PlaywrightVersionFromRequirements @(
+            '..\\requirements.txt',
+            '.\\requirements.txt',
+            '..\\dxt-packages\\crawl4ai-dxt-correct\\requirements.txt'
+        )
+        
         if ($lang -eq 'ja') {
-            Write-Info "Playwrightをインストール中..."
+            Write-Info "Playwrightをインストール中... ($playwrightSpec)"
         } else {
-            Write-Info "Installing Playwright..."
+            Write-Info "Installing Playwright... ($playwrightSpec)"
         }
         
-        & $pipExe install --quiet playwright
+        & $pipExe install --quiet $playwrightSpec
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to install Playwright"
         }
@@ -300,11 +344,18 @@ function Install-ChromiumCache {
 }
 
 function Show-ManualInstructions {
+    # Get Playwright version from requirements.txt
+    $playwrightSpec = Get-PlaywrightVersionFromRequirements @(
+        '..\\requirements.txt',
+        '.\\requirements.txt',
+        '..\\dxt-packages\\crawl4ai-dxt-correct\\requirements.txt'
+    )
+    
     if ($lang -eq 'ja') {
         Write-Host "`n📋 手動でChromiumキャッシュをインストール:"
         Write-Host "  python -m venv venv"
         Write-Host "  venv\Scripts\activate"
-        Write-Host "  pip install playwright"
+        Write-Host "  pip install $playwrightSpec"
         Write-Host "  python -m playwright install chromium"
         Write-Host "`n🎯 インストール後のUVX実行:"
         Write-Host "  uvx --from crawl4ai-dxt-correct crawl4ai_mcp"
@@ -312,7 +363,7 @@ function Show-ManualInstructions {
         Write-Host "`n📋 Manual Chromium cache installation:"
         Write-Host "  python -m venv venv"
         Write-Host "  venv\Scripts\activate"
-        Write-Host "  pip install playwright"
+        Write-Host "  pip install $playwrightSpec"
         Write-Host "  python -m playwright install chromium"
         Write-Host "`n🎯 UVX execution after installation:"
         Write-Host "  uvx --from crawl4ai-dxt-correct crawl4ai_mcp"

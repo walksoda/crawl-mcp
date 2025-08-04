@@ -17,11 +17,11 @@ A comprehensive Model Context Protocol (MCP) server that wraps the powerful craw
 
 ### Prerequisites Setup (Required First)
 
-**Before using UVX, you MUST prepare system dependencies for Playwright:**
+**Before using any installation method, you MUST prepare system dependencies for Playwright:**
 
 #### 🐧 Linux/macOS
 ```bash
-# Install system dependencies for UVX Playwright
+# Install system dependencies for Playwright (required for all methods)
 sudo bash scripts/prepare_for_uvx_playwright.sh
 
 # For Japanese language (optional)
@@ -31,7 +31,7 @@ sudo bash scripts/prepare_for_uvx_playwright.sh
 
 #### 🪟 Windows
 ```powershell
-# Run as Administrator in PowerShell
+# Run as Administrator in PowerShell (required for all methods)
 scripts/prepare_for_uvx_playwright.bat
 
 # For Japanese language (optional)
@@ -41,28 +41,33 @@ scripts/prepare_for_uvx_playwright.bat
 
 ### Installation Methods
 
-#### Method 1: UVX (Recommended - Production Ready)
+#### Method 1: UVX (Recommended - Easiest & Production Ready) ⭐
+**Most convenient single-command installation:**
 ```bash
-# After system preparation above
+# After system preparation above - that's it!
 uvx --from crawl4ai-dxt-correct crawl4ai_mcp
 ```
+**✅ Benefits:** Zero configuration, automatic dependency management, isolated environment
 
 #### Method 2: Development Environment
 ```bash
 # After system preparation above, create development environment
 python3 -m venv venv && source venv/bin/activate
-pip install playwright crawl4ai
+pip install -r requirements.txt  # Uses pinned versions for stability
 python -m playwright install chromium
 python -m crawl4ai_mcp.server
 ```
+**Use case:** Local development and customization
 
 #### Method 3: Direct Installation
 ```bash
 # After system preparation above
-pip install crawl4ai playwright
+pip install -r requirements.txt  # Recommended: uses pinned versions
+# Alternative: pip install crawl4ai==0.7.2 playwright==1.54.0
 python -m playwright install chromium
 python -m crawl4ai_mcp.server
 ```
+**Use case:** Global installation or system-wide deployment
 
 ### MCP Integration (Claude Desktop)
 
@@ -84,11 +89,12 @@ Add to your `claude_desktop_config.json`:
 
 ### Troubleshooting
 
-If UVX installation fails:
+If installation fails:
 1. **Check Chromium**: Run diagnostics with `get_system_diagnostics` tool
 2. **Browser Issues**: Re-run the Chromium setup scripts above
 3. **Permissions**: Ensure scripts run with proper privileges (sudo/Administrator)
-4. **UVX Alternative**: Use Method 2 (Direct Python) instead
+4. **Alternative Methods**: Try Method 2 (Development) or Method 3 (Direct) if UVX fails
+5. **UVX Success**: After system preparation, UVX (Method 1) typically works reliably
 
 ### System Preparation Features 
 
@@ -96,7 +102,9 @@ If UVX installation fails:
 - **Minimal Dependencies**: Only installs essential Playwright system libraries
 - **UVX Optimized**: Designed specifically for UVX execution environment
 - **Multi-language**: English (default) + Japanese (`CRAWL4AI_LANG=ja`)
-- **Simple & Fast**: No complex version checking or Chromium installation
+- **Version Synchronization**: Automatically reads Playwright version from requirements.txt for consistency
+- **Smart Installation**: Manual installation instructions use correct pinned versions
+- **Enhanced Error Handling**: Improved Chromium version compatibility messages for MCP clients
 
 ## 🚀 Key Features
 
@@ -186,7 +194,7 @@ venv\Scripts\activate.bat  # Windows
 
 2. **Install Python dependencies:**
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt  # Installs pinned versions for stability
 ```
 
 3. **Install Playwright browser dependencies (Linux/WSL):**
@@ -1015,16 +1023,24 @@ For detailed troubleshooting, see [`docs/troubleshooting_ja.md`](docs/troublesho
 
 ## 📋 Dependencies
 
-- `crawl4ai>=0.3.0` - Advanced web crawling library
-- `fastmcp>=0.1.0` - MCP server framework
+### Fixed Version Dependencies (for stability)
+- `crawl4ai==0.7.2` - Advanced web crawling library (version pinned)
+- `fastmcp==2.11.0` - MCP server framework (version pinned)
+- `playwright==1.54.0` - Browser automation (version pinned)
+- `markitdown==0.1.2` - File processing and conversion (Microsoft, version pinned)
+- `googlesearch-python==1.3.0` - Google search functionality (version pinned)
+- `youtube-transcript-api==1.2.1` - Stable YouTube transcript extraction (version pinned)
+- `python-pptx==1.0.2` - PowerPoint document processing (version pinned)
+- `pdfminer-six==20250506` - PDF processing library (version pinned)
+
+### Flexible Dependencies
 - `pydantic>=2.0.0` - Data validation and serialization
-- `markitdown>=0.0.1a2` - File processing and conversion (Microsoft)
-- `googlesearch-python>=1.3.0` - Google search functionality
 - `aiohttp>=3.8.0` - Asynchronous HTTP client for metadata extraction
 - `beautifulsoup4>=4.12.0` - HTML parsing for title/snippet extraction
-- `youtube-transcript-api>=1.1.0` - Stable YouTube transcript extraction
 - `asyncio` - Asynchronous programming support
 - `typing-extensions` - Extended type hints
+
+**Version Pinning Strategy**: Core libraries are pinned to specific versions to prevent unintended behavior changes and ensure consistent functionality across installations.
 
 **YouTube Features Status:**
 
@@ -1059,7 +1075,14 @@ Simply drag and drop the `.dxt` file into Claude Desktop for instant setup.
 
 ## 📝 Recent Updates
 
-### Auto-Summarization Feature (Latest)
+### Version Dependency Management (Latest)
+- **Fixed Version Dependencies**: Core libraries pinned to specific versions (playwright==1.54.0, crawl4ai==0.7.2, etc.)
+- **Automatic Version Synchronization**: System preparation scripts read Playwright version from requirements.txt
+- **Enhanced Error Messages**: Improved Chromium version compatibility warnings for MCP clients
+- **Cross-platform Consistency**: Unified version management across Linux and Windows preparation scripts
+- **Stability Improvements**: Prevents unintended behavior changes from dependency updates
+
+### Auto-Summarization Feature
 - **LLM-Powered Content Summarization**: Automatically summarizes large web content using configurable LLM providers
 - **Configurable Token Limits**: Set custom thresholds (default: 15,000 tokens) for triggering summarization
 - **Multiple Summary Lengths**: Choose from 'short', 'medium', or 'long' summaries based on your needs

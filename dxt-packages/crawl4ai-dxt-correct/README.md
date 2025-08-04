@@ -18,6 +18,14 @@ MCP wrapper for crawl4ai library. This extension provides advanced web crawling 
 
 ## Installation
 
+### Recommended: UVX (Easiest)
+1. **System Setup**: Run system preparation script first:
+   - Linux/macOS: `sudo bash scripts/prepare_for_uvx_playwright.sh`
+   - Windows: Run `scripts/prepare_for_uvx_playwright.bat` as Administrator
+2. **Install**: `uvx --from crawl4ai-dxt-correct crawl4ai_mcp`
+3. **Done**: Zero configuration required!
+
+### Alternative: DXT Package
 1. Download the `.dxt` package
 2. Install via Claude Desktop's extension manager
 3. The extension will automatically install Python dependencies
@@ -69,6 +77,13 @@ Once installed, you can use natural language to request various operations. Exam
 - Internet connection for crawling
 
 ## Version History
+
+### v1.0.8
+- Fixed version dependency management with version pinning
+- Enhanced system preparation scripts with requirements.txt integration
+- Improved Chromium version compatibility error messages for MCP clients
+- Automatic Playwright version synchronization from requirements.txt
+- Cross-platform script improvements for better reliability
 
 ### v1.0.7
 - Fixed FastMCP compatibility issue (@prompt() decorator syntax)

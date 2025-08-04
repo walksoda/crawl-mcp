@@ -58,6 +58,25 @@ msg_success() {
 }
 
 msg_next_steps() {
+    # Get Playwright version from requirements.txt
+    local playwright_spec=""
+    local requirements_paths=(
+        "../requirements.txt"
+        "./requirements.txt"
+        "../dxt-packages/crawl4ai-dxt-correct/requirements.txt"
+    )
+    
+    for req_path in "${requirements_paths[@]}"; do
+        if [ -f "$req_path" ]; then
+            playwright_spec=$(get_playwright_version_from_requirements "$req_path")
+            break
+        fi
+    done
+    
+    if [ -z "$playwright_spec" ]; then
+        playwright_spec="playwright==1.54.0"
+    fi
+    
     case "$SCRIPT_LANG" in
         ja) echo "
 次のステップ:
@@ -67,7 +86,7 @@ msg_next_steps() {
 Chromiumキャッシュ手動インストール手順:
   python3 -m venv venv
   source venv/bin/activate
-  pip install playwright
+  pip install $playwright_spec
   python -m playwright install chromium" ;;
         *) echo "
 Next steps:
@@ -77,7 +96,7 @@ Next steps:
 Manual Chromium cache installation steps:
   python3 -m venv venv
   source venv/bin/activate
-  pip install playwright
+  pip install $playwright_spec
   python -m playwright install chromium" ;;
     esac
 }
@@ -91,6 +110,30 @@ msg_log_location() {
 
 # Initialize language detection
 detect_language
+
+# Get Playwright version from requirements.txt
+get_playwright_version_from_requirements() {
+  local requirements_file="$1"
+  
+  if [ -f "$requirements_file" ]; then
+    # Extract playwright version from requirements.txt (playwright==1.54.0)
+    local playwright_spec=$(grep -E "^playwright==" "$requirements_file" | head -1)
+    if [ -n "$playwright_spec" ]; then
+      echo "$playwright_spec"
+      return 0
+    fi
+    
+    # Fallback to >= version format
+    local playwright_spec=$(grep -E "^playwright>=" "$requirements_file" | head -1)
+    if [ -n "$playwright_spec" ]; then
+      echo "$playwright_spec"
+      return 0
+    fi
+  fi
+  
+  # Default fallback
+  echo "playwright>=1.54.0"
+}
 
 # Colored output functions
 info() { echo -e "\033[1;34m[INFO]\033[0m $1"; }
@@ -394,18 +437,37 @@ compare_playwright_versions() {
   fi
 }
 
-# Update Playwright library to latest version
+# Update Playwright library to specified version from requirements.txt
 update_playwright_library() {
   TEMP_VENV_DIR="/tmp/playwright-update-$$"
   
+  # Get correct Playwright version from requirements.txt
+  local playwright_spec=""
+  local requirements_paths=(
+    "../requirements.txt"
+    "./requirements.txt"
+    "../dxt-packages/crawl4ai-dxt-correct/requirements.txt"
+  )
+  
+  for req_path in "${requirements_paths[@]}"; do
+    if [ -f "$req_path" ]; then
+      playwright_spec=$(get_playwright_version_from_requirements "$req_path")
+      break
+    fi
+  done
+  
+  if [ -z "$playwright_spec" ]; then
+    playwright_spec="playwright==1.54.0"
+  fi
+  
   case "$SCRIPT_LANG" in
     ja) 
-      info "Playwrightライブラリを最新版にアップデート中..."
-      info "現在: $CURRENT_PW_VERSION → 最新: $LATEST_PW_VERSION"
+      info "Playwrightライブラリを指定バージョンにアップデート中..."
+      info "現在: $CURRENT_PW_VERSION → 指定: $playwright_spec"
       ;;
     *)
-      info "Updating Playwright library to latest version..."
-      info "Current: $CURRENT_PW_VERSION → Latest: $LATEST_PW_VERSION"
+      info "Updating Playwright library to specified version..."
+      info "Current: $CURRENT_PW_VERSION → Target: $playwright_spec"
       ;;
   esac
   
@@ -427,7 +489,7 @@ update_playwright_library() {
       *) info "Upgrading Playwright..." ;;
     esac
     
-    if ! pip install --upgrade playwright --quiet; then
+    if ! pip install "$playwright_spec" --quiet; then
       case "$SCRIPT_LANG" in
         ja) error "Playwrightのアップグレードに失敗しました。" ;;
         *) error "Failed to upgrade Playwright." ;;
@@ -477,13 +539,38 @@ except:
   log "Playwright library update completed successfully"
 }
 
-# Install Chromium cache automatically (enhanced with Playwright update)
+# Install Chromium cache automatically (using version from requirements.txt)
 install_chromium_cache() {
   TEMP_VENV_DIR="/tmp/playwright-install-$$"
   
+  # Get correct Playwright version from requirements.txt
+  local playwright_spec=""
+  local requirements_paths=(
+    "../requirements.txt"
+    "./requirements.txt"
+    "../dxt-packages/crawl4ai-dxt-correct/requirements.txt"
+  )
+  
+  for req_path in "${requirements_paths[@]}"; do
+    if [ -f "$req_path" ]; then
+      playwright_spec=$(get_playwright_version_from_requirements "$req_path")
+      break
+    fi
+  done
+  
+  if [ -z "$playwright_spec" ]; then
+    playwright_spec="playwright==1.54.0"
+  fi
+  
   case "$SCRIPT_LANG" in
-    ja) info "Chromiumキャッシュを自動インストール中..." ;;
-    *) info "Installing Chromium cache automatically..." ;;
+    ja) 
+      info "Chromiumキャッシュを自動インストール中..."
+      info "使用するPlaywrightバージョン: $playwright_spec"
+      ;;
+    *) 
+      info "Installing Chromium cache automatically..."
+      info "Using Playwright version: $playwright_spec"
+      ;;
   esac
   
   # Create temporary virtual environment
@@ -504,7 +591,7 @@ install_chromium_cache() {
       *) info "Installing Playwright..." ;;
     esac
     
-    if ! pip install --quiet playwright; then
+    if ! pip install --quiet "$playwright_spec"; then
       case "$SCRIPT_LANG" in
         ja) error "Playwrightのインストールに失敗しました。" ;;
         *) error "Failed to install Playwright." ;;
@@ -687,13 +774,32 @@ setup_chromium_environment() {
         install_chromium_cache
         ;;
       *)
+        # Get correct Playwright version for manual installation instructions
+        local playwright_spec=""
+        local requirements_paths=(
+          "../requirements.txt"
+          "./requirements.txt"
+          "../dxt-packages/crawl4ai-dxt-correct/requirements.txt"
+        )
+        
+        for req_path in "${requirements_paths[@]}"; do
+          if [ -f "$req_path" ]; then
+            playwright_spec=$(get_playwright_version_from_requirements "$req_path")
+            break
+          fi
+        done
+        
+        if [ -z "$playwright_spec" ]; then
+          playwright_spec="playwright==1.54.0"
+        fi
+        
         case "$SCRIPT_LANG" in
           ja) 
             echo ""
             echo "📋 手動でChromiumキャッシュをインストール:"
             echo "  python3 -m venv venv"
             echo "  source venv/bin/activate"
-            echo "  pip install playwright"
+            echo "  pip install $playwright_spec"
             echo "  python -m playwright install chromium"
             echo ""
             echo "🎯 インストール後のUVX実行:"
@@ -704,7 +810,7 @@ setup_chromium_environment() {
             echo "📋 Manual Chromium cache installation:"
             echo "  python3 -m venv venv"
             echo "  source venv/bin/activate"
-            echo "  pip install playwright"
+            echo "  pip install $playwright_spec"
             echo "  python -m playwright install chromium"
             echo ""
             echo "🎯 UVX execution after installation:"

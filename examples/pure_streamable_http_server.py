@@ -291,7 +291,24 @@ class StreamableHTTPServer:
                 video_id = video_id_match.group(1)
                 
                 # 字幕を取得
-                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=languages)
+                api = YouTubeTranscriptApi()
+                transcript_list = api.list(video_id)
+                
+                # 指定された言語の字幕を取得
+                target_transcript = None
+                for lang in languages:
+                    for transcript_obj in transcript_list:
+                        if transcript_obj.language_code == lang:
+                            target_transcript = transcript_obj
+                            break
+                    if target_transcript:
+                        break
+                
+                if not target_transcript:
+                    # デフォルトで最初の利用可能な字幕を使用
+                    target_transcript = next(iter(transcript_list))
+                
+                transcript = target_transcript.fetch()
                 
                 # フォーマット
                 formatted_transcript = []

@@ -13,6 +13,99 @@
 
 crawl4aiライブラリの機能をModel Context Protocol (MCP)仕様に準拠してラップしたサーバーです。fastmcpフレームワークを使用して実装されています。
 
+## 🚀 クイックインストールガイド
+
+### 前提条件セットアップ（必須）
+
+**どのインストール方法を選択する場合でも、Playwrightのシステム依存関係を準備する必要があります：**
+
+#### 🐧 Linux/macOS
+```bash
+# Playwrightのシステム依存関係をインストール（全方法で必要）
+sudo bash scripts/prepare_for_uvx_playwright.sh
+
+# 日本語対応（オプション）
+export CRAWL4AI_LANG=ja
+sudo bash scripts/prepare_for_uvx_playwright.sh
+```
+
+#### 🪟 Windows
+```powershell
+# PowerShellを管理者権限で実行（全方法で必要）
+scripts/prepare_for_uvx_playwright.bat
+
+# 日本語対応（オプション）
+$env:CRAWL4AI_LANG="ja"
+scripts/prepare_for_uvx_playwright.bat
+```
+
+### インストール方法
+
+#### 方法1: UVX（推奨 - 最も簡単で本番向け）
+**最も便利なワンコマンドインストール：**
+```bash
+# 上のシステム準備後 - これだけです！
+uvx --from crawl4ai-dxt-correct crawl4ai_mcp
+```
+**✅ 利点：** ゼロ設定、自動依存関係管理、分離環境
+
+#### 方法2: 開発環境
+```bash
+# 上のシステム準備後、開発環境を作成
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt  # 安定性のため固定バージョンを使用
+python -m playwright install chromium
+python -m crawl4ai_mcp.server
+```
+**用途：** ローカル開発とカスタマイズ
+
+#### 方法3: 直接インストール
+```bash
+# 上のシステム準備後
+pip install -r requirements.txt  # 推奨：固定バージョンを使用
+# 代替手段： pip install crawl4ai==0.7.2 playwright==1.54.0
+python -m playwright install chromium
+python -m crawl4ai_mcp.server
+```
+**用途：** グローバルインストールまたはシステム全体での展開
+
+### MCP統合（Claude Desktop）
+
+`claude_desktop_config.json`に追加：
+
+```json
+{
+  "mcpServers": {
+    "crawl4ai": {
+      "command": "uvx",
+      "args": ["--from", "crawl4ai-dxt-correct", "crawl4ai_mcp"],
+      "env": {
+        "CRAWL4AI_LANG": "ja"
+      }
+    }
+  }
+}
+```
+
+### トラブルシューティング
+
+インストールに失敗した場合：
+1. **Chromiumチェック**: `get_system_diagnostics`ツールで診断実行
+2. **ブラウザの問題**: 上のChromiumセットアップスクリプトを再実行
+3. **権限**: スクリプトが適切な権限（sudo/管理者）で実行されていることを確認
+4. **代替方法**: UVXが失敗した場合は方法2（開発）または方法3（直接）を試行
+5. **UVX成功**: システム準備後、UVX（方法1）は通常確実に動作します
+
+### システム準備機能
+
+- **クロスプラットフォーム**: Linux（apt/yum/pacman/apk）+ Windows
+- **最小依存関係**: Playwrightに必要なシステムライブラリのみインストール
+- **UVX最適化**: UVX実行環境専用設計
+- **多言語対応**: 英語（デフォルト）+ 日本語（`CRAWL4AI_LANG=ja`）
+- **バージョン同期**: requirements.txtからPlaywrightバージョンを自動読み取り
+- **スマートインストール**: 手動インストール手順で正しい固定バージョンを使用
+- **強化されたエラー処理**: MCPクライアント向けChromiumバージョン互換性メッセージの改善
+
 ## 🚀 主な機能
 
 ### コア機能
