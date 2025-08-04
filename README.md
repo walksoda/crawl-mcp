@@ -13,6 +13,91 @@ This project wraps the powerful **crawl4ai** web crawling library (by [unclecode
 
 A comprehensive Model Context Protocol (MCP) server that wraps the powerful crawl4ai library. This server provides advanced web crawling, content extraction, and AI-powered analysis capabilities through the standardized MCP interface.
 
+## 🚀 Quick Installation Guide
+
+### Prerequisites Setup (Required First)
+
+**Before using UVX, you MUST prepare system dependencies for Playwright:**
+
+#### 🐧 Linux/macOS
+```bash
+# Install system dependencies for UVX Playwright
+sudo bash scripts/prepare_for_uvx_playwright.sh
+
+# For Japanese language (optional)
+export CRAWL4AI_LANG=ja
+sudo bash scripts/prepare_for_uvx_playwright.sh
+```
+
+#### 🪟 Windows
+```powershell
+# Run as Administrator in PowerShell
+scripts/prepare_for_uvx_playwright.bat
+
+# For Japanese language (optional)
+$env:CRAWL4AI_LANG="ja"
+scripts/prepare_for_uvx_playwright.bat
+```
+
+### Installation Methods
+
+#### Method 1: UVX (Recommended - Production Ready)
+```bash
+# After system preparation above
+uvx --from crawl4ai-dxt-correct crawl4ai_mcp
+```
+
+#### Method 2: Development Environment
+```bash
+# After system preparation above, create development environment
+python3 -m venv venv && source venv/bin/activate
+pip install playwright crawl4ai
+python -m playwright install chromium
+python -m crawl4ai_mcp.server
+```
+
+#### Method 3: Direct Installation
+```bash
+# After system preparation above
+pip install crawl4ai playwright
+python -m playwright install chromium
+python -m crawl4ai_mcp.server
+```
+
+### MCP Integration (Claude Desktop)
+
+Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "crawl4ai": {
+      "command": "uvx",
+      "args": ["--from", "crawl4ai-dxt-correct", "crawl4ai_mcp"],
+      "env": {
+        "CRAWL4AI_LANG": "en"
+      }
+    }
+  }
+}
+```
+
+### Troubleshooting
+
+If UVX installation fails:
+1. **Check Chromium**: Run diagnostics with `get_system_diagnostics` tool
+2. **Browser Issues**: Re-run the Chromium setup scripts above
+3. **Permissions**: Ensure scripts run with proper privileges (sudo/Administrator)
+4. **UVX Alternative**: Use Method 2 (Direct Python) instead
+
+### System Preparation Features 
+
+- **Cross-platform**: Linux (apt/yum/pacman/apk) + Windows  
+- **Minimal Dependencies**: Only installs essential Playwright system libraries
+- **UVX Optimized**: Designed specifically for UVX execution environment
+- **Multi-language**: English (default) + Japanese (`CRAWL4AI_LANG=ja`)
+- **Simple & Fast**: No complex version checking or Chromium installation
+
 ## 🚀 Key Features
 
 ### Core Capabilities

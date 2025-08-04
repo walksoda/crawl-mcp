@@ -1060,27 +1060,31 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
             if is_uvx_env:
                 error_message += "\n\n🔧 UVX Environment Browser Setup Required:\n" \
                     f"UVX environments require manual browser installation due to isolation:\n\n" \
-                    f"Method 1 - UVX with Playwright:\n" \
-                    f"  uvx --with playwright playwright install webkit\n" \
-                    f"  uvx --with playwright playwright install chromium\n\n" \
-                    f"Method 2 - System-wide installation:\n" \
+                    f"Method 1 - Lightweight Headless Installation (Recommended):\n" \
+                    f"  uvx --with playwright playwright install --with-deps --only-shell\n" \
+                    f"  uvx --with playwright playwright install --with-deps webkit\n\n" \
+                    f"Method 2 - System-wide Lightweight Installation:\n" \
                     f"  pip install playwright\n" \
-                    f"  playwright install webkit chromium\n\n" \
+                    f"  playwright install --only-shell webkit\n\n" \
                     f"Method 3 - Restart Claude Desktop and retry\n\n" \
-                    f"💡 Verification:\n" \
+                    f"💡 Verification & Notes:\n" \
                     f"  - Run get_system_diagnostics() to check installation\n" \
-                    f"  - WebKit (~180MB) is lighter than Chromium (~281MB)\n" \
+                    f"  - Headless shell (~100MB) + WebKit (~180MB) = most efficient\n" \
+                    f"  - Standard Chromium (~281MB) if lightweight options fail\n" \
                     f"  - If problems persist, switch to STDIO local setup"
             else:
                 error_message += "\n\n🔧 Browser Setup Required:\n" \
-                    f"1. Install Playwright browsers:\n" \
-                    f"   playwright install webkit  # Lightweight option (~180MB)\n" \
-                    f"   playwright install chromium  # Full compatibility (~281MB)\n\n" \
-                    f"2. For Linux system dependencies:\n" \
-                    f"   sudo apt-get install libnss3 libnspr4 libasound2\n\n" \
-                    f"3. Verification:\n" \
+                    f"1. Install Lightweight Playwright browsers (Recommended):\n" \
+                    f"   playwright install --only-shell  # Headless Chromium (~100MB)\n" \
+                    f"   playwright install webkit        # WebKit (~180MB)\n\n" \
+                    f"2. Alternative - Install with system dependencies:\n" \
+                    f"   playwright install --with-deps --only-shell webkit\n\n" \
+                    f"3. For Linux system dependencies (if needed):\n" \
+                    f"   sudo apt-get install libnss3 libnspr4 libasound2 libxss1\n\n" \
+                    f"4. Verification:\n" \
                     f"   - Run get_system_diagnostics() to confirm installation\n" \
-                    f"   - Check ~/.cache/ms-playwright/ for browser files"
+                    f"   - Check ~/.cache/ms-playwright/ for browser files\n" \
+                    f"   - Total space: ~280MB (vs ~561MB for full browsers)"
         
         return CrawlResponse(
             success=False,
@@ -1325,100 +1329,98 @@ def process_file_prompt_wrapper(file_url: str, file_type: str = "auto"):
     return process_file_prompt(file_url, file_type)
 
 
-def setup_lightweight_playwright_browsers():
-    """Setup lightweight Playwright browsers with enhanced UVX environment support."""
-    import subprocess
-    import sys
+def setup_playwright_browsers():
+    """
+    Simple UVX-compatible Playwright browser setup with manual cache guidance
+    - Check for existing Playwright Chromium cache
+    - Provide clear manual installation instructions
+    - Support language-aware messaging (Japanese/English)
+    """
     import os
+    import platform
     from pathlib import Path
+    import logging
+    import glob
+    import subprocess
+    import re
+
+    logger = logging.getLogger("crawl4ai_mcp.server")
+
+    # Language detection
+    lang = os.environ.get('CRAWL4AI_LANG', os.environ.get('LANG', 'en'))
+    is_japanese = lang.startswith('ja')
     
-    # Detect UVX environment
-    is_uvx_env = 'UV_PROJECT_ENVIRONMENT' in os.environ or 'UVX' in str(sys.executable)
+    # Check for existing Playwright cache
+    cache_dirs = glob.glob(str(Path.home() / ".cache" / "ms-playwright" / "chromium-*"))
+    valid_cache = False
+    current_version = None
+    minimum_version = "137.0.0.0"  # Updated for chromium-1181+ compatibility
     
-    try:
-        # Enhanced browser detection for UVX environments
-        possible_cache_dirs = [
-            Path.home() / ".cache" / "ms-playwright",
-            Path.home() / "Library" / "Caches" / "ms-playwright",  # macOS
-            Path.home() / "AppData" / "Local" / "ms-playwright"    # Windows
-        ]
+    for cache_dir in cache_dirs:
+        chrome_path = Path(cache_dir) / "chrome-linux" / "chrome"
+        if platform.system() == "Windows":
+            chrome_path = Path(cache_dir) / "chrome-win" / "chrome.exe"
         
-        webkit_installed = False
-        chromium_installed = False
-        
-        # Check existing browser installations
-        for cache_dir in possible_cache_dirs:
-            if cache_dir.exists():
-                # Enhanced WebKit detection for UVX
-                webkit_dirs = list(cache_dir.glob("webkit-*"))
-                for webkit_dir in webkit_dirs:
-                    # Check for various WebKit executables
-                    webkit_executables = (
-                        list(webkit_dir.rglob("*webkit*")) + 
-                        list(webkit_dir.rglob("*Playwright*")) +
-                        list(webkit_dir.rglob("pw_*")) +  # UVX specific naming
-                        list(webkit_dir.rglob("*.so")) +   # Linux shared objects
-                        list(webkit_dir.rglob("*.dylib")) + # macOS libraries
-                        list(webkit_dir.rglob("*.dll"))     # Windows libraries
-                    )
-                    if webkit_executables:
-                        webkit_installed = True
-                        break
-                
-                # Enhanced Chromium detection for UVX
-                chromium_dirs = list(cache_dir.glob("chromium*"))
-                for chromium_dir in chromium_dirs:
-                    chrome_executables = (
-                        list(chromium_dir.rglob("chrome*")) + 
-                        list(chromium_dir.rglob("*chromium*")) +
-                        list(chromium_dir.rglob("headless_shell*")) +  # Headless shell specific
-                        list(chromium_dir.rglob("*.so")) +
-                        list(chromium_dir.rglob("*.dylib")) +
-                        list(chromium_dir.rglob("*.dll"))
-                    )
-                    if chrome_executables:
-                        chromium_installed = True
-                        break
-                
-                if webkit_installed or chromium_installed:
-                    break
-        
-        # UVX-specific installation logic
-        if is_uvx_env and not (webkit_installed or chromium_installed):
-            # For UVX environments, be more aggressive with installation
+        if chrome_path.exists():
             try:
-                # First try: Install WebKit with UVX-compatible approach
-                install_commands = [
-                    # Standard installation
-                    [sys.executable, "-m", "playwright", "install", "webkit"],
-                    # Force reinstall if needed
-                    [sys.executable, "-m", "playwright", "install", "webkit", "--force"],
-                    # Try chromium headless shell as fallback
-                    [sys.executable, "-m", "playwright", "install", "chromium", "--only-shell"],
-                    # Last resort: full chromium
-                    [sys.executable, "-m", "playwright", "install", "chromium"]
-                ]
-                
-                for cmd in install_commands:
-                    try:
-                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-                        if result.returncode == 0:
-                            # Installation successful, re-check
-                            for cache_dir in possible_cache_dirs:
-                                if cache_dir.exists():
-                                    if list(cache_dir.glob("webkit-*")) or list(cache_dir.glob("chromium*")):
-                                        return  # Success
-                            break
-                    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
-                        continue
-                        
-            except Exception:
-                # If installation fails, browsers will need to be installed manually
-                pass
+                result = subprocess.run(
+                    [str(chrome_path), "--version"], 
+                    capture_output=True, text=True, timeout=10
+                )
+                version_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', result.stdout)
+                if version_match:
+                    current_version = version_match.group(1)
+                    # Simple version comparison - split and compare numeric parts
+                    current_parts = list(map(int, current_version.split('.')))
+                    minimum_parts = list(map(int, minimum_version.split('.')))
+                    
+                    if current_parts >= minimum_parts:
+                        valid_cache = True
+                        break
+            except Exception as e:
+                logger.warning(f"Failed to check Chromium version: {e}")
+    
+    # Provide guidance based on cache status
+    if valid_cache:
+        if is_japanese:
+            print(f"✅ 有効なPlaywrightキャッシュを検出: {current_version}")
+            print("   UVXは既存のキャッシュを自動的に使用します。")
+        else:
+            print(f"✅ Valid Playwright cache found: {current_version}")
+            print("   UVX will automatically use existing cache.")
+        logger.info(f"Using existing Playwright cache: {current_version}")
+        return True
+    else:
+        if is_japanese:
+            if current_version:
+                print(f"⚠️  古いPlaywrightキャッシュ: {current_version} < {minimum_version}")
+            else:
+                print("⚠️  Playwrightキャッシュがありません。")
+            print("\n📋 手動でChromiumキャッシュをインストール:")
+            print("   python3 -m venv venv")
+            print("   source venv/bin/activate") 
+            print("   pip install playwright")
+            print("   python -m playwright install chromium")
+            print("\n🎯 インストール後のUVX実行:")
+            print("   uvx --from crawl4ai-dxt-correct crawl4ai_mcp")
+        else:
+            if current_version:
+                print(f"⚠️  Outdated Playwright cache: {current_version} < {minimum_version}")
+            else:
+                print("⚠️  No Playwright cache found.")
+            print("\n📋 Manual Chromium cache installation:")
+            print("   python3 -m venv venv")
+            if platform.system() == "Windows":
+                print("   venv\\Scripts\\activate")
+            else:
+                print("   source venv/bin/activate")
+            print("   pip install playwright")
+            print("   python -m playwright install chromium")
+            print("\n🎯 UVX execution after installation:")
+            print("   uvx --from crawl4ai-dxt-correct crawl4ai_mcp")
         
-    except Exception:
-        # Graceful handling of any setup errors
-        pass
+        logger.warning("Manual Playwright Chromium installation required")
+        return False
 
 
 # Installation status storage (module level) - removed to avoid syntax errors
@@ -1484,47 +1486,32 @@ async def get_system_diagnostics() -> Dict[str, Any]:
         except ImportError:
             pass
         
-        # Browser detection with detailed info
-        possible_cache_dirs = [
-            Path.home() / ".cache" / "ms-playwright",
-            Path.home() / "Library" / "Caches" / "ms-playwright",  # macOS
-            Path.home() / "AppData" / "Local" / "ms-playwright"    # Windows
-        ]
-        
+        # Use Playwright's native browser detection (best practice)
         browser_status = {
-            'webkit_installed': False,
             'chromium_installed': False,
-            'cache_directories': [],
-            'browser_details': []
+            'browser_list': [],
+            'installation_output': None
         }
         
-        for cache_dir in possible_cache_dirs:
-            if cache_dir.exists():
-                browser_status['cache_directories'].append(str(cache_dir))
-                
-                # Check WebKit
-                webkit_dirs = list(cache_dir.glob("webkit-*"))
-                for webkit_dir in webkit_dirs:
-                    webkit_executables = list(webkit_dir.rglob("*webkit*")) + list(webkit_dir.rglob("*Playwright*"))
-                    if webkit_executables:
-                        browser_status['webkit_installed'] = True
-                        browser_status['browser_details'].append({
-                            'type': 'webkit',
-                            'path': str(webkit_dir),
-                            'executables': [str(f) for f in webkit_executables[:3]]  # Limit for brevity
-                        })
-                
-                # Check Chromium
-                chromium_dirs = list(cache_dir.glob("chromium-*"))
-                for chromium_dir in chromium_dirs:
-                    chrome_executables = list(chromium_dir.rglob("chrome*")) + list(chromium_dir.rglob("*chromium*"))
-                    if chrome_executables:
-                        browser_status['chromium_installed'] = True
-                        browser_status['browser_details'].append({
-                            'type': 'chromium',
-                            'path': str(chromium_dir),
-                            'executables': [str(f) for f in chrome_executables[:3]]  # Limit for brevity
-                        })
+        try:
+            # Use playwright install --list to get accurate browser status
+            result = subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "--list"],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if result.returncode == 0:
+                browser_status['installation_output'] = result.stdout
+                # Parse output to determine if chromium is installed
+                lines = result.stdout.strip().split('\n')
+                for line in lines:
+                    if 'chromium' in line.lower():
+                        browser_status['browser_list'].append(line.strip())
+                        if 'installed' in line.lower() or '✓' in line:
+                            browser_status['chromium_installed'] = True
+                            
+        except Exception as e:
+            browser_status['installation_output'] = f"Error checking browsers: {str(e)}"
         
         # Installation status (simplified without global state)
         installation_status = {
@@ -1540,21 +1527,13 @@ async def get_system_diagnostics() -> Dict[str, Any]:
             issues_found.append("Playwright library not available")
             recommendations.append("Install Playwright: pip install playwright>=1.40.0")
         
-        if not (browser_status['webkit_installed'] or browser_status['chromium_installed']):
-            issues_found.append("No Playwright browsers found")
-            if is_uvx_env:
-                recommendations.extend([
-                    "For UVX environments, try manual installation:",
-                    "1. uvx --from git+https://github.com/walksoda/crawl-mcp --with playwright playwright install webkit",
-                    "2. Or install system-wide: playwright install webkit",
-                    "3. Restart Claude Desktop after installation"
-                ])
-            else:
-                recommendations.extend([
-                    "Install browsers manually:",
-                    "playwright install webkit  # Lightweight option (~180MB)",
-                    "playwright install chromium  # Full compatibility option (~281MB)"
-                ])
+        if not browser_status['chromium_installed']:
+            issues_found.append("Chromium browser not properly installed")
+            recommendations.extend([
+                "Install Chromium browser with dependencies:",
+                "python -m playwright install --with-deps chromium",
+                "This will install the correct revision managed by Playwright"
+            ])
         
         if is_uvx_env and issues_found:
             recommendations.append("UVX environments may have browser persistence issues - consider STDIO local setup for development")
@@ -1587,7 +1566,7 @@ async def get_system_diagnostics() -> Dict[str, Any]:
             "recommendations": recommendations,
             "ready_for_crawling": (
                 playwright_available and 
-                (browser_status['webkit_installed'] or browser_status['chromium_installed']) and
+                browser_status['chromium_installed'] and
                 can_create_crawler
             )
         }
@@ -1623,8 +1602,8 @@ def main():
     """Main entry point for the MCP server."""
     import sys
     
-    # Setup lightweight Playwright browsers if needed
-    setup_lightweight_playwright_browsers()
+    # Setup Playwright browsers following best practices
+    setup_playwright_browsers()
     
     # Ensure all output is suppressed
     warnings.filterwarnings("ignore")
