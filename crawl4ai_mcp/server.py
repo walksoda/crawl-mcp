@@ -1083,7 +1083,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     f"   sudo apt-get install libnss3 libnspr4 libasound2 libxss1\n\n" \
                     f"4. Verification:\n" \
                     f"   - Run get_system_diagnostics() to confirm installation\n" \
-                    f"   - Check ~/.cache/ms-playwright/ for browser files\n" \
+                    f"   - Check browser files in platform cache directory\n" \
                     f"   - Total space: ~280MB (vs ~561MB for full browsers)"
         
         return CrawlResponse(
@@ -1414,32 +1414,63 @@ def setup_playwright_browsers():
         minimum_version = dynamic_minimum
         logger.info(f"Using dynamic minimum version: {minimum_version}")
     
-    # Check for existing Playwright cache
-    cache_dirs = glob.glob(str(Path.home() / ".cache" / "ms-playwright" / "chromium-*"))
+    # Check for existing Playwright cache (platform-aware paths)
+    if platform.system() == "Windows":
+        # Windows uses AppData\Local\ms-playwright
+        cache_pattern = str(Path.home() / "AppData" / "Local" / "ms-playwright" / "chromium-*")
+    else:
+        # Unix systems use .cache/ms-playwright
+        cache_pattern = str(Path.home() / ".cache" / "ms-playwright" / "chromium-*")
+    
+    cache_dirs = glob.glob(cache_pattern)
     valid_cache = False
     current_version = None
     
     for cache_dir in cache_dirs:
-        chrome_path = Path(cache_dir) / "chrome-linux" / "chrome"
         if platform.system() == "Windows":
             chrome_path = Path(cache_dir) / "chrome-win" / "chrome.exe"
+        else:
+            chrome_path = Path(cache_dir) / "chrome-linux" / "chrome"
         
         if chrome_path.exists():
             try:
-                result = subprocess.run(
-                    [str(chrome_path), "--version"], 
-                    capture_output=True, text=True, timeout=10
-                )
-                version_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', result.stdout)
-                if version_match:
-                    current_version = version_match.group(1)
-                    # Simple version comparison - split and compare numeric parts
-                    current_parts = list(map(int, current_version.split('.')))
-                    minimum_parts = list(map(int, minimum_version.split('.')))
-                    
-                    if current_parts >= minimum_parts:
-                        valid_cache = True
-                        break
+                if platform.system() == "Windows":
+                    # Windows: Extract version from directory name (chromium-1181 format)
+                    # to avoid GUI window opening with --version
+                    dir_name = Path(cache_dir).name
+                    build_match = re.search(r'chromium-(\d+)', dir_name)
+                    if build_match:
+                        build_number = int(build_match.group(1))
+                        # Map build numbers to Chrome versions (based on official Playwright mappings)
+                        if build_number >= 1181:
+                            current_version = "139.0.0.0"  # Latest builds
+                        elif build_number >= 1178:
+                            current_version = "138.0.0.0"  # chromium-1178 → 138.0.7204.15
+                        elif build_number >= 1169:
+                            current_version = "136.0.0.0"  # chromium-1169 → 136.0.7103.25
+                        elif build_number >= 1100:
+                            current_version = "130.0.0.0"  # Older builds
+                        else:
+                            current_version = "120.0.0.0"  # Very old builds
+                else:
+                    # Unix: Use --version command (works without GUI)
+                    result = subprocess.run(
+                        [str(chrome_path), "--version"], 
+                        capture_output=True, text=True, timeout=10
+                    )
+                    version_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', result.stdout)
+                    if version_match:
+                        current_version = version_match.group(1)
+                    else:
+                        continue
+                
+                # Simple version comparison - split and compare numeric parts
+                current_parts = list(map(int, current_version.split('.')))
+                minimum_parts = list(map(int, minimum_version.split('.')))
+                
+                if current_parts >= minimum_parts:
+                    valid_cache = True
+                    break
             except Exception as e:
                 logger.warning(f"Failed to check Chromium version: {e}")
     

@@ -66,6 +66,7 @@ logs/
 *.temp
 temp/
 tmp/
+backup_original_docs/
 
 # Browser profiles and cache
 .playwright/
@@ -80,6 +81,8 @@ mcp-logs/
 # Development configuration files
 .textlintrc
 CLAUDE.md
+.roo/
+.serena/
 
 # API keys and secrets
 secrets/
