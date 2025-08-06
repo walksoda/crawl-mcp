@@ -3,7 +3,15 @@
 > **⚠️ Important**: This is an **unofficial** MCP server implementation for the excellent [crawl4ai](https://github.com/unclecode/crawl4ai) library.  
 > **Not affiliated** with the original crawl4ai project.
 
-A comprehensive Model Context Protocol (MCP) server that wraps the powerful crawl4ai library. This server provides advanced web crawling, content extraction, and AI-powered analysis capabilities through the standardized MCP interface.
+A comprehensive Model Context Protocol (MCP) server that wraps the powerful crawl4ai library with advanced AI capabilities. Extract and analyze content from **any source**: web pages, PDFs, Office documents, YouTube videos, and more. Features intelligent summarization to dramatically reduce token usage while preserving key information.
+
+## 🌟 Key Features
+
+- **🔍 Advanced Web Crawling**: JavaScript support, deep site mapping, entity extraction
+- **🌐 Universal Content Extraction**: Web pages, PDFs, Word docs, Excel, PowerPoint, ZIP archives
+- **🤖 AI-Powered Summarization**: Smart token reduction (up to 88.5%) while preserving essential information
+- **🎬 YouTube Integration**: Extract video transcripts and summaries without API keys  
+- **⚡ Production Ready**: 21 specialized tools with comprehensive error handling
 
 ## 🚀 Quick Start
 
