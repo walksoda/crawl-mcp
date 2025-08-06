@@ -7,6 +7,7 @@ A comprehensive Model Context Protocol (MCP) server that wraps the powerful craw
 
 ## 🌟 Key Features
 
+- **🔍 Google Search Integration** - 31 search genres with metadata extraction
 - **🔍 Advanced Web Crawling**: JavaScript support, deep site mapping, entity extraction
 - **🌐 Universal Content Extraction**: Web pages, PDFs, Word docs, Excel, PowerPoint, ZIP archives
 - **🤖 AI-Powered Summarization**: Smart token reduction (up to 88.5%) while preserving essential information
@@ -66,16 +67,6 @@ Add to your `claude_desktop_config.json`:
   "CRAWL4AI_LANG": "ja"
 }
 ```
-
-## ✨ Key Features
-
-- **🌐 Advanced Web Crawling** - JavaScript-heavy sites, SPAs, dynamic content
-- **🧠 AI-Powered Extraction** - LLM-based content analysis and summarization
-- **📄 File Processing** - PDF, Office documents, ZIP archives (Microsoft MarkItDown)
-- **📺 YouTube Transcripts** - Multi-language, timestamped extraction
-- **🔍 Google Search Integration** - 31 search genres with metadata extraction
-- **🔄 Batch Processing** - Multiple URLs, search queries, video transcripts
-- **🌍 Multi-language** - English and Japanese interface support
 
 ## 📖 Documentation
 
