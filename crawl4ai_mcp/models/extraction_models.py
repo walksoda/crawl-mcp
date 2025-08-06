@@ -12,7 +12,7 @@ from .base import BaseRequest
 class StructuredExtractionRequest(BaseRequest):
     """Request model for structured data extraction."""
     url: str = Field(..., description="URL to crawl")
-    schema: Dict[str, Any] = Field(..., description="JSON schema for extraction")
+    extraction_schema: Dict[str, Any] = Field(..., description="JSON schema for extraction")
     extraction_type: str = Field("css", description="Type of extraction: 'css' or 'llm'")
     css_selectors: Optional[Dict[str, str]] = Field(None, description="CSS selectors for each field")
     llm_provider: Optional[str] = Field("openai", description="LLM provider for LLM-based extraction")

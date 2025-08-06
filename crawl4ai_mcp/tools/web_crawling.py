@@ -927,7 +927,7 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                     extracted_data={
                         "structured_data": extracted_data,
                         "extraction_method": "css_selectors",
-                        "schema_fields": list(request.schema.keys()) if request.schema else [],
+                        "schema_fields": list(request.extraction_schema.keys()) if request.extraction_schema else [],
                         "extracted_fields": list(extracted_data.keys())
                     }
                 )
@@ -953,9 +953,9 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                 
                 # Prepare schema description
                 schema_description = ""
-                if request.schema:
+                if request.extraction_schema:
                     schema_items = []
-                    for field, description in request.schema.items():
+                    for field, description in request.extraction_schema.items():
                         schema_items.append(f"- {field}: {description}")
                     schema_description = "\n".join(schema_items)
                 
@@ -1069,7 +1069,7 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                                 "found_fields": extraction_result.get("found_fields", []),
                                 "missing_fields": extraction_result.get("missing_fields", []),
                                 "additional_context": extraction_result.get("additional_context", ""),
-                                "schema_fields": list(request.schema.keys()) if request.schema else [],
+                                "schema_fields": list(request.extraction_schema.keys()) if request.extraction_schema else [],
                                 "llm_provider": provider,
                                 "llm_model": model,
                                 "custom_instruction_used": bool(request.instruction)
@@ -1089,9 +1089,9 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                                 "extraction_method": "llm_based_fallback",
                                 "extraction_confidence": "Low",
                                 "found_fields": [],
-                                "missing_fields": list(request.schema.keys()) if request.schema else [],
+                                "missing_fields": list(request.extraction_schema.keys()) if request.extraction_schema else [],
                                 "additional_context": f"JSON parsing failed: {str(e)}",
-                                "schema_fields": list(request.schema.keys()) if request.schema else [],
+                                "schema_fields": list(request.extraction_schema.keys()) if request.extraction_schema else [],
                                 "llm_provider": provider,
                                 "llm_model": model,
                                 "json_parse_error": str(e)

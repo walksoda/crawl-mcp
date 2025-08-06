@@ -2,9 +2,9 @@
   "dxt_version": "0.1",
   "name": "crawl4ai-extension",
   "display_name": "Crawl4AI Web Crawler MCP",
-  "version": "1.3.0",
-  "description": "🚀 Ultimate web crawling MCP extension - 20 tools, 2025 optimized, 100% verified, production-ready",
-  "long_description": "🌟 **THE ULTIMATE WEB CRAWLING POWERHOUSE** 🌟\n\n🏆 **PERFECT SCORE**: 100% tool verification success rate\n🚀 **2025 OPTIMIZED**: Tool descriptions follow latest MCP best practices for maximum LLM efficiency\n⚡ **LIGHTNING FAST**: 71.4% code reduction (4,426→1,266 lines) + 88.5% token reduction\n🧠 **AI-POWERED**: Advanced cosine similarity filtering + hierarchical summarization\n🔥 **PRODUCTION READY**: Complete 20-tool suite with bulletproof error handling\n\n**🛠️ COMPLETE TOOLKIT:**\n• 🌐 Advanced web crawling (JavaScript support, deep crawling)\n• 🎬 YouTube transcripts (no API key needed)\n• 🔍 Google search with genre filtering\n• 📄 Document processing (PDF/Office/ZIP)\n• 🤖 LLM-powered content extraction\n• 📊 Batch processing with concurrency control\n• 🎯 Entity extraction (emails, phones, URLs)\n• 🧩 Structured data extraction\n\n**🔧 TECHNICAL EXCELLENCE:**\n• Modular architecture with full type safety\n• Adaptive filtering strategies (BM25, pruning, LLM)\n• GPT-4.1 support with auto-detection\n• Smart chunking with semantic boundaries\n• Rate limiting and error recovery\n• Comprehensive logging and monitoring\n\n**Perfect for developers who demand reliability, performance, and cutting-edge AI integration.**",
+  "version": "1.4.0",
+  "description": "🚀 Ultimate web crawling MCP extension - 21 tools, 2025 optimized, 100% verified, production-ready",
+  "long_description": "🌟 **THE ULTIMATE WEB CRAWLING POWERHOUSE** 🌟\n\n🏆 **PERFECT SCORE**: 100% tool verification success rate\n🚀 **2025 OPTIMIZED**: Tool descriptions follow latest MCP best practices for maximum LLM efficiency\n⚡ **LIGHTNING FAST**: 71.4% code reduction (4,426→1,266 lines) + 88.5% token reduction\n🧠 **AI-POWERED**: Advanced cosine similarity filtering + hierarchical summarization\n🔥 **PRODUCTION READY**: Complete 21-tool suite with bulletproof error handling\n\n**🛠️ COMPLETE TOOLKIT:**\n• 🌐 Advanced web crawling (JavaScript support, deep crawling)\n• 🎬 YouTube transcripts (no API key needed)\n• 🔍 Google search with genre filtering\n• 📄 Document processing (PDF/Office/ZIP)\n• 🤖 LLM-powered content extraction\n• 📊 Batch processing with concurrency control\n• 🎯 Entity extraction (emails, phones, URLs)\n• 🧩 Structured data extraction\n\n**🔧 TECHNICAL EXCELLENCE:**\n• Modular architecture with full type safety\n• Adaptive filtering strategies (BM25, pruning, LLM)\n• GPT-4.1 support with auto-detection\n• Smart chunking with semantic boundaries\n• Rate limiting and error recovery\n• Comprehensive logging and monitoring\n\n**Perfect for developers who demand reliability, performance, and cutting-edge AI integration.**",
   "author": {
     "name": "walksoda",
     "email": "walksoda@users.noreply.github.com",
@@ -30,51 +30,87 @@
   "tools": [
     {
       "name": "crawl_url",
-      "description": "Extract content from web pages with advanced crawling capabilities"
+      "description": "Extract content from web pages with advanced crawling capabilities, JavaScript support, and media extraction"
     },
     {
       "name": "deep_crawl_site", 
-      "description": "Comprehensive site mapping and recursive crawling"
+      "description": "Comprehensive site mapping and recursive crawling with depth control and filtering"
+    },
+    {
+      "name": "crawl_url_with_fallback",
+      "description": "Enhanced crawling with multiple fallback strategies for difficult sites"
     },
     {
       "name": "intelligent_extract",
-      "description": "AI-powered content extraction with filtering and analysis"
+      "description": "AI-powered content extraction with semantic filtering and LLM processing"
     },
     {
       "name": "extract_entities",
-      "description": "Pattern-based extraction of emails, phones, URLs, and other entities"
+      "description": "Pattern-based extraction of emails, phones, URLs, dates, IPs, and other entities"
     },
     {
       "name": "extract_structured_data",
-      "description": "Structured data extraction using CSS selectors or LLM schemas"
+      "description": "Structured data extraction using CSS selectors, XPath, or LLM schemas"
     },
     {
       "name": "process_file",
-      "description": "Convert documents (PDF, Office, ZIP) to markdown"
+      "description": "Convert documents (PDF, Office, ZIP, ePub) to markdown with metadata extraction"
     },
     {
-      "name": "extract_youtube_transcript",
-      "description": "Extract transcripts from YouTube videos (no API key required)"
-    },
-    {
-      "name": "batch_extract_youtube_transcripts",
-      "description": "Batch processing of multiple YouTube video transcripts"
-    },
-    {
-      "name": "search_google",
-      "description": "Google search with genre filtering and metadata extraction"
-    },
-    {
-      "name": "search_and_crawl",
-      "description": "Combined Google search and content extraction from top results"
-    },
-    {
-      "name": "batch_crawl",
-      "description": "Process multiple URLs concurrently with unified reporting"
+      "name": "get_supported_file_formats",
+      "description": "Get comprehensive list of supported file formats for document processing"
     },
     {
       "name": "enhanced_process_large_content",
-      "description": "Revolutionary large content processing with adaptive strategies, cosine similarity, and GPT-4.1 - achieves 88.5% token reduction"
+      "description": "Advanced large content processing with BM25 filtering, hierarchical summarization, and adaptive chunking"
+    },
+    {
+      "name": "extract_youtube_transcript",
+      "description": "Extract transcripts from YouTube videos with timestamps (no API key required)"
+    },
+    {
+      "name": "batch_extract_youtube_transcripts",
+      "description": "Batch processing of multiple YouTube video transcripts with concurrency control"
+    },
+    {
+      "name": "get_youtube_video_info",
+      "description": "Get YouTube video information with optional transcript summarization"
+    },
+    {
+      "name": "get_youtube_api_setup_guide",
+      "description": "Get setup information and troubleshooting guide for YouTube transcript API"
+    },
+    {
+      "name": "search_google",
+      "description": "Google search with genre filtering, metadata extraction, and structured results"
+    },
+    {
+      "name": "batch_search_google",
+      "description": "Perform multiple Google searches in batch with analysis and rate limiting"
+    },
+    {
+      "name": "search_and_crawl",
+      "description": "Combined Google search and content extraction from top results with auto-scaling"
+    },
+    {
+      "name": "get_search_genres",
+      "description": "Get list of available search genres for content filtering"
+    },
+    {
+      "name": "batch_crawl",
+      "description": "Process multiple URLs concurrently with unified reporting and error handling"
+    },
+    {
+      "name": "get_llm_config_info",
+      "description": "Get information about current LLM configuration and available providers"
+    },
+    {
+      "name": "get_tool_selection_guide",
+      "description": "Get comprehensive tool selection guide for AI agents with workflows and complexity mapping"
+    },
+    {
+      "name": "get_system_diagnostics",
+      "description": "Get comprehensive system diagnostics for troubleshooting browser and UVX issues"
     }
   ],
   "keywords": ["web-crawling", "ai-powered", "mcp-extension", "production-ready", "2025-optimized", "youtube-transcripts", "google-search", "document-processing", "cosine-similarity", "gpt-4.1", "token-reduction", "hierarchical-summarization", "semantic-filtering", "batch-processing", "ultimate", "powerhouse"],
