@@ -196,7 +196,7 @@ Traditional structured data extraction using CSS/XPath selectors or LLM schemas.
 
 **Features:**
 - Automatic title and snippet extraction from search results
-- 31 available search genres for content filtering
+- 7 optimized search genres using Google official operators
 - URL classification and domain analysis
 - Safe search enforced by default
 
@@ -239,8 +239,8 @@ Traditional structured data extraction using CSS/XPath selectors or LLM schemas.
 **📋 Search Genres**: Get comprehensive list of available search genres and their descriptions.
 
 **Returns:**
-- 31 available search genres with descriptions
-- Categorized genre lists (Academic, Technical, News, etc.)
+- 7 optimized search genres with descriptions
+- Categorized genre lists (File Types, Time-based, Language & Region)
 - Usage examples for each genre type
 
 ## 📚 MCP Resources

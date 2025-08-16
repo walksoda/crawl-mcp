@@ -10,7 +10,7 @@ MCP wrapper for crawl4ai library. This extension provides advanced web crawling 
 - **Web Crawling** provides advanced crawling with JavaScript support and depth control
 - **Content Extraction** offers AI-powered intelligent content extraction and filtering
 - **YouTube Transcripts** can extract transcripts from YouTube videos with no API key required
-- **Google Search** enables search with genre filtering and metadata extraction
+- **Google Search** enables search with 7 optimized genres using Google official operators
 - **File Processing** converts PDFs, Office documents, and archives to markdown
 - **Batch Operations** process multiple URLs, videos, or search queries concurrently
 - **Entity Extraction** finds emails, phones, URLs, dates, and other patterns

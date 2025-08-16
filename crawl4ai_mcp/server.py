@@ -1106,70 +1106,442 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
 
 # Import all tools from the tools module
 from .tools import (
-    # YouTube tools
-    extract_youtube_transcript,
-    batch_extract_youtube_transcripts,
-    get_youtube_video_info,
-    get_youtube_api_setup_guide,
+    # YouTube tools (Phase1: Import with private names for @mcp.tool decorator)
+    extract_youtube_transcript as _extract_youtube_transcript,
+    batch_extract_youtube_transcripts as _batch_extract_youtube_transcripts,
+    get_youtube_video_info as _get_youtube_video_info,
+    get_youtube_api_setup_guide as _get_youtube_api_setup_guide,
     
-    # File processing tools
-    process_file,
-    get_supported_file_formats,
-    enhanced_process_large_content,
+    # File processing tools (Phase2: Import with private names)
+    process_file as _process_file,
+    get_supported_file_formats as _get_supported_file_formats,
+    enhanced_process_large_content as _enhanced_process_large_content,
     
-    # Web crawling tools
-    crawl_url,
-    deep_crawl_site,
-    crawl_url_with_fallback,
-    intelligent_extract,
-    extract_entities,
-    extract_structured_data,
+    # Web crawling tools (Phase2: Import with private names)
+    crawl_url as _crawl_url,
+    deep_crawl_site as _deep_crawl_site,
+    crawl_url_with_fallback as _crawl_url_with_fallback,
+    intelligent_extract as _intelligent_extract,
+    extract_entities as _extract_entities,
+    extract_structured_data as _extract_structured_data,
     
-    # Search tools
-    search_google,
-    batch_search_google,
-    search_and_crawl,
-    get_search_genres,
+    # Search tools (Phase2: Import with private names)
+    search_google as _search_google,
+    batch_search_google as _batch_search_google,
+    search_and_crawl as _search_and_crawl,
+    get_search_genres as _get_search_genres,
     
-    # Utility tools
-    get_llm_config_info,
-    batch_crawl,
-    get_tool_selection_guide
+    # Utility tools (Phase2: Import with private names)
+    get_llm_config_info as _get_llm_config_info,
+    batch_crawl as _batch_crawl,
+    get_tool_selection_guide as _get_tool_selection_guide
 )
 
 # get_system_diagnostics is defined in this file, not imported from tools
 
-# Apply MCP decorators to all tools
+# Phase1: YouTube tools with @mcp.tool decorators
+@mcp.tool
+async def extract_youtube_transcript(
+    url: Annotated[str, Field(description="YouTube video URL. Supports formats: https://www.youtube.com/watch?v=VIDEO_ID, https://youtu.be/VIDEO_ID")],
+    languages: Annotated[Optional[Union[List[str], str]], Field(description="Array of language codes in preference order. Can be array like [\"ja\", \"en\"] or string like '[\"ja\", \"en\"]' (default: [\"ja\", \"en\"])")] = ["ja", "en"],
+    translate_to: Annotated[Optional[str], Field(description="Target language code for translation. Examples: 'en' (English), 'ja' (Japanese), 'es' (Spanish), 'fr' (French), 'de' (German) (default: None)")] = None,
+    include_timestamps: Annotated[bool, Field(description="Include timestamps in transcript (default: True)")] = True,
+    preserve_formatting: Annotated[bool, Field(description="Preserve original formatting (default: True)")] = True,
+    include_metadata: Annotated[bool, Field(description="Include video metadata (default: True)")] = True,
+    auto_summarize: Annotated[bool, Field(description="Automatically summarize long transcripts using LLM (default: False)")] = False,
+    max_content_tokens: Annotated[int, Field(description="Maximum tokens before triggering auto-summarization (default: 15000)")] = 15000,
+    summary_length: Annotated[str, Field(description="Summary length: 'short', 'medium', 'long' (default: 'medium')")] = "medium",
+    llm_provider: Annotated[Optional[str], Field(description="LLM provider: 'openai', 'anthropic', 'google', 'ollama', 'azure', 'together', 'groq', auto-detected if not specified (default: None)")] = None,
+    llm_model: Annotated[Optional[str], Field(description="Specific LLM model: 'gpt-4o', 'claude-3-sonnet', 'gemini-pro', or provider-specific model names, auto-detected if not specified (default: None)")] = None
+) -> Dict[str, Any]:
+    """
+    Extract YouTube video transcripts with timestamps and optional AI summarization.
+    
+    Works with public videos that have captions. No authentication required.
+    Auto-detects available languages and falls back appropriately.
+    
+    Note: Automatic transcription may contain errors.
+    """
+    # Handle string-encoded array for languages parameter
+    if isinstance(languages, str):
+        try:
+            import json
+            # Try to parse as JSON string
+            languages = json.loads(languages)
+        except (json.JSONDecodeError, ValueError):
+            # If parsing fails, try to extract language codes manually
+            import re
+            # Extract quoted strings from the parameter
+            matches = re.findall(r'"([^"]*)"', languages)
+            if matches:
+                languages = matches
+            else:
+                # Fallback to default
+                languages = ["ja", "en"]
+    
+    return await _extract_youtube_transcript(
+        url, languages, translate_to, include_timestamps, preserve_formatting,
+        include_metadata, auto_summarize, max_content_tokens, summary_length,
+        llm_provider, llm_model
+    )
 
-# YouTube tools
-mcp.tool(extract_youtube_transcript)
-mcp.tool(batch_extract_youtube_transcripts)
-mcp.tool(get_youtube_video_info)
-mcp.tool(get_youtube_api_setup_guide)
+@mcp.tool
+async def batch_extract_youtube_transcripts(
+    request: Annotated[Dict[str, Any], Field(description="YouTubeBatchRequest dictionary containing: urls (required list of YouTube URLs), languages (default: ['ja', 'en']), max_concurrent (default: 3, max: 5), include_timestamps, translate_to, preserve_formatting, include_metadata (all optional booleans)")]
+) -> Dict[str, Any]:
+    """
+    Extract transcripts from multiple YouTube videos using youtube-transcript-api.
+    
+    Processes multiple YouTube URLs concurrently with controlled rate limiting.
+    No authentication required for public videos with captions.
+    
+    Note: Automatic transcription may contain errors.
+    """
+    return await _batch_extract_youtube_transcripts(request)
 
-# File processing tools
-mcp.tool(process_file)
-mcp.tool(get_supported_file_formats)
-mcp.tool(enhanced_process_large_content)
+@mcp.tool
+async def get_youtube_video_info(
+    video_url: Annotated[str, Field(description="YouTube video URL. Supports formats: https://www.youtube.com/watch?v=VIDEO_ID, https://youtu.be/VIDEO_ID")],
+    summarize_transcript: Annotated[bool, Field(description="Summarize long transcripts using LLM (default: False)")] = False,
+    max_tokens: Annotated[int, Field(description="Token limit before triggering summarization (default: 25000)")] = 25000,
+    llm_provider: Annotated[Optional[str], Field(description="LLM provider: 'openai', 'anthropic', 'google', 'ollama', 'azure', 'together', 'groq' (default: auto-detected)")] = None,
+    llm_model: Annotated[Optional[str], Field(description="Specific model: 'gpt-4o', 'claude-3-sonnet', 'gemini-pro', or provider-specific model names (default: auto-detected)")] = None,
+    summary_length: Annotated[str, Field(description="Summary length - 'short', 'medium', 'long' (default: 'medium')")] = "medium",
+    include_timestamps: Annotated[bool, Field(description="Preserve key timestamps in summary (default: True)")] = True
+) -> Dict[str, Any]:
+    """
+    Get YouTube video information with optional transcript summarization.
+    
+    Retrieves basic video information and transcript availability using youtube-transcript-api.
+    No authentication required for public videos.
+    
+    Note: Automatic transcription may contain errors.
+    """
+    return await _get_youtube_video_info(
+        video_url, summarize_transcript, max_tokens, llm_provider, llm_model,
+        summary_length, include_timestamps
+    )
 
-# Web crawling tools
-mcp.tool(crawl_url)
-mcp.tool(deep_crawl_site)
-mcp.tool(crawl_url_with_fallback)
-mcp.tool(intelligent_extract)
-mcp.tool(extract_entities)
-mcp.tool(extract_structured_data)
+@mcp.tool
+async def get_youtube_api_setup_guide() -> Dict[str, Any]:
+    """
+    Get setup information for youtube-transcript-api integration.
+    
+    Provides information about current youtube-transcript-api setup.
+    No authentication or API keys required for basic transcript extraction.
+    """
+    return await _get_youtube_api_setup_guide()
 
-# Search tools
-mcp.tool(search_google)
-mcp.tool(batch_search_google)
-mcp.tool(search_and_crawl)
-mcp.tool(get_search_genres)
+# Phase2: File processing tools with @mcp.tool decorators
+@mcp.tool
+async def process_file(
+    url: Annotated[str, Field(description="URL of the file to process. Examples: https://example.com/document.pdf, https://site.com/report.docx, https://files.com/data.xlsx, https://docs.com/archive.zip")],
+    max_size_mb: Annotated[int, Field(description="Maximum file size in MB (default: 100)")] = 100,
+    extract_all_from_zip: Annotated[bool, Field(description="Whether to extract all files from ZIP archives (default: True)")] = True,
+    include_metadata: Annotated[bool, Field(description="Whether to include file metadata (default: True)")] = True,
+    auto_summarize: Annotated[bool, Field(description="Automatically summarize large content using LLM (default: False)")] = False,
+    max_content_tokens: Annotated[int, Field(description="Maximum tokens before triggering auto-summarization (default: 15000)")] = 15000,
+    summary_length: Annotated[str, Field(description="Summary length: 'short', 'medium', 'long' (default: 'medium')")] = "medium",
+    llm_provider: Annotated[Optional[str], Field(description="LLM provider: 'openai', 'anthropic', 'google', 'ollama', 'azure', 'together', 'groq', auto-detected if not specified (default: None)")] = None,
+    llm_model: Annotated[Optional[str], Field(description="Specific LLM model: 'gpt-4o', 'claude-3-sonnet', 'gemini-pro', or provider-specific model names, auto-detected if not specified (default: None)")] = None
+) -> Dict[str, Any]:
+    """
+    Convert documents to markdown text with optional AI summarization.
+    
+    Supports: PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), ZIP archives, ePub.
+    Auto-detects file format and applies appropriate conversion method.
+    """
+    return await _process_file(
+        url, max_size_mb, extract_all_from_zip, include_metadata, auto_summarize,
+        max_content_tokens, summary_length, llm_provider, llm_model
+    )
 
-# Utility tools
-mcp.tool(get_llm_config_info)
-mcp.tool(batch_crawl)
-mcp.tool(get_tool_selection_guide)
+@mcp.tool
+async def get_supported_file_formats() -> Dict[str, Any]:
+    """
+    Get list of supported file formats for file processing.
+    
+    Provides comprehensive information about supported file formats and their capabilities.
+    
+    Parameters: None
+    
+    Returns dictionary with supported file formats and descriptions.
+    """
+    return await _get_supported_file_formats()
+
+@mcp.tool
+async def enhanced_process_large_content(
+    url: Annotated[str, Field(description="Target URL to process. Examples: https://long-article.com, https://research-paper.site.com/document, https://content.example.com/page")],
+    chunking_strategy: Annotated[str, Field(description="Chunking method: 'topic' (semantic boundaries), 'sentence' (sentence-based), 'overlap' (sliding window), 'regex' (custom pattern) (default: 'topic')")] = "topic",
+    filtering_strategy: Annotated[str, Field(description="Content filtering method: 'bm25' (keyword relevance), 'pruning' (structure-based), 'llm' (AI-powered) (default: 'bm25')")] = "bm25", 
+    filter_query: Annotated[Optional[str], Field(description="Query for BM25 filtering, keywords related to desired content (default: None)")] = None,
+    max_chunk_tokens: Annotated[int, Field(description="Maximum tokens per chunk (default: 8000)")] = 8000,
+    chunk_overlap: Annotated[int, Field(description="Token overlap between chunks (default: 500)")] = 500,
+    extract_top_chunks: Annotated[int, Field(description="Number of top relevant chunks to extract (default: 10)")] = 10,
+    similarity_threshold: Annotated[float, Field(description="Minimum similarity threshold for relevant chunks (default: 0.7)")] = 0.7,
+    summarize_chunks: Annotated[bool, Field(description="Whether to summarize individual chunks (default: True)")] = True,
+    merge_strategy: Annotated[str, Field(description="Chunk summary merging approach: 'hierarchical' (tree-based progressive), 'linear' (sequential concatenation) (default: 'hierarchical')")] = "hierarchical",
+    final_summary_length: Annotated[str, Field(description="Final summary length: 'short', 'medium', 'long' (default: 'medium')")] = "medium"
+) -> Dict[str, Any]:
+    """
+    Enhanced processing for large content using advanced chunking and filtering.
+    
+    Uses BM25 filtering and intelligent chunking to reduce token usage while preserving semantic boundaries.
+    Supports hierarchical summarization for progressive content refinement.
+    """
+    return await _enhanced_process_large_content(
+        url, chunking_strategy, filtering_strategy, filter_query, max_chunk_tokens,
+        chunk_overlap, extract_top_chunks, similarity_threshold, summarize_chunks,
+        merge_strategy, final_summary_length
+    )
+
+# Phase2: Web crawling tools with @mcp.tool decorators
+@mcp.tool
+async def crawl_url(
+    url: Annotated[str, Field(description="Target URL to crawl. Examples: https://example.com, https://news.site.com/article")],
+    css_selector: Annotated[Optional[str], Field(description="CSS selector for content extraction. Examples: '.article-content', '#main-content', 'div.post', 'article p' (default: None)")] = None,
+    xpath: Annotated[Optional[str], Field(description="XPath selector for content extraction. Examples: '//div[@class=\"content\"]', '//article//p', '//h1[@id=\"title\"]' (default: None)")] = None,
+    extract_media: Annotated[bool, Field(description="Whether to extract media files (default: False)")] = False,
+    take_screenshot: Annotated[bool, Field(description="Whether to take a screenshot (default: False)")] = False,
+    generate_markdown: Annotated[bool, Field(description="Whether to generate markdown (default: True)")] = True,
+    wait_for_selector: Annotated[Optional[str], Field(description="Wait for specific element to load. CSS selector or XPath. Examples: '.content-loaded', '#dynamic-content', '[data-loaded=\"true\"]' (default: None)")] = None,
+    timeout: Annotated[int, Field(description="Request timeout in seconds (default: 60)")] = 60,
+    wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to complete (default: False)")] = False,
+    auto_summarize: Annotated[bool, Field(description="Automatically summarize large content using LLM (default: False)")] = False
+) -> Dict[str, Any]:
+    """
+    Extract content from web pages with JavaScript support. Auto-detects PDFs and documents.
+    
+    Core web crawling tool with comprehensive configuration options.
+    Essential for SPAs: set wait_for_js=true for JavaScript-heavy sites.
+    """
+    return await _crawl_url(
+        url, css_selector, xpath, extract_media, take_screenshot, generate_markdown,
+        wait_for_selector, timeout, wait_for_js, auto_summarize
+    )
+
+@mcp.tool
+async def deep_crawl_site(
+    url: Annotated[str, Field(description="Starting URL for multi-page crawling. Examples: https://docs.example.com, https://site.com/documentation, https://wiki.company.com")],
+    max_depth: Annotated[int, Field(description="Link levels to follow from start URL (default: 2)")] = 2,
+    max_pages: Annotated[int, Field(description="Maximum pages to crawl (default: 5)")] = 5,
+    crawl_strategy: Annotated[str, Field(description="Crawling approach: 'bfs' (breadth-first, balanced coverage), 'dfs' (depth-first, follow links deeply), 'best_first' (relevance-based prioritization) (default: 'bfs')")] = "bfs",
+    include_external: Annotated[bool, Field(description="Follow external domain links (default: False)")] = False,
+    url_pattern: Annotated[Optional[str], Field(description="Wildcard filter like '*docs*' or '*api*' (default: None)")] = None,
+    score_threshold: Annotated[float, Field(description="Minimum relevance score 0.0-1.0 (default: 0.0)")] = 0.0,
+    extract_media: Annotated[bool, Field(description="Include images/videos (default: False)")] = False,
+    base_timeout: Annotated[int, Field(description="Timeout per page in seconds (default: 60)")] = 60
+) -> Dict[str, Any]:
+    """
+    Crawl multiple related pages from a website (maximum 5 pages for stability).
+    
+    Multi-page crawling with configurable depth and filtering options.
+    Perfect for documentation sites and content discovery.
+    """
+    return await _deep_crawl_site(
+        url, max_depth, max_pages, crawl_strategy, include_external,
+        url_pattern, score_threshold, extract_media, base_timeout
+    )
+
+@mcp.tool
+async def crawl_url_with_fallback(
+    url: Annotated[str, Field(description="Target URL to crawl. Examples: https://example.com, https://difficult-site.com")],
+    css_selector: Annotated[Optional[str], Field(description="CSS selector for content extraction. Examples: '.article-content', '#main-content', 'div.post', 'article p' (default: None)")] = None,
+    xpath: Annotated[Optional[str], Field(description="XPath selector for content extraction. Examples: '//div[@class=\"content\"]', '//article//p', '//h1[@id=\"title\"]' (default: None)")] = None,
+    extract_media: Annotated[bool, Field(description="Whether to extract media files (default: False)")] = False,
+    take_screenshot: Annotated[bool, Field(description="Whether to take a screenshot (default: False)")] = False,
+    generate_markdown: Annotated[bool, Field(description="Whether to generate markdown (default: True)")] = True,
+    wait_for_selector: Annotated[Optional[str], Field(description="Wait for specific element to load. CSS selector or XPath. Examples: '.content-loaded', '#dynamic-content', '[data-loaded=\"true\"]' (default: None)")] = None,
+    timeout: Annotated[int, Field(description="Request timeout in seconds (default: 60)")] = 60,
+    wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to complete (default: False)")] = False,
+    auto_summarize: Annotated[bool, Field(description="Automatically summarize large content using LLM (default: False)")] = False
+) -> Dict[str, Any]:
+    """
+    Enhanced crawling with multiple fallback strategies for difficult sites.
+    
+    Uses multiple fallback strategies when normal crawling fails. Same parameters as crawl_url 
+    but with enhanced reliability for sites with aggressive anti-bot protection.
+    """
+    return await _crawl_url_with_fallback(
+        url, css_selector, xpath, extract_media, take_screenshot, generate_markdown,
+        wait_for_selector, timeout, wait_for_js, auto_summarize
+    )
+
+@mcp.tool
+async def intelligent_extract(
+    url: Annotated[str, Field(description="Target webpage URL. Examples: https://example.com/page, https://news.site.com/article, https://company.com/about")],
+    extraction_goal: Annotated[str, Field(description="Specific data to extract, be precise. Examples: 'contact information and pricing', 'product details and specifications', 'article title and author', 'company address and phone number'")],
+    content_filter: Annotated[str, Field(description="Pre-filter content method: 'bm25' (keyword relevance), 'pruning' (structure-based), 'llm' (AI-powered) (default: 'bm25')")] = "bm25",
+    filter_query: Annotated[Optional[str], Field(description="Keywords for BM25 filtering to improve accuracy. Space-separated terms related to your extraction goal (default: None)")] = None,
+    chunk_content: Annotated[bool, Field(description="Split large content for better processing (default: False)")] = False,
+    use_llm: Annotated[bool, Field(description="Enable LLM processing (default: True)")] = True,
+    custom_instructions: Annotated[Optional[str], Field(description="Additional guidance for LLM. Examples: 'Focus on technical details', 'Extract only recent information', 'Prioritize pricing and contact info' (default: None)")] = None,
+    llm_provider: Annotated[Optional[str], Field(description="LLM provider: 'openai', 'anthropic', 'google', 'ollama', 'azure', 'together', 'groq' (default: auto-detected)")] = None,
+    llm_model: Annotated[Optional[str], Field(description="Specific model: 'gpt-4o', 'claude-3-sonnet', 'gemini-pro', or provider-specific model names (default: auto-detected)")] = None
+) -> Dict[str, Any]:
+    """
+    AI-powered extraction of specific data from web pages using LLM semantic understanding.
+    
+    Uses LLM to extract specific information based on your extraction goal.
+    Pre-filtering improves accuracy and reduces processing time.
+    """
+    return await _intelligent_extract(
+        url, extraction_goal, content_filter, filter_query, chunk_content,
+        use_llm, custom_instructions, llm_provider, llm_model
+    )
+
+@mcp.tool
+async def extract_entities(
+    url: Annotated[str, Field(description="Target webpage URL. Examples: https://example.com/page, https://news.site.com/article, https://company.com/about")],
+    entity_types: Annotated[List[str], Field(description="List of entity types to extract. Supported types: emails, phones, urls, dates, ips, social_media, prices, credit_cards, coordinates, names (with LLM)")],
+    custom_patterns: Annotated[Optional[Dict[str, str]], Field(description="Custom regex patterns for specialized extraction. Dictionary with entity_name -> regex_pattern pairs (default: None)")] = None,
+    include_context: Annotated[bool, Field(description="Include surrounding text context (default: True)")] = True,
+    deduplicate: Annotated[bool, Field(description="Remove duplicate entities (default: True)")] = True,
+    use_llm: Annotated[bool, Field(description="Use AI for named entity recognition (default: False)")] = False,
+    llm_provider: Annotated[Optional[str], Field(description="LLM provider: 'openai', 'anthropic', 'google', 'ollama', 'azure', 'together', 'groq' (default: auto-detected)")] = None,
+    llm_model: Annotated[Optional[str], Field(description="Specific model name (default: auto-detected)")] = None
+) -> Dict[str, Any]:
+    """
+    Extract specific entity types from web pages using regex patterns or LLM.
+    
+    Supports regex: emails, phones, urls, dates, ips, social_media, prices, credit_cards, coordinates
+    Supports LLM: names (people/organizations/locations) when use_llm=True
+    """
+    return await _extract_entities(
+        url, entity_types, custom_patterns, include_context, deduplicate,
+        use_llm, llm_provider, llm_model
+    )
+
+@mcp.tool
+async def extract_structured_data(
+    request: Annotated[Dict[str, Any], Field(description="StructuredExtractionRequest dictionary containing: url (required), extraction_schema (required), extraction_type ('css' or 'llm'), css_selectors (for CSS extraction), instruction (for LLM extraction), llm_provider and llm_model (optional)")]
+) -> Dict[str, Any]:
+    """
+    Extract structured data from a URL using CSS selectors or LLM-based extraction.
+    
+    Extract data matching a predefined schema using CSS selectors or LLM processing.
+    Useful for consistent data extraction from similar page structures.
+    """
+    from ..models import StructuredExtractionRequest
+    return await _extract_structured_data(StructuredExtractionRequest(**request))
+
+# Phase2: Search tools with @mcp.tool decorators
+@mcp.tool
+async def search_google(
+    request: Annotated[Dict[str, Any], Field(description="GoogleSearchRequest dictionary containing: query (required), num_results (max 20, default: 10), search_genre (optional: 'pdf', 'documents', 'recent', 'japanese', 'english', etc.), country_code (default: 'US'), language_code (default: 'en')")],
+    include_current_date: Annotated[bool, Field(description="Append current date to query for latest results (default: True)")] = True
+) -> Dict[str, Any]:
+    """
+    Perform Google search with genre filtering and extract structured results with metadata.
+    
+    Returns web search results with titles, snippets, URLs, and metadata.
+    Supports targeted search genres for better results.
+    """
+    return await _search_google(request, include_current_date)
+
+@mcp.tool
+async def batch_search_google(
+    request: Annotated[Dict[str, Any], Field(description="GoogleBatchSearchRequest dictionary containing: queries (required list), max_concurrent (default: 3), num_results_per_query (max 20, default: 10), search_genre (optional: 'pdf', 'documents', 'recent', 'japanese', 'english'), country_code (default: 'US'), language_code (default: 'en')")],
+    include_current_date: Annotated[bool, Field(description="Append current date to queries for latest results (default: True)")] = True
+) -> Dict[str, Any]:
+    """
+    Perform multiple Google searches in batch with analysis.
+    
+    Process multiple search queries concurrently with controlled rate limiting.
+    Includes batch processing statistics and result analysis.
+    """
+    return await _batch_search_google(request, include_current_date)
+
+@mcp.tool
+async def search_and_crawl(
+    search_query: Annotated[str, Field(description="Search terms, be specific for better results. Examples: 'machine learning tutorials', 'Python web scraping libraries', 'climate change research 2024'")],
+    num_search_results: Annotated[int, Field(description="Number of search results to retrieve (default: 5, max: 20)")] = 5,
+    crawl_top_results: Annotated[int, Field(description="Number of top results to crawl (default: 3, max: 10)")] = 3,
+    extract_media: Annotated[bool, Field(description="Include images/videos from crawled pages (default: False)")] = False,
+    generate_markdown: Annotated[bool, Field(description="Convert crawled content to markdown (default: True)")] = True,
+    search_genre: Annotated[Optional[str], Field(description="Content type filter for targeted results. Options: 'pdf', 'documents', 'presentations', 'spreadsheets', 'recent', 'japanese', 'english' (default: None)")] = None,
+    base_timeout: Annotated[int, Field(description="Base timeout, auto-scales with crawl count (default: 30)")] = 30,
+    include_current_date: Annotated[bool, Field(description="Add current date to query (default: True)")] = True
+) -> Dict[str, Any]:
+    """
+    Perform Google search and automatically crawl top results for full content analysis.
+    
+    Combines search discovery with full content extraction. Auto-scales timeout based on crawl count.
+    Returns both search results and full page content.
+    """
+    return await _search_and_crawl(
+        search_query, num_search_results, crawl_top_results, extract_media,
+        generate_markdown, search_genre, base_timeout, include_current_date
+    )
+
+@mcp.tool
+async def get_search_genres() -> Dict[str, Any]:
+    """
+    Get list of available search genres for content filtering.
+    
+    Provides comprehensive information about available search genres and their capabilities.
+    
+    Parameters: None
+    
+    Returns dictionary with available genres and their descriptions.
+    """
+    return await _get_search_genres()
+
+# Phase2: Utility tools with @mcp.tool decorators
+@mcp.tool
+async def get_llm_config_info() -> Dict[str, Any]:
+    """
+    Get information about the current LLM configuration.
+    
+    Provides details about available LLM providers, models, and API key status.
+    
+    Parameters: None
+    
+    Returns dictionary with LLM configuration details including available providers and models.
+    """
+    return await _get_llm_config_info()
+
+@mcp.tool
+async def batch_crawl(
+    urls: Annotated[List[str], Field(description="List of URLs to crawl")],
+    config: Annotated[Optional[Dict[str, Any]], Field(description="Optional configuration parameters (default: None)")] = None,
+    base_timeout: Annotated[int, Field(description="Base timeout in seconds, adjusted based on URL count (default: 30)")] = 30
+) -> List[Dict[str, Any]]:
+    """
+    Crawl multiple URLs in batch.
+    
+    Process multiple URLs concurrently for efficiency. Timeout auto-scales based on URL count.
+    
+    Parameters:
+    - urls: List of URLs to crawl (required)
+    - config: Optional configuration parameters (default: None)
+    - base_timeout: Base timeout in seconds, adjusted based on URL count (default: 30)
+    
+    Example:
+    {"urls": ["https://example.com/page1", "https://example.com/page2"], "config": {"generate_markdown": true}}
+    
+    Returns List of CrawlResponse objects for each URL.
+    """
+    from ..models import CrawlResponse
+    result = await _batch_crawl(urls, config, base_timeout)
+    # Convert CrawlResponse objects to dictionaries for JSON serialization
+    return [response.__dict__ if hasattr(response, '__dict__') else response for response in result]
+
+@mcp.tool
+async def get_tool_selection_guide() -> Dict[str, Any]:
+    """
+    Get comprehensive tool selection guide for AI agents.
+    
+    Provides complete mapping of use cases to appropriate tools, workflows, and complexity guides.
+    Essential for tool selection, workflow planning, and understanding capabilities.
+    
+    Parameters: None
+    
+    Returns dictionary with tool selection guide, workflows, and complexity mapping.
+    """
+    return await _get_tool_selection_guide()
+
+# All 21 tools are now using @mcp.tool decorators
 # get_system_diagnostics will be registered after its definition
 
 # to avoid conflict with batch_crawl from utilities module
@@ -1520,6 +1892,7 @@ def setup_playwright_browsers():
 # Installation status storage (module level) - removed to avoid syntax errors
 
 
+@mcp.tool
 async def get_system_diagnostics() -> Dict[str, Any]:
     """
     Get comprehensive system diagnostics for troubleshooting UVX and browser issues.
@@ -1688,8 +2061,7 @@ async def get_system_diagnostics() -> Dict[str, Any]:
         }
 
 
-# Register get_system_diagnostics as MCP tool after its definition
-mcp.tool(get_system_diagnostics)
+# get_system_diagnostics now uses @mcp.tool decorator
 
 
 def main():

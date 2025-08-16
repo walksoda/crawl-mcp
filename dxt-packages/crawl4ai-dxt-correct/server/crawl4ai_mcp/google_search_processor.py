@@ -786,56 +786,20 @@ class GoogleSearchProcessor:
         if not genre:
             return query
         
-        # Genre-specific search enhancements
+        # Genre-specific search enhancements (Google official operators only)
         genre_enhancements = {
-            # Academic and Educational
-            'academic': 'site:edu OR site:ac.uk OR site:scholar.google.com OR filetype:pdf',
-            'research': 'filetype:pdf OR site:arxiv.org OR site:researchgate.net OR "research paper"',
-            'education': 'site:edu OR "tutorial" OR "course" OR "learning"',
-            
-            # News and Media
-            'news': 'site:bbc.com OR site:cnn.com OR site:reuters.com OR site:nytimes.com OR site:guardian.com',
-            'latest_news': '"breaking news" OR "latest" OR "today" site:news.google.com',
-            
-            # Technical and Development
-            'technical': 'site:stackoverflow.com OR site:github.com OR site:docs.',
-            'programming': 'site:stackoverflow.com OR site:github.com OR "code" OR "programming"',
-            'documentation': 'site:docs. OR "documentation" OR "manual" OR "guide"',
-            
-            # Commerce and Shopping
-            'shopping': 'site:amazon.com OR site:ebay.com OR "buy" OR "price" OR "review"',
-            'reviews': '"review" OR "rating" OR site:amazon.com OR site:yelp.com',
-            
-            # Social and Community
-            'forum': 'site:reddit.com OR site:quora.com OR site:stackoverflow.com OR "discussion"',
-            'social': 'site:twitter.com OR site:facebook.com OR site:linkedin.com',
-            
-            # Media and Entertainment
-            'video': 'site:youtube.com OR site:vimeo.com OR "video" OR "watch"',
-            'images': 'filetype:jpg OR filetype:png OR filetype:gif OR site:flickr.com',
-            
-            # Government and Official
-            'government': 'site:gov OR site:mil OR "official" OR "government"',
-            'legal': 'site:gov OR "law" OR "legal" OR "regulation"',
-            
-            # File Types
+            # File Types (Google official filetype: operator)
             'pdf': 'filetype:pdf',
             'documents': 'filetype:pdf OR filetype:doc OR filetype:docx',
             'presentations': 'filetype:ppt OR filetype:pptx',
             'spreadsheets': 'filetype:xls OR filetype:xlsx',
             
-            # Time-based
-            'recent': '"2024" OR "2023" OR "recent" OR "latest"',
-            'historical': 'before:2020 OR "history" OR "historical"',
+            # Time-based (Google official time operators)
+            'recent': '"2025" OR "2024" OR "recent" OR "latest"',
             
-            # Language and Region specific
+            # Language and Region (Google official lang: operator)
             'japanese': 'site:jp OR lang:ja',
-            'english': 'lang:en',
-            
-            # Content Quality
-            'authoritative': 'site:edu OR site:gov OR site:org',
-            'beginner': '"beginner" OR "introduction" OR "basics" OR "tutorial"',
-            'advanced': '"advanced" OR "expert" OR "professional" OR "deep dive"'
+            'english': 'lang:en'
         }
         
         enhancement = genre_enhancements.get(genre.lower())
@@ -850,54 +814,18 @@ class GoogleSearchProcessor:
     def get_available_genres(self) -> Dict[str, str]:
         """Get list of available search genres with descriptions"""
         return {
-            # Academic and Educational
-            'academic': 'Academic and scholarly content from educational institutions',
-            'research': 'Research papers, academic publications, and scientific content',
-            'education': 'Educational content, tutorials, and learning materials',
-            
-            # News and Media
-            'news': 'News articles from major news organizations',
-            'latest_news': 'Breaking news and latest updates',
-            
-            # Technical and Development
-            'technical': 'Technical documentation, Stack Overflow, and developer resources',
-            'programming': 'Programming tutorials, code examples, and development guides',
-            'documentation': 'Official documentation and technical manuals',
-            
-            # Commerce and Shopping
-            'shopping': 'E-commerce sites, product pages, and shopping platforms',
-            'reviews': 'Product reviews, ratings, and customer feedback',
-            
-            # Social and Community
-            'forum': 'Forum discussions, Q&A sites, and community content',
-            'social': 'Social media content and platforms',
-            
-            # Media and Entertainment
-            'video': 'Video content from YouTube, Vimeo, and other platforms',
-            'images': 'Image content and photo sharing sites',
-            
-            # Government and Official
-            'government': 'Government websites and official information',
-            'legal': 'Legal documents, laws, and regulations',
-            
-            # File Types
+            # File Types (Google official filetype: operator)
             'pdf': 'PDF documents only',
             'documents': 'Document files (PDF, Word, etc.)',
             'presentations': 'Presentation files (PowerPoint, etc.)',
             'spreadsheets': 'Spreadsheet files (Excel, etc.)',
             
-            # Time-based
+            # Time-based (Google official time operators)
             'recent': 'Recent content from the last 1-2 years',
-            'historical': 'Historical content and archives',
             
-            # Language and Region
+            # Language and Region (Google official lang: operator)
             'japanese': 'Japanese language content and .jp domains',
-            'english': 'English language content',
-            
-            # Content Quality
-            'authoritative': 'Authoritative sources (.edu, .gov, .org)',
-            'beginner': 'Beginner-friendly and introductory content',
-            'advanced': 'Advanced and expert-level content'
+            'english': 'English language content'
         }
     
     async def _extract_title_and_snippet(self, url: str, timeout: int = 5) -> Tuple[str, str]:
