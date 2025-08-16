@@ -95,6 +95,7 @@ config.local.json
 test_*.py
 *_test.py
 tests/
+tests_results/
 .pytest_cache/
 .coverage
 htmlcov/

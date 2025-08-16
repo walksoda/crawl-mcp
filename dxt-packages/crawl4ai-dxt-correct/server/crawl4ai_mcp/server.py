@@ -1422,7 +1422,7 @@ async def extract_structured_data(
     Extract data matching a predefined schema using CSS selectors or LLM processing.
     Useful for consistent data extraction from similar page structures.
     """
-    from ..models import StructuredExtractionRequest
+    from crawl4ai_mcp.models import StructuredExtractionRequest
     return await _extract_structured_data(StructuredExtractionRequest(**request))
 
 # Phase2: Search tools with @mcp.tool decorators
@@ -1522,7 +1522,7 @@ async def batch_crawl(
     
     Returns List of CrawlResponse objects for each URL.
     """
-    from ..models import CrawlResponse
+    from crawl4ai_mcp.models import CrawlResponse
     result = await _batch_crawl(urls, config, base_timeout)
     # Convert CrawlResponse objects to dictionaries for JSON serialization
     return [response.__dict__ if hasattr(response, '__dict__') else response for response in result]
