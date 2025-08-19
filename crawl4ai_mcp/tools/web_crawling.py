@@ -1370,42 +1370,188 @@ async def crawl_url_with_fallback(
     Uses multiple fallback strategies when normal crawling fails. Same parameters as crawl_url 
     but with enhanced reliability for sites with aggressive anti-bot protection.
     """
-    # For now, fall back to regular crawl_url
-    return await crawl_url(
+    import asyncio
+    import random
+    from urllib.parse import urlparse
+    
+    # Detect HackerNews or similar problematic sites
+    domain = urlparse(url).netloc.lower()
+    is_hn = 'ycombinator.com' in domain
+    is_reddit = 'reddit.com' in domain
+    is_social_media = any(site in domain for site in ['twitter.com', 'facebook.com', 'linkedin.com'])
+    
+    # Enhanced strategies for difficult sites
+    strategies = []
+    
+    # Strategy 1: Human-like browsing with realistic headers
+    realistic_user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15"
+    ]
+    
+    realistic_headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "en-US,en;q=0.9,ja;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Cache-Control": "max-age=0"
+    }
+    
+    if is_hn:
+        # HackerNews specific selectors
+        hn_css_selectors = [
+            ".fatitem, .athing, .comment",  # Main content and comments
+            ".storylink, .titleline a",     # Story titles
+            ".comtr, .comment-tree",        # Comment threads
+            "table.comment-tree",           # Comment structure
+        ]
+        
+        # Try with HN-specific CSS selector if not provided
+        if not css_selector:
+            css_selector = ".fatitem, .athing, .comtr"
+    
+    # Strategy 1: Realistic browser simulation
+    strategies.append({
+        "name": "realistic_browser",
+        "params": {
+            "user_agent": user_agent or random.choice(realistic_user_agents),
+            "headers": {**realistic_headers, **(headers or {})},
+            "wait_for_js": True,
+            "simulate_user": True,
+            "timeout": max(timeout, 30),
+            "css_selector": css_selector,
+            "wait_for_selector": wait_for_selector or (".fatitem" if is_hn else None),
+            "cache_mode": "bypass"  # Fresh request
+        }
+    })
+    
+    # Strategy 2: Delayed request with different user agent
+    strategies.append({
+        "name": "delayed_request", 
+        "params": {
+            "user_agent": random.choice([ua for ua in realistic_user_agents if ua != strategies[0]["params"]["user_agent"]]),
+            "headers": realistic_headers,
+            "wait_for_js": wait_for_js,
+            "timeout": timeout + 30,
+            "css_selector": css_selector,
+            "execute_js": "setTimeout(() => { window.scrollTo(0, document.body.scrollHeight/2); }, 2000);" if is_hn else execute_js,
+            "cache_mode": "disabled"
+        }
+    })
+    
+    # Strategy 3: Mobile user agent
+    strategies.append({
+        "name": "mobile_agent",
+        "params": {
+            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            "headers": {
+                **realistic_headers,
+                "Sec-CH-UA-Mobile": "?1",
+                "Sec-CH-UA-Platform": '"iOS"'
+            },
+            "wait_for_js": True,
+            "timeout": timeout,
+            "css_selector": css_selector
+        }
+    })
+    
+    last_error = None
+    
+    for i, strategy in enumerate(strategies):
+        try:
+            # Add random delay between attempts (1-5 seconds)
+            if i > 0:
+                delay = random.uniform(1, 5)
+                await asyncio.sleep(delay)
+            
+            print(f"Attempting strategy {i+1}/{len(strategies)}: {strategy['name']}")
+            
+            # Prepare strategy-specific parameters
+            strategy_params = {
+                "url": url,
+                "css_selector": strategy["params"].get("css_selector", css_selector),
+                "xpath": xpath,
+                "extract_media": extract_media,
+                "take_screenshot": take_screenshot,
+                "generate_markdown": generate_markdown,
+                "wait_for_selector": strategy["params"].get("wait_for_selector", wait_for_selector),
+                "timeout": strategy["params"].get("timeout", timeout),
+                "max_depth": None,  # Force single page to avoid deep crawling issues
+                "max_pages": max_pages,
+                "include_external": include_external,
+                "crawl_strategy": crawl_strategy,
+                "url_pattern": url_pattern,
+                "score_threshold": score_threshold,
+                "content_filter": content_filter,
+                "filter_query": filter_query,
+                "chunk_content": chunk_content,
+                "chunk_strategy": chunk_strategy,
+                "chunk_size": chunk_size,
+                "overlap_rate": overlap_rate,
+                "user_agent": strategy["params"].get("user_agent", user_agent),
+                "headers": strategy["params"].get("headers", headers),
+                "enable_caching": enable_caching,
+                "cache_mode": strategy["params"].get("cache_mode", cache_mode),
+                "execute_js": strategy["params"].get("execute_js", execute_js),
+                "wait_for_js": strategy["params"].get("wait_for_js", wait_for_js),
+                "simulate_user": strategy["params"].get("simulate_user", simulate_user),
+                "auth_token": auth_token,
+                "cookies": cookies,
+                "auto_summarize": auto_summarize,
+                "max_content_tokens": max_content_tokens,
+                "summary_length": summary_length,
+                "llm_provider": llm_provider,
+                "llm_model": llm_model
+            }
+            
+            # Attempt crawl with current strategy
+            result = await crawl_url(**strategy_params)
+            
+            # Check if we got meaningful content
+            if result.success and result.content and len(result.content.strip()) > 100:
+                # Add strategy info to extracted_data
+                if result.extracted_data is None:
+                    result.extracted_data = {}
+                result.extracted_data.update({
+                    "fallback_strategy_used": strategy["name"],
+                    "fallback_attempt": i + 1,
+                    "total_strategies_tried": len(strategies),
+                    "site_type_detected": "hackernews" if is_hn else "reddit" if is_reddit else "social_media" if is_social_media else "general"
+                })
+                return result
+            
+            last_error = f"Strategy {strategy['name']}: Content too short or empty"
+            
+        except Exception as e:
+            last_error = f"Strategy {strategy['name']}: {str(e)}"
+            print(f"Strategy {strategy['name']} failed: {e}")
+            continue
+    
+    # All strategies failed, return error with details
+    return CrawlResponse(
+        success=False,
         url=url,
-        css_selector=css_selector,
-        xpath=xpath,
-        extract_media=extract_media,
-        take_screenshot=take_screenshot,
-        generate_markdown=generate_markdown,
-        wait_for_selector=wait_for_selector,
-        timeout=timeout,
-        max_depth=max_depth,
-        max_pages=max_pages,
-        include_external=include_external,
-        crawl_strategy=crawl_strategy,
-        url_pattern=url_pattern,
-        score_threshold=score_threshold,
-        content_filter=content_filter,
-        filter_query=filter_query,
-        chunk_content=chunk_content,
-        chunk_strategy=chunk_strategy,
-        chunk_size=chunk_size,
-        overlap_rate=overlap_rate,
-        user_agent=user_agent,
-        headers=headers,
-        enable_caching=enable_caching,
-        cache_mode=cache_mode,
-        execute_js=execute_js,
-        wait_for_js=wait_for_js,
-        simulate_user=simulate_user,
-        auth_token=auth_token,
-        cookies=cookies,
-        auto_summarize=auto_summarize,
-        max_content_tokens=max_content_tokens,
-        summary_length=summary_length,
-        llm_provider=llm_provider,
-        llm_model=llm_model
+        error=f"All fallback strategies failed. Last error: {last_error}. "
+               f"This site may have strong anti-bot protection. "
+               f"Strategies attempted: {', '.join([s['name'] for s in strategies])}",
+        extracted_data={
+            "fallback_strategies_attempted": [s["name"] for s in strategies],
+            "total_attempts": len(strategies),
+            "site_type_detected": "hackernews" if is_hn else "reddit" if is_reddit else "social_media" if is_social_media else "general",
+            "recommendations": [
+                "Try accessing the site manually to check if it's available",
+                "Consider using the site's API if available",
+                "Try accessing during off-peak hours",
+                "Use a VPN if the site is geo-blocked"
+            ]
+        }
     )
 
 

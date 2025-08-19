@@ -412,10 +412,11 @@ async def summarize_web_content(
     url: str = "",
     summary_length: str = "medium",
     llm_provider: Optional[str] = None,
-    llm_model: Optional[str] = None
+    llm_model: Optional[str] = None,
+    target_tokens: Optional[int] = None
 ) -> Dict[str, Any]:
     """
-    Summarize web page content using LLM when content is too large for context.
+    Summarize web page content using LLM with enhanced metadata preservation
     
     Args:
         content: The web page content to summarize (markdown or text)
@@ -424,6 +425,7 @@ async def summarize_web_content(
         summary_length: "short", "medium", or "long" summary
         llm_provider: LLM provider to use
         llm_model: Specific model to use
+        target_tokens: Target token count for summary (if specified)
         
     Returns:
         Dictionary with summary and metadata
@@ -435,41 +437,61 @@ async def summarize_web_content(
         except ImportError:
             from config import get_llm_config
         
-        # Define summary lengths
+        # Define summary lengths with enhanced token targets
         length_configs = {
             "short": {
                 "target_length": "2-3 paragraphs",
-                "detail_level": "key points and main conclusions only"
+                "detail_level": "key points and main conclusions only",
+                "target_tokens": target_tokens or 400
             },
             "medium": {
                 "target_length": "4-6 paragraphs", 
-                "detail_level": "main topics with important details and examples"
+                "detail_level": "main topics with important details and examples",
+                "target_tokens": target_tokens or 1000
             },
             "long": {
                 "target_length": "8-12 paragraphs",
-                "detail_level": "comprehensive overview with subtopics, examples, and analysis"
+                "detail_level": "comprehensive overview with subtopics, examples, and analysis",
+                "target_tokens": target_tokens or 2000
             }
         }
         
         config = length_configs.get(summary_length, length_configs["medium"])
         
-        # Prepare instruction for LLM
+        # Extract domain for context
+        domain = ""
+        if url:
+            try:
+                from urllib.parse import urlparse
+                parsed_url = urlparse(url)
+                domain = parsed_url.netloc
+            except:
+                domain = url
+        
+        # Prepare enhanced instruction for LLM
+        page_context = f"""
+Page Information:
+- Title: {title}
+- URL: {url}
+- Domain: {domain}
+"""
+        
         instruction = f"""
         Summarize this web page content in {config['target_length']}.
         Focus on {config['detail_level']}.
+        Target length: approximately {config['target_tokens']} tokens.
         
-        Page Information:
-        - Title: {title}
-        - URL: {url}
+        {page_context}
         
         Structure your summary with:
-        1. Brief overview of the page purpose and main topic
+        1. Brief overview including page title and source context
         2. Key sections or categories discussed
         3. Important information, data, or insights
         4. Relevant examples, quotes, or specific details
         5. Conclusions or actionable information
         
         Make the summary informative and well-structured, preserving important technical details and maintaining the original context.
+        IMPORTANT: Preserve the page title, URL, and domain in your response for reference.
         """
         
         # Get LLM configuration
@@ -481,11 +503,15 @@ async def summarize_web_content(
         
         Please provide a JSON response with the following structure:
         {{
-            "summary": "The comprehensive summary of the content",
+            "summary": "The comprehensive summary of the content (approximately {config['target_tokens']} tokens)",
+            "page_title": "{title}",
+            "page_url": "{url}",
+            "domain": "{domain}",
             "key_topics": ["List", "of", "main", "topics", "covered"],
             "content_type": "Type/category of the webpage (e.g., 'Documentation', 'Article', 'Blog Post')",
             "main_insights": ["Key", "insights", "or", "takeaways"],
-            "technical_details": ["Important", "technical", "information", "if", "any"]
+            "technical_details": ["Important", "technical", "information", "if", "any"],
+            "summary_token_count": "Estimated token count of summary"
         }}
         
         Web content to summarize:
@@ -512,11 +538,11 @@ async def summarize_web_content(
                 response = await client.chat.completions.create(
                     model=model,
                     messages=[
-                        {"role": "system", "content": "You are a helpful assistant that creates comprehensive summaries of web page content."},
+                        {"role": "system", "content": "You are a helpful assistant that creates comprehensive summaries of web page content while preserving important metadata."},
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.3,
-                    max_tokens=2500  # Generous token limit for detailed summaries
+                    max_tokens=min(5000, config['target_tokens'] * 2)  # Allow up to 2x target for flexibility
                 )
                 
                 extracted_content = response.choices[0].message.content
@@ -535,14 +561,20 @@ async def summarize_web_content(
                 
                 summary_data = json.loads(content_to_parse) if isinstance(content_to_parse, str) else content_to_parse
                 
+                # Ensure metadata is preserved
                 return {
                     "success": True,
                     "summary": summary_data.get("summary", "Summary generation failed"),
+                    "page_title": summary_data.get("page_title", title),
+                    "page_url": summary_data.get("page_url", url),
+                    "domain": summary_data.get("domain", domain),
                     "key_topics": summary_data.get("key_topics", []),
                     "content_type": summary_data.get("content_type", "Unknown"),
                     "main_insights": summary_data.get("main_insights", []),
                     "technical_details": summary_data.get("technical_details", []),
                     "summary_length": summary_length,
+                    "target_tokens": config['target_tokens'],
+                    "estimated_summary_tokens": len(summary_data.get("summary", "")) // 4,  # Rough estimate
                     "original_length": len(content),
                     "compressed_ratio": len(summary_data.get("summary", "")) / len(content) if content else 0,
                     "llm_provider": llm_config.get("provider") if isinstance(llm_config, dict) else "unknown",
@@ -555,11 +587,16 @@ async def summarize_web_content(
                 return {
                     "success": True,
                     "summary": str(extracted_content),
+                    "page_title": title,
+                    "page_url": url,
+                    "domain": domain,
                     "key_topics": [],
                     "content_type": "Unknown",
                     "main_insights": [],
                     "technical_details": [],
                     "summary_length": summary_length,
+                    "target_tokens": config['target_tokens'],
+                    "estimated_summary_tokens": len(str(extracted_content)) // 4,
                     "original_length": len(content),
                     "compressed_ratio": len(str(extracted_content)) / len(content) if content else 0,
                     "llm_provider": llm_config.get("provider") if isinstance(llm_config, dict) else "unknown",
@@ -898,11 +935,12 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 title_to_use = result.metadata.get("title", "")
                 extracted_data = {"crawled_pages": len(result.crawled_pages)} if hasattr(result, 'crawled_pages') else {}
                 
-                # Apply auto-summarization if enabled and content is large
+                # Apply auto-summarization if enabled and content exceeds token limit
                 if request.auto_summarize and combined_content:
                     # Rough token estimation: 1 token ≈ 4 characters
                     estimated_tokens = len(combined_content) // 4
                     
+                    # Only summarize if content exceeds the specified token limit
                     if estimated_tokens > request.max_content_tokens:
                         try:
                             # Use markdown content for summarization if available, otherwise use cleaned HTML
@@ -914,7 +952,8 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                                 url=request.url,
                                 summary_length=request.summary_length,
                                 llm_provider=request.llm_provider,
-                                llm_model=request.llm_model
+                                llm_model=request.llm_model,
+                                target_tokens=request.max_content_tokens
                             )
                             
                             if summary_result.get("success"):
@@ -927,6 +966,8 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                                     "original_content_length": len("\n\n".join(all_content) if all_content else result.cleaned_html),
                                     "original_tokens_estimate": estimated_tokens,
                                     "summary_length": request.summary_length,
+                                    "target_tokens": summary_result.get("target_tokens", request.max_content_tokens),
+                                    "estimated_summary_tokens": summary_result.get("estimated_summary_tokens", 0),
                                     "compression_ratio": summary_result.get("compressed_ratio", 0),
                                     "key_topics": summary_result.get("key_topics", []),
                                     "content_type": summary_result.get("content_type", "Unknown"),
@@ -934,7 +975,11 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                                     "technical_details": summary_result.get("technical_details", []),
                                     "llm_provider": summary_result.get("llm_provider", "unknown"),
                                     "llm_model": summary_result.get("llm_model", "unknown"),
-                                    "auto_summarization_trigger": f"Deep crawl content exceeded {request.max_content_tokens} tokens"
+                                    # Preserve page metadata from summary
+                                    "page_title_preserved": summary_result.get("page_title", ""),
+                                    "page_url_preserved": summary_result.get("page_url", ""),
+                                    "domain_preserved": summary_result.get("domain", ""),
+                                    "auto_summarization_trigger": f"Content exceeded {request.max_content_tokens} tokens"
                                 })
                             else:
                                 # Summarization failed, add error info but keep original content
@@ -950,6 +995,16 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                                 "summarization_error": f"Exception during summarization: {str(e)}",
                                 "original_content_preserved": True
                             })
+                    else:
+                        # Content is below threshold - preserve original content and add info
+                        extracted_data.update({
+                            "auto_summarize_requested": True,
+                            "original_content_preserved": True,
+                            "content_below_threshold": True,
+                            "tokens_estimate": estimated_tokens,
+                            "max_tokens_threshold": request.max_content_tokens,
+                            "reason": f"Content ({estimated_tokens} tokens) is below threshold ({request.max_content_tokens} tokens)"
+                        })
                 
                 response = CrawlResponse(
                     success=True,
@@ -968,11 +1023,12 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 extracted_data = None
                 title_to_use = result.metadata.get("title", "")
                 
-                # Apply auto-summarization if enabled and content is large
+                # Apply auto-summarization if enabled and content exceeds token limit
                 if request.auto_summarize and content_to_use:
                     # Rough token estimation: 1 token ≈ 4 characters
                     estimated_tokens = len(content_to_use) // 4
                     
+                    # Only summarize if content exceeds the specified token limit
                     if estimated_tokens > request.max_content_tokens:
                         try:
                             # Use markdown content for summarization if available, otherwise use cleaned HTML
@@ -984,7 +1040,8 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                                 url=request.url,
                                 summary_length=request.summary_length,
                                 llm_provider=request.llm_provider,
-                                llm_model=request.llm_model
+                                llm_model=request.llm_model,
+                                target_tokens=request.max_content_tokens
                             )
                             
                             if summary_result.get("success"):
@@ -1020,6 +1077,16 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                                 "summarization_error": f"Exception during summarization: {str(e)}",
                                 "original_content_preserved": True
                             }
+                    else:
+                        # Content is below threshold - preserve original content and add info
+                        extracted_data = {
+                            "auto_summarize_requested": True,
+                            "original_content_preserved": True,
+                            "content_below_threshold": True,
+                            "tokens_estimate": estimated_tokens,
+                            "max_tokens_threshold": request.max_content_tokens,
+                            "reason": f"Content ({estimated_tokens} tokens) is below threshold ({request.max_content_tokens} tokens)"
+                        }
                 
                 response = CrawlResponse(
                     success=True,
@@ -1314,6 +1381,11 @@ async def crawl_url(
     
     Core web crawling tool with comprehensive configuration options.
     Essential for SPAs: set wait_for_js=true for JavaScript-heavy sites.
+    
+    NOTE: If this tool fails with 503 errors, rate limiting, or anti-bot protection 
+    (especially for sites like HackerNews, Reddit, social media), try using 
+    crawl_url_with_fallback which implements multiple retry strategies with 
+    realistic browser simulation and anti-bot evasion techniques.
     """
     return await _crawl_url(
         url, css_selector, xpath, extract_media, take_screenshot, generate_markdown,

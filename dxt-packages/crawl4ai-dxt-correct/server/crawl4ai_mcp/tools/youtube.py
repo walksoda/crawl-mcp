@@ -110,31 +110,51 @@ async def extract_youtube_transcript(
         language_info = result.get('language_info', {})
         metadata = result.get('metadata', {})
         
-        # Apply auto-summarization if requested and content is long
+        # Apply auto-summarization if requested and content exceeds token limit
         if auto_summarize and transcript_data.get('full_text'):
             # Rough token estimation: 1 token ≈ 4 characters
             estimated_tokens = len(transcript_data['full_text']) // 4
             
+            # Only summarize if content exceeds the specified token limit
             if estimated_tokens > max_content_tokens:
                 try:
+                    # Prepare video metadata for enhanced summarization
+                    video_metadata = {
+                        'title': metadata.get('title', ''),
+                        'url': url,
+                        'video_id': result.get('video_id', ''),
+                        'channel': metadata.get('channel', ''),
+                        'description': metadata.get('description', '')
+                    }
+                    
                     summary_result = await youtube_processor.summarize_transcript(
                         transcript_text=transcript_data['full_text'],
                         summary_length=summary_length,
                         include_timestamps=include_timestamps,
                         llm_provider=llm_provider,
-                        llm_model=llm_model
+                        llm_model=llm_model,
+                        video_metadata=video_metadata,
+                        target_tokens=max_content_tokens
                     )
                     
                     if summary_result.get('success'):
-                        # Add summarization info to metadata
+                        # Add enhanced summarization info to metadata
                         metadata.update({
                             'summarization_applied': True,
                             'original_length': len(transcript_data['full_text']),
                             'original_tokens_estimate': estimated_tokens,
                             'summary_length_setting': summary_length,
+                            'target_tokens': summary_result.get('target_tokens', max_content_tokens),
+                            'estimated_summary_tokens': summary_result.get('estimated_summary_tokens', 0),
                             'compression_ratio': summary_result.get('compression_ratio', 0),
                             'llm_provider': summary_result.get('llm_provider', 'unknown'),
-                            'llm_model': summary_result.get('llm_model', 'unknown')
+                            'llm_model': summary_result.get('llm_model', 'unknown'),
+                            'summarization_trigger': f'Content exceeded {max_content_tokens} tokens',
+                            # Preserve video metadata from summary
+                            'video_title_preserved': summary_result.get('video_title', ''),
+                            'video_url_preserved': summary_result.get('video_url', ''),
+                            'channel_name_preserved': summary_result.get('channel_name', ''),
+                            'key_topics_identified': summary_result.get('key_topics', [])
                         })
                         
                         # Replace content with summary
@@ -154,6 +174,16 @@ async def extract_youtube_transcript(
                         'summarization_error': f'Exception during summarization: {str(e)}',
                         'original_content_preserved': True
                     })
+            else:
+                # Content is below threshold - preserve original content and add info
+                metadata.update({
+                    'auto_summarize_requested': True,
+                    'original_content_preserved': True,
+                    'content_below_threshold': True,
+                    'tokens_estimate': estimated_tokens,
+                    'max_tokens_threshold': max_content_tokens,
+                    'reason': f'Content ({estimated_tokens} tokens) is below threshold ({max_content_tokens} tokens)'
+                })
         
         return YouTubeTranscriptResponse(
             success=True,

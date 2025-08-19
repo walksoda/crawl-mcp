@@ -164,9 +164,10 @@ async def summarize_content(
     summary_length: str = "medium",
     llm_provider: Optional[str] = None,
     llm_model: Optional[str] = None,
-    content_type: str = "document"
+    content_type: str = "document",
+    target_tokens: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Summarize content using LLM"""
+    """Summarize content using LLM with enhanced metadata preservation"""
     try:
         # Import config for LLM
         try:
@@ -177,39 +178,63 @@ async def summarize_content(
                 "error": "LLM configuration not available"
             }
         
-        # Define summary configurations
+        # Define summary configurations with enhanced token targets
         length_configs = {
             "short": {
                 "target_length": "2-3 paragraphs",
-                "detail_level": "key points and main findings only"
+                "detail_level": "key points and main findings only",
+                "target_tokens": target_tokens or 400
             },
             "medium": {
                 "target_length": "4-6 paragraphs", 
-                "detail_level": "comprehensive overview with important details"
+                "detail_level": "comprehensive overview with important details",
+                "target_tokens": target_tokens or 1000
             },
             "long": {
                 "target_length": "8-12 paragraphs",
-                "detail_level": "detailed analysis with examples and context"
+                "detail_level": "detailed analysis with examples and context",
+                "target_tokens": target_tokens or 2000
             }
         }
         
         config = length_configs.get(summary_length, length_configs["medium"])
         
-        # Create summarization prompt
+        # Extract file information for context
+        file_extension = ""
+        filename = ""
+        if url:
+            try:
+                import os
+                filename = os.path.basename(url)
+                file_extension = os.path.splitext(filename)[1]
+            except:
+                filename = url
+        
+        # Create enhanced summarization prompt
+        file_context = f"""
+File Information:
+- Title: {title if title else 'Document'}
+- Filename: {filename}
+- File Type: {file_extension}
+- Content Type: {content_type}
+- Source: {url if url else 'File upload'}
+"""
+        
         instruction = f"""
         Summarize this {content_type} content in {config['target_length']}.
         Focus on {config['detail_level']}.
+        Target length: approximately {config['target_tokens']} tokens.
+        
+        {file_context}
         
         Structure your summary with:
-        1. Brief overview of the content
+        1. Brief overview including document title and type context
         2. Main topics or sections covered
         3. Key insights, findings, or conclusions
         4. Important details, data, or examples mentioned
         
-        Title: {title if title else 'Document'}
-        Source: {url if url else 'File upload'}
-        
-        Make the summary informative and well-structured.
+        Make the summary informative and well-structured, preserving important technical details and maintaining context.
+        IMPORTANT: Preserve the document title, filename, and source information in your response for reference.
         """
         
         # Get LLM configuration
@@ -221,12 +246,17 @@ async def summarize_content(
         
         Please provide a JSON response with the following structure:
         {{
-            "summary": "The summarized content",
+            "summary": "The summarized content (approximately {config['target_tokens']} tokens)",
+            "document_title": "{title if title else 'Document'}",
+            "filename": "{filename}",
+            "file_extension": "{file_extension}",
+            "content_type": "{content_type}",
+            "source_url": "{url}",
             "key_topics": ["List", "of", "main", "topics"],
             "main_insights": ["Key", "findings", "or", "insights"],
-            "content_type": "Type of content (academic, technical, etc.)",
             "technical_details": ["Important", "technical", "details"],
-            "reading_time_estimate": "Estimated reading time"
+            "reading_time_estimate": "Estimated reading time",
+            "summary_token_count": "Estimated token count of summary"
         }}
         
         Content to summarize:
@@ -252,11 +282,11 @@ async def summarize_content(
                 response = await client.chat.completions.create(
                     model=model,
                     messages=[
-                        {"role": "system", "content": f"You are a helpful assistant that summarizes {content_type} content."},
+                        {"role": "system", "content": f"You are a helpful assistant that summarizes {content_type} content while preserving important metadata."},
                         {"role": "user", "content": full_prompt}
                     ],
                     temperature=0.7,
-                    max_tokens=3000
+                    max_tokens=min(4000, config['target_tokens'] * 2)  # Allow up to 2x target for flexibility
                 )
                 
                 extracted_content = response.choices[0].message.content
@@ -276,14 +306,21 @@ async def summarize_content(
                 
                 summary_data = json.loads(content_to_parse) if isinstance(content_to_parse, str) else content_to_parse
                 
+                # Ensure metadata is preserved
                 return {
                     "success": True,
                     "summary": summary_data.get("summary", "Summary generation failed"),
+                    "document_title": summary_data.get("document_title", title),
+                    "filename": summary_data.get("filename", filename),
+                    "file_extension": summary_data.get("file_extension", file_extension),
+                    "content_type": summary_data.get("content_type", content_type),
+                    "source_url": summary_data.get("source_url", url),
                     "key_topics": summary_data.get("key_topics", []),
                     "main_insights": summary_data.get("main_insights", []),
-                    "content_type": summary_data.get("content_type", "Unknown"),
                     "technical_details": summary_data.get("technical_details", []),
                     "summary_length": summary_length,
+                    "target_tokens": config['target_tokens'],
+                    "estimated_summary_tokens": len(summary_data.get("summary", "")) // 4,  # Rough estimate
                     "original_length": len(content),
                     "compressed_ratio": len(summary_data.get("summary", "")) / len(content) if content else 0,
                     "llm_provider": provider,
@@ -294,11 +331,17 @@ async def summarize_content(
                 return {
                     "success": True,
                     "summary": str(extracted_content),
+                    "document_title": title,
+                    "filename": filename,
+                    "file_extension": file_extension,
+                    "content_type": content_type,
+                    "source_url": url,
                     "key_topics": [],
                     "main_insights": [],
-                    "content_type": "Unknown",
                     "technical_details": [],
                     "summary_length": summary_length,
+                    "target_tokens": config['target_tokens'],
+                    "estimated_summary_tokens": len(str(extracted_content)) // 4,
                     "original_length": len(content),
                     "compressed_ratio": len(str(extracted_content)) / len(content) if content else 0,
                     "llm_provider": provider,
@@ -357,11 +400,12 @@ async def process_file(
             content_to_use = result.get('content', '')
             final_metadata = result.get('metadata', {}) if include_metadata else {}
             
-            # Apply auto-summarization if enabled and content is large
+            # Apply auto-summarization if enabled and content exceeds token limit
             if auto_summarize and content_to_use:
                 # Rough token estimation: 1 token ≈ 4 characters
                 estimated_tokens = len(content_to_use) // 4
                 
+                # Only summarize if content exceeds the specified token limit
                 if estimated_tokens > max_content_tokens:
                     try:
                         # Use summarize_content function for document summarization
@@ -372,7 +416,8 @@ async def process_file(
                             summary_length=summary_length,
                             llm_provider=llm_provider,
                             llm_model=llm_model,
-                            content_type="document"
+                            content_type="document",
+                            target_tokens=max_content_tokens
                         )
                         
                         if summary_result.get("success"):
@@ -408,6 +453,16 @@ async def process_file(
                             "summarization_error": f"Exception during summarization: {str(e)}",
                             "original_content_preserved": True
                         }
+                else:
+                    # Content is below threshold - preserve original content and add info
+                    final_metadata['summarization'] = {
+                        "auto_summarize_requested": True,
+                        "original_content_preserved": True,
+                        "content_below_threshold": True,
+                        "tokens_estimate": estimated_tokens,
+                        "max_tokens_threshold": max_content_tokens,
+                        "reason": f"Content ({estimated_tokens} tokens) is below threshold ({max_content_tokens} tokens)"
+                    }
             
             # Handle ZIP archives specially
             if result.get('is_archive', False) and extract_all_from_zip:
@@ -750,7 +805,8 @@ async def enhanced_process_large_content(
                         title=f"Chunk {chunk_info['chunk_id']}",
                         url=url,
                         summary_length="short",  # Individual chunks get short summaries
-                        content_type="chunk"
+                        content_type="chunk",
+                        target_tokens=300  # Short summaries for chunks
                     )
                     
                     processed_chunks.append({
@@ -815,7 +871,8 @@ async def enhanced_process_large_content(
                     title=crawl_result.title or "Large Content Analysis",
                     url=url,
                     summary_length=final_summary_length,
-                    content_type="analysis"
+                    content_type="analysis",
+                    target_tokens=2000 if final_summary_length == "long" else 1000  # Appropriate token target
                 )
                 
                 if final_summary_result.get('success'):

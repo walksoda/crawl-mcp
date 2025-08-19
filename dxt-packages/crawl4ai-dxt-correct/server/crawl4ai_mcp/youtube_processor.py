@@ -468,10 +468,12 @@ class YouTubeProcessor:
         summary_length: str = "medium",
         include_timestamps: bool = True,
         llm_provider: Optional[str] = None,
-        llm_model: Optional[str] = None
+        llm_model: Optional[str] = None,
+        video_metadata: Optional[Dict[str, Any]] = None,
+        target_tokens: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Summarize a long transcript using LLM
+        Summarize a long transcript using LLM with enhanced metadata preservation
         
         Args:
             transcript_text: The full transcript text to summarize
@@ -479,6 +481,8 @@ class YouTubeProcessor:
             include_timestamps: Whether to preserve key timestamps
             llm_provider: LLM provider to use
             llm_model: Specific model to use
+            video_metadata: Video metadata (title, channel, description, etc.)
+            target_tokens: Target token count for summary (if specified)
             
         Returns:
             Dictionary with summary and metadata
@@ -490,43 +494,74 @@ class YouTubeProcessor:
             except ImportError:
                 from config import get_llm_config
             
-            # Define summary lengths
+            # Extract video metadata
+            video_title = ""
+            video_url = ""
+            video_id = ""
+            channel_name = ""
+            video_description = ""
+            
+            if video_metadata:
+                video_title = video_metadata.get('title', '')
+                video_url = video_metadata.get('url', '')
+                video_id = video_metadata.get('video_id', '')
+                channel_name = video_metadata.get('channel', '')
+                video_description = video_metadata.get('description', '')
+            
+            # Define summary lengths with token targets
             length_configs = {
                 "short": {
                     "target_length": "1-2 paragraphs",
-                    "detail_level": "key points only"
+                    "detail_level": "key points only",
+                    "target_tokens": target_tokens or 300
                 },
                 "medium": {
                     "target_length": "3-5 paragraphs", 
-                    "detail_level": "main topics with key details"
+                    "detail_level": "main topics with key details",
+                    "target_tokens": target_tokens or 800
                 },
                 "long": {
                     "target_length": "6-10 paragraphs",
-                    "detail_level": "comprehensive overview with subtopics"
+                    "detail_level": "comprehensive overview with subtopics",
+                    "target_tokens": target_tokens or 1500
                 }
             }
             
             config = length_configs.get(summary_length, length_configs["medium"])
             
-            # Prepare instruction for LLM
+            # Prepare enhanced instruction for LLM with metadata
             timestamp_instruction = (
                 "Include key timestamps in your summary to help readers navigate to important sections."
                 if include_timestamps else
                 "Do not include timestamps in your summary."
             )
             
+            # Create metadata context
+            metadata_context = f"""
+Video Information:
+- Title: {video_title}
+- Channel: {channel_name}
+- Video ID: {video_id}
+- URL: {video_url}
+{f"- Description: {video_description[:200]}..." if video_description else ""}
+"""
+            
             instruction = f"""
             Summarize this YouTube video transcript in {config['target_length']}.
             Focus on {config['detail_level']}.
+            Target length: approximately {config['target_tokens']} tokens.
             {timestamp_instruction}
             
+            {metadata_context}
+            
             Structure your summary with:
-            1. Brief overview of the video content
+            1. Brief overview including video title and channel context
             2. Main topics or sections discussed
             3. Key insights or conclusions
             4. Important details or examples mentioned
             
             Make the summary engaging and informative, preserving the tone and style of the original content.
+            IMPORTANT: Preserve the video title, channel name, and URL in your response for reference.
             """
             
             # Get LLM configuration
@@ -541,11 +576,16 @@ class YouTubeProcessor:
             
             Please provide a JSON response with the following structure:
             {{
-                "summary": "The summarized content",
+                "summary": "The summarized content (approximately {config['target_tokens']} tokens)",
+                "video_title": "{video_title}",
+                "video_url": "{video_url}",
+                "video_id": "{video_id}",
+                "channel_name": "{channel_name}",
                 "key_topics": ["List", "of", "main", "topics"],
                 "key_timestamps": ["Important timestamps if preserved"],
                 "content_type": "Type of video content",
-                "duration_estimate": "Estimated reading time"
+                "duration_estimate": "Estimated reading time",
+                "summary_token_count": "Estimated token count of summary"
             }}
             
             Transcript to summarize:
@@ -572,11 +612,11 @@ class YouTubeProcessor:
                     response = await client.chat.completions.create(
                         model=model,
                         messages=[
-                            {"role": "system", "content": "You are a helpful assistant that summarizes YouTube video transcripts."},
+                            {"role": "system", "content": "You are a helpful assistant that summarizes YouTube video transcripts while preserving important metadata."},
                             {"role": "user", "content": prompt}
                         ],
                         temperature=0.7,
-                        max_tokens=2000
+                        max_tokens=min(4000, config['target_tokens'] * 2)  # Allow up to 2x target for flexibility
                     )
                     
                     extracted_content = response.choices[0].message.content
@@ -595,15 +635,22 @@ class YouTubeProcessor:
                     
                     summary_data = json.loads(content_to_parse) if isinstance(content_to_parse, str) else content_to_parse
                     
+                    # Ensure metadata is preserved
                     return {
                         "success": True,
                         "summary": summary_data.get("summary", "Summary generation failed"),
+                        "video_title": summary_data.get("video_title", video_title),
+                        "video_url": summary_data.get("video_url", video_url),
+                        "video_id": summary_data.get("video_id", video_id),
+                        "channel_name": summary_data.get("channel_name", channel_name),
                         "key_topics": summary_data.get("key_topics", []),
                         "key_timestamps": summary_data.get("key_timestamps", []) if include_timestamps else [],
                         "content_type": summary_data.get("content_type", "Unknown"),
                         "summary_length": summary_length,
+                        "target_tokens": config['target_tokens'],
+                        "estimated_summary_tokens": len(summary_data.get("summary", "")) // 4,  # Rough estimate
                         "original_length": len(transcript_text),
-                        "compressed_ratio": len(summary_data.get("summary", "")) / len(transcript_text) if transcript_text else 0,
+                        "compression_ratio": len(summary_data.get("summary", "")) / len(transcript_text) if transcript_text else 0,
                         "llm_provider": llm_config.get("provider") if isinstance(llm_config, dict) else "unknown",
                         "llm_model": llm_config.get("model") if isinstance(llm_config, dict) else "unknown"
                     }
@@ -612,12 +659,18 @@ class YouTubeProcessor:
                     return {
                         "success": True,
                         "summary": str(extracted_content),
+                        "video_title": video_title,
+                        "video_url": video_url,
+                        "video_id": video_id,
+                        "channel_name": channel_name,
                         "key_topics": [],
                         "key_timestamps": [],
                         "content_type": "Unknown",
                         "summary_length": summary_length,
+                        "target_tokens": config['target_tokens'],
+                        "estimated_summary_tokens": len(str(extracted_content)) // 4,
                         "original_length": len(transcript_text),
-                        "compressed_ratio": len(str(extracted_content)) / len(transcript_text) if transcript_text else 0,
+                        "compression_ratio": len(str(extracted_content)) / len(transcript_text) if transcript_text else 0,
                         "llm_provider": llm_config.get("provider") if isinstance(llm_config, dict) else "unknown",
                         "llm_model": llm_config.get("model") if isinstance(llm_config, dict) else "unknown",
                         "fallback_mode": True
