@@ -68,6 +68,7 @@ temp/
 tmp/
 backup_original_docs/
 docs/templates/
+temp_*.*
 
 # Browser profiles and cache
 .playwright/
