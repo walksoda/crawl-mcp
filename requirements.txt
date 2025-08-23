@@ -1,5 +1,5 @@
 # Fixed versions to prevent unintended behavior changes
-crawl4ai==0.7.2
+crawl4ai==0.7.4
 fastmcp==2.0.0
 pydantic>=2.0.0
 asyncio

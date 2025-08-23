@@ -46,6 +46,7 @@ class CrawlRequest(BaseRequest):
     execute_js: Optional[str] = Field(None, description="JavaScript code to execute")
     wait_for_js: bool = Field(False, description="Wait for JavaScript to complete")
     simulate_user: bool = Field(False, description="Simulate human-like browsing behavior")
+    use_undetected_browser: bool = Field(False, description="Use undetected browser mode to bypass bot detection")
     
     # Authentication
     auth_token: Optional[str] = Field(None, description="Authentication token")

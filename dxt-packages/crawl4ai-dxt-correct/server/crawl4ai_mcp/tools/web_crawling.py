@@ -270,6 +270,12 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
             "browser_type": "webkit"  # Use lightweight WebKit by default
         }
         
+        # Enable undetected browser mode if requested
+        if request.use_undetected_browser:
+            browser_config["enable_stealth"] = True
+            # Use Chromium when stealth mode is needed for better compatibility
+            browser_config["browser_type"] = "chromium"
+        
         if request.user_agent:
             browser_config["user_agent"] = request.user_agent
         
@@ -927,7 +933,7 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                     extracted_data={
                         "structured_data": extracted_data,
                         "extraction_method": "css_selectors",
-                        "schema_fields": list(request.schema.keys()) if request.schema else [],
+                        "schema_fields": list(request.extraction_schema.keys()) if request.extraction_schema else [],
                         "extracted_fields": list(extracted_data.keys())
                     }
                 )
@@ -953,9 +959,9 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                 
                 # Prepare schema description
                 schema_description = ""
-                if request.schema:
+                if request.extraction_schema:
                     schema_items = []
-                    for field, description in request.schema.items():
+                    for field, description in request.extraction_schema.items():
                         schema_items.append(f"- {field}: {description}")
                     schema_description = "\n".join(schema_items)
                 
@@ -1069,7 +1075,7 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                                 "found_fields": extraction_result.get("found_fields", []),
                                 "missing_fields": extraction_result.get("missing_fields", []),
                                 "additional_context": extraction_result.get("additional_context", ""),
-                                "schema_fields": list(request.schema.keys()) if request.schema else [],
+                                "schema_fields": list(request.extraction_schema.keys()) if request.extraction_schema else [],
                                 "llm_provider": provider,
                                 "llm_model": model,
                                 "custom_instruction_used": bool(request.instruction)
@@ -1089,9 +1095,9 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                                 "extraction_method": "llm_based_fallback",
                                 "extraction_confidence": "Low",
                                 "found_fields": [],
-                                "missing_fields": list(request.schema.keys()) if request.schema else [],
+                                "missing_fields": list(request.extraction_schema.keys()) if request.extraction_schema else [],
                                 "additional_context": f"JSON parsing failed: {str(e)}",
-                                "schema_fields": list(request.schema.keys()) if request.schema else [],
+                                "schema_fields": list(request.extraction_schema.keys()) if request.extraction_schema else [],
                                 "llm_provider": provider,
                                 "llm_model": model,
                                 "json_parse_error": str(e)
@@ -1155,6 +1161,7 @@ async def crawl_url(
     execute_js: Annotated[Optional[str], Field(description="JavaScript code to execute (default: None)")] = None,
     wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to complete (default: False)")] = False,
     simulate_user: Annotated[bool, Field(description="Simulate human-like browsing behavior (default: False)")] = False,
+    use_undetected_browser: Annotated[bool, Field(description="Use undetected browser mode to bypass bot detection (default: False)")] = False,
     auth_token: Annotated[Optional[str], Field(description="Authentication token (default: None)")] = None,
     cookies: Annotated[Optional[Dict[str, str]], Field(description="Custom cookies (default: None)")] = None,
     auto_summarize: Annotated[bool, Field(description="Automatically summarize large content using LLM (default: False)")] = False,
@@ -1198,6 +1205,7 @@ async def crawl_url(
         execute_js=execute_js,
         wait_for_js=wait_for_js,
         simulate_user=simulate_user,
+        use_undetected_browser=use_undetected_browser,
         auth_token=auth_token,
         cookies=cookies,
         auto_summarize=auto_summarize,
@@ -1356,6 +1364,7 @@ async def crawl_url_with_fallback(
     execute_js: Annotated[Optional[str], Field(description="JavaScript code to execute")] = None,
     wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to complete")] = False,
     simulate_user: Annotated[bool, Field(description="Simulate human-like browsing behavior")] = False,
+    use_undetected_browser: Annotated[bool, Field(description="Use undetected browser mode to bypass bot detection")] = False,
     auth_token: Annotated[Optional[str], Field(description="Authentication token")] = None,
     cookies: Annotated[Optional[Dict[str, str]], Field(description="Custom cookies")] = None,
     auto_summarize: Annotated[bool, Field(description="Automatically summarize large content using LLM")] = False,
@@ -1502,6 +1511,7 @@ async def crawl_url_with_fallback(
                 "execute_js": strategy["params"].get("execute_js", execute_js),
                 "wait_for_js": strategy["params"].get("wait_for_js", wait_for_js),
                 "simulate_user": strategy["params"].get("simulate_user", simulate_user),
+                "use_undetected_browser": use_undetected_browser,
                 "auth_token": auth_token,
                 "cookies": cookies,
                 "auto_summarize": auto_summarize,

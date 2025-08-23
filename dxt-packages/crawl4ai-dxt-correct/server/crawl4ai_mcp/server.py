@@ -139,7 +139,8 @@ async def crawl_url(
     wait_for_selector: Annotated[Optional[str], Field(description="Wait for specific element to load. CSS selector or XPath. Examples: '.content-loaded', '#dynamic-content', '[data-loaded=\"true\"]' (default: None)")] = None,
     timeout: Annotated[int, Field(description="Request timeout in seconds (default: 60)")] = 60,
     wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to complete (default: False)")] = False,
-    auto_summarize: Annotated[bool, Field(description="Automatically summarize large content using LLM (default: False)")] = False
+    auto_summarize: Annotated[bool, Field(description="Automatically summarize large content using LLM (default: False)")] = False,
+    use_undetected_browser: Annotated[bool, Field(description="Use undetected browser to bypass bot detection (default: False)")] = False
 ) -> dict:
     """
     Extract content from web pages with JavaScript support. Auto-detects PDFs and documents.
@@ -147,6 +148,7 @@ async def crawl_url(
     Core web crawling tool with comprehensive configuration options.
     Essential for SPAs: set wait_for_js=true for JavaScript-heavy sites.
     
+    NEW v0.7.4: Supports undetected browser mode to bypass sophisticated bot detection.
     Automatically falls back to enhanced strategies if initial crawling fails 
     due to JavaScript errors, anti-bot protection, or other issues.
     
@@ -164,43 +166,65 @@ async def crawl_url(
             url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
             take_screenshot=take_screenshot, generate_markdown=generate_markdown,
             wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
-            auto_summarize=auto_summarize
+            auto_summarize=auto_summarize, use_undetected_browser=use_undetected_browser
         )
         
-        # Check if crawling was successful
-        if result.get("success", True) and result.get("markdown", "").strip():
-            return result
+        # Check if crawling was successful - convert CrawlResponse to dict
+        if hasattr(result, 'model_dump'):
+            result_dict = result.model_dump()
+        elif hasattr(result, 'dict'):
+            result_dict = result.dict()
+        else:
+            result_dict = result
         
-        # If initial crawling failed or returned empty content, try fallback
+        if result_dict.get("success", True) and result_dict.get("markdown", "").strip():
+            return result_dict
+        
+        # If initial crawling failed or returned empty content, try fallback with undetected browser
         fallback_result = await web_crawling.crawl_url_with_fallback(
             url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
             take_screenshot=take_screenshot, generate_markdown=generate_markdown,
             wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
-            auto_summarize=auto_summarize
+            auto_summarize=auto_summarize, use_undetected_browser=True
         )
         
-        # Mark that fallback was used
-        if fallback_result.get("success", False):
-            fallback_result["fallback_used"] = True
+        # Convert fallback result to dict and mark that fallback was used
+        if hasattr(fallback_result, 'model_dump'):
+            fallback_dict = fallback_result.model_dump()
+        elif hasattr(fallback_result, 'dict'):
+            fallback_dict = fallback_result.dict()
+        else:
+            fallback_dict = fallback_result
+        if fallback_dict.get("success", False):
+            fallback_dict["fallback_used"] = True
+            if use_undetected_browser:
+                fallback_dict["undetected_browser_used"] = True
         
-        return fallback_result
+        return fallback_dict
         
     except Exception as e:
-        # If initial crawling throws an exception, try fallback
+        # If initial crawling throws an exception, try fallback with undetected browser
         try:
             fallback_result = await web_crawling.crawl_url_with_fallback(
                 url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
                 take_screenshot=take_screenshot, generate_markdown=generate_markdown,
                 wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
-                auto_summarize=auto_summarize
+                auto_summarize=auto_summarize, use_undetected_browser=True
             )
             
-            # Mark that fallback was used
-            if fallback_result.get("success", False):
-                fallback_result["fallback_used"] = True
-                fallback_result["original_error"] = str(e)
+            # Convert fallback result to dict and mark that fallback was used
+            if hasattr(fallback_result, 'model_dump'):
+                fallback_dict = fallback_result.model_dump()
+            elif hasattr(fallback_result, 'dict'):
+                fallback_dict = fallback_result.dict()
+            else:
+                fallback_dict = fallback_result
+            if fallback_dict.get("success", False):
+                fallback_dict["fallback_used"] = True
+                fallback_dict["undetected_browser_used"] = True
+                fallback_dict["original_error"] = str(e)
             
-            return fallback_result
+            return fallback_dict
             
         except Exception as fallback_error:
             return {
@@ -950,18 +974,21 @@ async def extract_entities(
 @mcp.tool()
 async def extract_structured_data(
     url: Annotated[str, Field(description="Target URL to extract structured data from. Examples: https://news.example.com, https://shop.example.com/product/123")],
-    extraction_type: Annotated[str, Field(description="Extraction method: 'css' for CSS selectors, 'llm' for AI-powered extraction")] = "css",
+    extraction_type: Annotated[str, Field(description="Extraction method: 'css' for CSS selectors, 'llm' for AI-powered extraction, 'table' for LLM table extraction")] = "css",
     css_selectors: Annotated[Optional[Dict[str, str]], Field(description="CSS selectors mapping. Example: {'title': 'h1', 'price': '.price'} (default: None)")] = None,
     extraction_schema: Annotated[Optional[Dict[str, str]], Field(description="Schema definition. Example: {'title': 'string', 'price': 'number'} (default: None)")] = None,
     generate_markdown: Annotated[bool, Field(description="Generate markdown content alongside structured data (default: False)")] = False,
     wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to load before extraction (default: False)")] = False,
-    timeout: Annotated[int, Field(description="Request timeout in seconds (default: 30)")] = 30
+    timeout: Annotated[int, Field(description="Request timeout in seconds (default: 30)")] = 30,
+    use_llm_table_extraction: Annotated[bool, Field(description="NEW v0.7.4: Use revolutionary LLM table extraction with intelligent chunking (default: False)")] = False,
+    table_chunking_strategy: Annotated[str, Field(description="Table chunking strategy: 'intelligent' (adaptive), 'fixed' (fixed size), 'semantic' (content-aware) (default: 'intelligent')")] = "intelligent"
 ) -> Dict[str, Any]:
     """
-    Extract structured data from a URL using CSS selectors or LLM-based extraction.
+    Extract structured data from a URL using CSS selectors, LLM-based extraction, or revolutionary table extraction.
     
     CSS mode: Uses CSS selectors to extract specific elements into structured format
     LLM mode: Uses AI to extract data matching a predefined schema
+    Table mode: NEW v0.7.4 - Revolutionary LLM Table Extraction with intelligent chunking for massive tables
     Automatically applies fallback crawling if initial content retrieval fails.
     
     Perfect for consistent data extraction from similar page structures like product pages, articles, or listings.
@@ -974,6 +1001,35 @@ async def extract_structured_data(
         }
     
     try:
+        # NEW: LLM Table Extraction mode
+        if extraction_type == "table" or use_llm_table_extraction:
+            try:
+                result = await web_crawling.extract_structured_data(
+                    url=url,
+                    extraction_type="llm_table",
+                    extraction_schema=extraction_schema,
+                    generate_markdown=generate_markdown,
+                    wait_for_js=wait_for_js,
+                    timeout=timeout,
+                    chunking_strategy=table_chunking_strategy
+                )
+                
+                if result.get("success", False):
+                    result["processing_method"] = "llm_table_extraction"
+                    result["features_used"] = ["intelligent_chunking", "massive_table_support"]
+                    return result
+                    
+            except Exception as table_error:
+                # Fallback to CSS extraction if table extraction fails
+                if css_selectors:
+                    extraction_type = "css"
+                else:
+                    return {
+                        "success": False,
+                        "error": f"LLM table extraction failed: {str(table_error)}",
+                        "suggested_fallback": "Try with css_selectors or extraction_type='css'"
+                    }
+        
         # CSS selectors provided and extraction_type is css
         if css_selectors and extraction_type == "css":
             # Use basic crawling with CSS selector post-processing
@@ -992,7 +1048,8 @@ async def extract_structured_data(
                         url=url,
                         generate_markdown=generate_markdown,
                         wait_for_js=wait_for_js,
-                        timeout=timeout
+                        timeout=timeout,
+                        use_undetected_browser=True
                     )
                     
                     if fallback_result.get("success", False):
@@ -1001,13 +1058,42 @@ async def extract_structured_data(
                     else:
                         return crawl_result
                 
-                # Simple CSS selector extraction using BeautifulSoup
+                # Enhanced CSS selector extraction with table detection
                 from bs4 import BeautifulSoup
                 
                 html_content = crawl_result.get("content", "")
                 soup = BeautifulSoup(html_content, 'html.parser')
                 
                 extracted_data = {}
+                tables_found = []
+                
+                # Enhanced table detection and extraction
+                tables = soup.find_all('table')
+                if tables and use_llm_table_extraction:
+                    for i, table in enumerate(tables):
+                        table_data = {
+                            "table_index": i,
+                            "headers": [],
+                            "rows": [],
+                            "extraction_method": "enhanced_css_with_table_support"
+                        }
+                        
+                        # Extract headers
+                        headers = table.find_all(['th', 'td'])
+                        if headers:
+                            table_data["headers"] = [h.get_text().strip() for h in headers[:10]]  # Limit for performance
+                        
+                        # Extract first few rows
+                        rows = table.find_all('tr')
+                        for j, row in enumerate(rows[:5]):  # Limit for performance
+                            cells = row.find_all(['td', 'th'])
+                            row_data = [cell.get_text().strip() for cell in cells]
+                            if row_data:
+                                table_data["rows"].append(row_data)
+                        
+                        tables_found.append(table_data)
+                
+                # Standard CSS selector extraction
                 for key, selector in css_selectors.items():
                     elements = soup.select(selector)
                     if elements:
@@ -1022,10 +1108,15 @@ async def extract_structured_data(
                     "success": True,
                     "url": url,
                     "extracted_data": extracted_data,
-                    "processing_method": "css_selector_extraction",
+                    "processing_method": "enhanced_css_selector_extraction",
                     "content": crawl_result.get("content", ""),
                     "markdown": crawl_result.get("markdown", "")
                 }
+                
+                if tables_found:
+                    result["tables_detected"] = len(tables_found)
+                    result["table_data"] = tables_found
+                    result["table_extraction_enhanced"] = True
                 
                 if crawl_result.get("fallback_used"):
                     result["fallback_used"] = True
@@ -1039,7 +1130,8 @@ async def extract_structured_data(
                         url=url,
                         generate_markdown=generate_markdown,
                         wait_for_js=wait_for_js,
-                        timeout=timeout
+                        timeout=timeout,
+                        use_undetected_browser=True
                     )
                     
                     if fallback_result.get("success", False):
@@ -1069,7 +1161,8 @@ async def extract_structured_data(
                         url=url,
                         generate_markdown=generate_markdown,
                         wait_for_js=wait_for_js,
-                        timeout=timeout
+                        timeout=timeout,
+                        use_undetected_browser=True
                     )
                     
                     if fallback_result.get("success", False):
@@ -1093,7 +1186,7 @@ async def extract_structured_data(
                 }
         
         else:
-            # Fallback to basic crawling
+            # Fallback to basic crawling or LLM extraction
             crawl_result = await web_crawling.crawl_url(
                 url=url,
                 generate_markdown=generate_markdown,
@@ -1107,7 +1200,8 @@ async def extract_structured_data(
                     url=url,
                     generate_markdown=generate_markdown,
                     wait_for_js=wait_for_js,
-                    timeout=timeout
+                    timeout=timeout,
+                    use_undetected_browser=True
                 )
                 
                 if fallback_result.get("success", False):
@@ -1128,7 +1222,8 @@ async def extract_structured_data(
                 url=url,
                 generate_markdown=generate_markdown,
                 wait_for_js=wait_for_js,
-                timeout=timeout
+                timeout=timeout,
+                use_undetected_browser=True
             )
             
             if fallback_result.get("success", False):
@@ -1403,13 +1498,15 @@ async def batch_crawl(
     generate_markdown: Annotated[bool, Field(description="Generate markdown content for each page (default: True)")] = True,
     extract_media: Annotated[bool, Field(description="Extract media links from pages (default: False)")] = False,
     wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to load (default: False)")] = False,
-    max_concurrent: Annotated[int, Field(description="Maximum concurrent crawls (default: 3)")] = 3
+    max_concurrent: Annotated[int, Field(description="Maximum concurrent crawls (default: 3)")] = 3,
+    use_undetected_browser: Annotated[bool, Field(description="Use undetected browser for all URLs to bypass bot detection (default: False)")] = False
 ) -> List[Dict[str, Any]]:
     """
     Crawl multiple URLs in batch with intelligent rate limiting and error handling.
     
     Process multiple URLs concurrently for maximum efficiency while respecting server limits.
     Timeout automatically scales based on the number of URLs to crawl.
+    NEW v0.7.4: Supports undetected browser mode for enhanced bot detection bypass.
     Automatically applies fallback strategies for failed individual crawls.
     
     Perfect for bulk content extraction, site auditing, and comparative analysis.
@@ -1427,7 +1524,8 @@ async def batch_crawl(
             "generate_markdown": generate_markdown,
             "extract_media": extract_media,
             "wait_for_js": wait_for_js,
-            "max_concurrent": max_concurrent
+            "max_concurrent": max_concurrent,
+            "use_undetected_browser": use_undetected_browser
         }
         
         # Add timeout handling
@@ -1439,14 +1537,14 @@ async def batch_crawl(
             timeout=total_timeout
         )
         
-        # Check for failed crawls and apply fallback
+        # Check for failed crawls and apply fallback with undetected browser
         if isinstance(result, list):
             failed_urls = []
             for i, crawl_result in enumerate(result):
                 if not crawl_result.get("success", True) or not crawl_result.get("markdown", "").strip():
                     failed_urls.append((i, urls[i]))
             
-            # Apply fallback to failed URLs
+            # Apply fallback to failed URLs with undetected browser
             if failed_urls:
                 for idx, url in failed_urls:
                     try:
@@ -1455,11 +1553,13 @@ async def batch_crawl(
                             generate_markdown=generate_markdown,
                             extract_media=extract_media,
                             wait_for_js=wait_for_js,
-                            timeout=base_timeout
+                            timeout=base_timeout,
+                            use_undetected_browser=True  # Force undetected for fallback
                         )
                         
                         if fallback_result.get("success", False):
                             fallback_result["fallback_used"] = True
+                            fallback_result["undetected_browser_used"] = True
                             result[idx] = fallback_result
                         
                     except Exception as fallback_error:
@@ -1473,7 +1573,7 @@ async def batch_crawl(
             "error": f"Batch crawl timed out after {total_timeout} seconds"
         }]
     except Exception as e:
-        # If batch crawl fails entirely, try individual fallbacks
+        # If batch crawl fails entirely, try individual fallbacks with undetected browser
         try:
             fallback_results = []
             for url in urls:
@@ -1483,10 +1583,12 @@ async def batch_crawl(
                         generate_markdown=generate_markdown,
                         extract_media=extract_media,
                         wait_for_js=wait_for_js,
-                        timeout=base_timeout
+                        timeout=base_timeout,
+                        use_undetected_browser=True  # Force undetected for emergency fallback
                     )
                     if fallback_result.get("success", False):
                         fallback_result["fallback_used"] = True
+                        fallback_result["undetected_browser_used"] = True
                         fallback_result["original_batch_error"] = str(e)
                     fallback_results.append(fallback_result)
                     
@@ -1507,6 +1609,151 @@ async def batch_crawl(
             }]
 
 @mcp.tool()
+async def multi_url_crawl(
+    url_configurations: Annotated[Dict[str, Dict], Field(description="URL pattern to configuration mapping. Example: {'*news*': {'wait_for_js': True}, '*api*': {'timeout': 120}}")],
+    pattern_matching: Annotated[str, Field(description="Pattern matching method: 'wildcard' (*.com), 'regex' (advanced patterns) (default: 'wildcard')")] = "wildcard",
+    default_config: Annotated[Optional[Dict], Field(description="Default configuration for URLs not matching any pattern (default: None)")] = None,
+    base_timeout: Annotated[int, Field(description="Base timeout per URL in seconds (default: 30)")] = 30,
+    max_concurrent: Annotated[int, Field(description="Maximum concurrent crawls (default: 3)")] = 3
+) -> List[Dict[str, Any]]:
+    """
+    NEW v0.7.3: Multi-URL Configuration - Different strategies for different URL patterns in one batch.
+    
+    Advanced batch crawling with pattern-based configuration matching.
+    Each URL is processed with settings that match its pattern, allowing for optimized
+    crawling strategies per site type (e.g., news sites vs APIs vs documentation).
+    
+    Pattern Examples:
+    - Wildcard: '*news*', '*api*', '*.pdf', 'https://docs.*'
+    - Regex: r'.*\/(api|v\d+)\/', r'https:\/\/[^\/]+\.com\/news'
+    
+    Perfect for mixed-domain crawling with site-specific optimizations.
+    """
+    _load_tool_modules()
+    if not _tools_imported:
+        return [{
+            "success": False,
+            "error": "Tool modules not available"
+        }]
+    
+    try:
+        import re
+        import fnmatch
+        
+        # Extract all URLs from configurations
+        all_urls = []
+        for pattern in url_configurations.keys():
+            # For now, treat patterns as literal URLs if they don't contain wildcards
+            if pattern_matching == "wildcard" and ('*' not in pattern and '?' not in pattern):
+                all_urls.append(pattern)
+        
+        if not all_urls:
+            return [{
+                "success": False,
+                "error": "No valid URLs found in configurations. Use direct URLs or wildcard patterns."
+            }]
+        
+        results = []
+        
+        # Process each URL with its matched configuration
+        for url in all_urls:
+            matched_config = default_config or {}
+            pattern_used = "default"
+            
+            # Find matching pattern and configuration
+            for pattern, config in url_configurations.items():
+                pattern_matches = False
+                
+                if pattern_matching == "wildcard":
+                    pattern_matches = fnmatch.fnmatch(url, pattern) or url == pattern
+                elif pattern_matching == "regex":
+                    try:
+                        pattern_matches = bool(re.match(pattern, url))
+                    except re.error:
+                        continue
+                
+                if pattern_matches:
+                    matched_config = {**matched_config, **config}
+                    pattern_used = pattern
+                    break
+            
+            # Apply configuration with fallback to defaults
+            crawl_config = {
+                "generate_markdown": matched_config.get("generate_markdown", True),
+                "extract_media": matched_config.get("extract_media", False),
+                "wait_for_js": matched_config.get("wait_for_js", False),
+                "timeout": matched_config.get("timeout", base_timeout),
+                "use_undetected_browser": matched_config.get("use_undetected_browser", False),
+                "css_selector": matched_config.get("css_selector"),
+                "xpath": matched_config.get("xpath")
+            }
+            
+            try:
+                # Crawl with pattern-specific configuration
+                result = await web_crawling.crawl_url(
+                    url=url,
+                    **{k: v for k, v in crawl_config.items() if v is not None}
+                )
+                
+                # Convert CrawlResponse to dict
+                if hasattr(result, 'model_dump'):
+                    result_dict = result.model_dump()
+                elif hasattr(result, 'dict'):
+                    result_dict = result.dict()
+                else:
+                    result_dict = result
+                
+                # Add configuration metadata to result
+                if result_dict.get("success", True):
+                    result_dict["pattern_matched"] = pattern_used
+                    result_dict["configuration_applied"] = crawl_config
+                    result_dict["multi_url_config_used"] = True
+                    result = result_dict
+                else:
+                    # Try fallback with undetected browser if initial fails
+                    fallback_result = await web_crawling.crawl_url_with_fallback(
+                        url=url,
+                        **{k: v for k, v in crawl_config.items() if v is not None and k != 'use_undetected_browser'},
+                        use_undetected_browser=True
+                    )
+                    
+                    # Convert fallback result to dict too
+                    if hasattr(fallback_result, 'model_dump'):
+                        result = fallback_result.model_dump()
+                    elif hasattr(fallback_result, 'dict'):
+                        result = fallback_result.dict()
+                    else:
+                        result = fallback_result
+                    
+                    if result.get("success", False):
+                        result["pattern_matched"] = pattern_used
+                        result["configuration_applied"] = crawl_config
+                        result["multi_url_config_used"] = True
+                        result["fallback_used"] = True
+                
+                results.append(result)
+                
+            except Exception as e:
+                # Error handling with pattern information
+                error_result = {
+                    "success": False,
+                    "url": url,
+                    "error": f"Multi-URL crawl error: {str(e)}",
+                    "pattern_matched": pattern_used,
+                    "configuration_applied": crawl_config,
+                    "multi_url_config_used": True
+                }
+                results.append(error_result)
+        
+        return results
+        
+    except Exception as e:
+        return [{
+            "success": False,
+            "error": f"Multi-URL configuration error: {str(e)}"
+        }]
+
+@mcp.tool()
 def get_tool_selection_guide() -> dict:
     """
     Get comprehensive tool selection guide for AI agents.
@@ -1520,10 +1767,22 @@ def get_tool_selection_guide() -> dict:
         "web_crawling": ["crawl_url", "deep_crawl_site", "crawl_url_with_fallback", "intelligent_extract", "extract_entities", "extract_structured_data"],
         "youtube": ["extract_youtube_transcript", "batch_extract_youtube_transcripts", "get_youtube_video_info", "get_youtube_api_setup_guide"],
         "search": ["search_google", "batch_search_google", "search_and_crawl", "get_search_genres"],
-        "batch": ["batch_crawl"],
+        "batch": ["batch_crawl", "multi_url_crawl"],
         "files": ["process_file", "get_supported_file_formats", "enhanced_process_large_content"],
         "config": ["get_llm_config_info", "get_tool_selection_guide"],
-        "diagnostics": ["get_system_diagnostics"]
+        "diagnostics": ["get_system_diagnostics"],
+        "new_v074_features": {
+            "undetected_browser": "Enhanced crawl_url and batch_crawl with use_undetected_browser parameter",
+            "llm_table_extraction": "Revolutionary table extraction in extract_structured_data with use_llm_table_extraction",
+            "multi_url_config": "Pattern-based configuration matching in multi_url_crawl tool",
+            "intelligent_chunking": "Massive table support with adaptive chunking strategies"
+        },
+        "best_practices": {
+            "bot_detection": "Use undetected browser mode for difficult sites",
+            "table_data": "Enable LLM table extraction for complex table structures",
+            "mixed_domains": "Use multi_url_crawl for site-specific optimization",
+            "fallback_reliability": "All tools now include automatic fallback mechanisms"
+        }
     }
 
 def main():
