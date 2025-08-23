@@ -49,11 +49,15 @@ class ConfigManager:
     def _load_env_vars(self):
         """Load environment variables from .env file if available"""
         if DOTENV_AVAILABLE:
-            # Look for .env file in current directory or parent directories
+            # Get module directory and construct absolute paths
+            module_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.join(module_dir, '..')
+            
+            # Look for .env file with absolute paths
             env_paths = [
-                '.env',
-                os.path.join(os.path.dirname(__file__), '..', '.env'),
-                os.path.join(os.getcwd(), '.env')
+                os.path.join(project_root, '.env'),  # Project root
+                '.env',  # Current directory (fallback)
+                os.path.join(os.getcwd(), '.env')  # Working directory
             ]
             
             for env_path in env_paths:
@@ -83,10 +87,14 @@ class ConfigManager:
             except (json.JSONDecodeError, KeyError) as e:
                 print(f"Warning: Failed to parse MCP_LLM_CONFIG: {e}", file=sys.stderr)
         
-        # Try to load from claude_desktop_config.json in current directory
+        # Get module directory and construct absolute paths
+        module_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.join(module_dir, '..')
+        
+        # Try to load from claude_desktop_config.json with absolute paths
         config_files = [
-            'claude_desktop_config.json',
-            os.path.join(os.path.dirname(__file__), '..', 'claude_desktop_config.json')
+            os.path.join(project_root, 'claude_desktop_config.json'),  # Project root
+            'claude_desktop_config.json',  # Current directory (fallback)
         ]
         
         for config_file in config_files:
@@ -155,7 +163,7 @@ class ConfigManager:
                     api_key=None,  # No direct API key by default
                     api_key_env='OPENAI_API_KEY',
                     base_url=None,
-                    models=['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo']
+                    models=['gpt-4.1', 'gpt-o4-mini']
                 ),
                 'anthropic': LLMProviderConfig(
                     api_key=None,  # No direct API key by default
@@ -175,7 +183,7 @@ class ConfigManager:
                     base_url=None,
                     base_url_env='AZURE_OPENAI_ENDPOINT',
                     api_version='2025-04-01-preview',
-                    models=['gpt-4.1', 'gpt-4.1-nano', 'o4-mini', 'o3', 'o3-mini', 'o1', 'o1-mini', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-35-turbo']
+                    models=['gpt-4.1', 'gpt-o4-mini']
                 )
             }
         )
