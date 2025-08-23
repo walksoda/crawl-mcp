@@ -147,10 +147,8 @@ async def crawl_url(
     Core web crawling tool with comprehensive configuration options.
     Essential for SPAs: set wait_for_js=true for JavaScript-heavy sites.
     
-    NOTE: If this tool fails with 503 errors, rate limiting, or anti-bot protection 
-    (especially for sites like HackerNews, Reddit, social media), try using 
-    crawl_url_with_fallback which implements multiple retry strategies with 
-    different user agents and timing patterns.
+    Automatically falls back to enhanced strategies if initial crawling fails 
+    due to JavaScript errors, anti-bot protection, or other issues.
     
     Returns structured data with content, metadata, and optional media/screenshots.
     """
@@ -168,13 +166,48 @@ async def crawl_url(
             wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
             auto_summarize=auto_summarize
         )
-        return result
+        
+        # Check if crawling was successful
+        if result.get("success", True) and result.get("markdown", "").strip():
+            return result
+        
+        # If initial crawling failed or returned empty content, try fallback
+        fallback_result = await web_crawling.crawl_url_with_fallback(
+            url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
+            take_screenshot=take_screenshot, generate_markdown=generate_markdown,
+            wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
+            auto_summarize=auto_summarize
+        )
+        
+        # Mark that fallback was used
+        if fallback_result.get("success", False):
+            fallback_result["fallback_used"] = True
+        
+        return fallback_result
+        
     except Exception as e:
-        return {
-            "success": False,
-            "url": url,
-            "error": f"Crawling error: {str(e)}"
-        }
+        # If initial crawling throws an exception, try fallback
+        try:
+            fallback_result = await web_crawling.crawl_url_with_fallback(
+                url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
+                take_screenshot=take_screenshot, generate_markdown=generate_markdown,
+                wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
+                auto_summarize=auto_summarize
+            )
+            
+            # Mark that fallback was used
+            if fallback_result.get("success", False):
+                fallback_result["fallback_used"] = True
+                fallback_result["original_error"] = str(e)
+            
+            return fallback_result
+            
+        except Exception as fallback_error:
+            return {
+                "success": False,
+                "url": url,
+                "error": f"Both crawling methods failed. Original: {str(e)}, Fallback: {str(fallback_error)}"
+            }
 
 @mcp.tool()
 async def extract_youtube_transcript(
@@ -554,6 +587,7 @@ async def deep_crawl_site(
     Perfect for documentation sites, blogs, and structured content discovery.
     
     Uses intelligent link filtering and relevance scoring to find the most valuable content.
+    Automatically applies fallback strategies for individual page crawling failures.
     """
     _load_tool_modules()
     if not _tools_imported:
@@ -568,8 +602,73 @@ async def deep_crawl_site(
             include_external=include_external, url_pattern=url_pattern, score_threshold=score_threshold,
             extract_media=extract_media, base_timeout=base_timeout
         )
+        
+        # Check if crawling was successful
+        if result.get("success", True):
+            return result
+        
+        # If deep crawl failed entirely, try with fallback strategy for the main URL
+        try:
+            fallback_result = await web_crawling.crawl_url_with_fallback(
+                url=url, generate_markdown=True, timeout=base_timeout
+            )
+            
+            if fallback_result.get("success", False):
+                # Convert single URL result to deep crawl format
+                return {
+                    "success": True,
+                    "results": [{
+                        "url": url,
+                        "title": fallback_result.get("title", ""),
+                        "content": fallback_result.get("content", ""),
+                        "markdown": fallback_result.get("markdown", ""),
+                        "success": True
+                    }],
+                    "summary": {
+                        "total_crawled": 1,
+                        "successful": 1,
+                        "failed": 0,
+                        "fallback_used": True,
+                        "note": "Used fallback crawling for main URL only due to deep crawl failure"
+                    },
+                    "original_error": result.get("error", "Deep crawl failed")
+                }
+            
+        except Exception as fallback_error:
+            result["fallback_error"] = str(fallback_error)
+        
         return result
+        
     except Exception as e:
+        # If deep crawl throws an exception, try single URL fallback
+        try:
+            fallback_result = await web_crawling.crawl_url_with_fallback(
+                url=url, generate_markdown=True, timeout=base_timeout
+            )
+            
+            if fallback_result.get("success", False):
+                return {
+                    "success": True,
+                    "results": [{
+                        "url": url,
+                        "title": fallback_result.get("title", ""),
+                        "content": fallback_result.get("content", ""),
+                        "markdown": fallback_result.get("markdown", ""),
+                        "success": True
+                    }],
+                    "summary": {
+                        "total_crawled": 1,
+                        "successful": 1,
+                        "failed": 0,
+                        "fallback_used": True,
+                        "note": "Used fallback crawling for main URL only due to deep crawl exception"
+                    },
+                    "original_error": str(e)
+                }
+                
+        except Exception as fallback_error:
+            pass
+        
         return {
             "success": False,
             "error": f"Deep crawl error: {str(e)}"
@@ -632,6 +731,7 @@ async def intelligent_extract(
     
     Uses advanced LLM processing to extract specific information based on your extraction goal.
     Pre-filtering improves accuracy and reduces processing time for large pages.
+    Automatically applies fallback crawling if initial content retrieval fails.
     
     Perfect for extracting structured information that traditional selectors can't handle.
     """
@@ -648,8 +748,68 @@ async def intelligent_extract(
             filter_query=filter_query, chunk_content=chunk_content, use_llm=use_llm,
             llm_provider=llm_provider, llm_model=llm_model, custom_instructions=custom_instructions
         )
+        
+        # Check if extraction was successful
+        if result.get("success", True):
+            return result
+        
+        # If intelligent extraction failed, try with fallback crawling
+        try:
+            fallback_crawl = await web_crawling.crawl_url_with_fallback(
+                url=url, generate_markdown=True, timeout=60
+            )
+            
+            if fallback_crawl.get("success", False):
+                # Attempt basic extraction from fallback content
+                content = fallback_crawl.get("markdown", "") or fallback_crawl.get("content", "")
+                
+                if content.strip():
+                    return {
+                        "success": True,
+                        "url": url,
+                        "extraction_goal": extraction_goal,
+                        "extracted_data": {
+                            "raw_content": content[:2000] + ("..." if len(content) > 2000 else ""),
+                            "note": "Fallback extraction - manual processing may be needed"
+                        },
+                        "content": fallback_crawl.get("content", ""),
+                        "markdown": fallback_crawl.get("markdown", ""),
+                        "fallback_used": True,
+                        "original_error": result.get("error", "Intelligent extraction failed")
+                    }
+                    
+        except Exception as fallback_error:
+            result["fallback_error"] = str(fallback_error)
+        
         return result
+        
     except Exception as e:
+        # If intelligent extraction throws an exception, try basic fallback
+        try:
+            fallback_crawl = await web_crawling.crawl_url_with_fallback(
+                url=url, generate_markdown=True, timeout=60
+            )
+            
+            if fallback_crawl.get("success", False):
+                content = fallback_crawl.get("markdown", "") or fallback_crawl.get("content", "")
+                
+                return {
+                    "success": True,
+                    "url": url,
+                    "extraction_goal": extraction_goal,
+                    "extracted_data": {
+                        "raw_content": content[:2000] + ("..." if len(content) > 2000 else ""),
+                        "note": "Fallback extraction - manual processing may be needed"
+                    },
+                    "content": fallback_crawl.get("content", ""),
+                    "markdown": fallback_crawl.get("markdown", ""),
+                    "fallback_used": True,
+                    "original_error": str(e)
+                }
+                
+        except Exception as fallback_error:
+            pass
+        
         return {
             "success": False,
             "error": f"Intelligent extraction error: {str(e)}"
@@ -671,6 +831,7 @@ async def extract_entities(
     
     Built-in support for: emails, phones, urls, dates, ips, social_media, prices, credit_cards, coordinates
     LLM mode adds: people names, organizations, locations, and custom entities
+    Automatically applies fallback crawling if initial content retrieval fails.
     
     Perfect for contact information extraction, data mining, and content analysis.
     """
@@ -687,8 +848,100 @@ async def extract_entities(
             include_context=include_context, deduplicate=deduplicate, use_llm=use_llm,
             llm_provider=llm_provider, llm_model=llm_model
         )
+        
+        # Check if entity extraction was successful
+        if result.get("success", True):
+            return result
+        
+        # If entity extraction failed, try with fallback crawling
+        try:
+            fallback_crawl = await web_crawling.crawl_url_with_fallback(
+                url=url, generate_markdown=True, timeout=60
+            )
+            
+            if fallback_crawl.get("success", False):
+                content = fallback_crawl.get("content", "") or fallback_crawl.get("markdown", "")
+                
+                # Basic regex-based entity extraction on fallback content
+                import re
+                entities = {}
+                
+                if "emails" in entity_types:
+                    emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', content)
+                    if emails:
+                        entities["emails"] = list(set(emails)) if deduplicate else emails
+                
+                if "phones" in entity_types:
+                    phones = re.findall(r'[\+]?[1-9]?[0-9]{7,15}', content)
+                    if phones:
+                        entities["phones"] = list(set(phones)) if deduplicate else phones
+                
+                if "urls" in entity_types:
+                    urls = re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', content)
+                    if urls:
+                        entities["urls"] = list(set(urls)) if deduplicate else urls
+                
+                return {
+                    "success": True,
+                    "url": url,
+                    "entities": entities,
+                    "entity_types": entity_types,
+                    "total_found": sum(len(v) for v in entities.values()),
+                    "content": content[:500] + ("..." if len(content) > 500 else ""),
+                    "fallback_used": True,
+                    "note": "Basic regex extraction used - some entity types may not be fully supported",
+                    "original_error": result.get("error", "Entity extraction failed")
+                }
+                
+        except Exception as fallback_error:
+            result["fallback_error"] = str(fallback_error)
+        
         return result
+        
     except Exception as e:
+        # If entity extraction throws an exception, try basic fallback
+        try:
+            fallback_crawl = await web_crawling.crawl_url_with_fallback(
+                url=url, generate_markdown=True, timeout=60
+            )
+            
+            if fallback_crawl.get("success", False):
+                content = fallback_crawl.get("content", "") or fallback_crawl.get("markdown", "")
+                
+                # Basic regex-based entity extraction
+                import re
+                entities = {}
+                
+                if "emails" in entity_types:
+                    emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', content)
+                    if emails:
+                        entities["emails"] = list(set(emails)) if deduplicate else emails
+                
+                if "phones" in entity_types:
+                    phones = re.findall(r'[\+]?[1-9]?[0-9]{7,15}', content)
+                    if phones:
+                        entities["phones"] = list(set(phones)) if deduplicate else phones
+                
+                if "urls" in entity_types:
+                    urls = re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', content)
+                    if urls:
+                        entities["urls"] = list(set(urls)) if deduplicate else urls
+                
+                return {
+                    "success": True,
+                    "url": url,
+                    "entities": entities,
+                    "entity_types": entity_types,
+                    "total_found": sum(len(v) for v in entities.values()),
+                    "content": content[:500] + ("..." if len(content) > 500 else ""),
+                    "fallback_used": True,
+                    "note": "Basic regex extraction used - some entity types may not be fully supported",
+                    "original_error": str(e)
+                }
+                
+        except Exception as fallback_error:
+            pass
+        
         return {
             "success": False,
             "error": f"Entity extraction error: {str(e)}"
@@ -709,6 +962,7 @@ async def extract_structured_data(
     
     CSS mode: Uses CSS selectors to extract specific elements into structured format
     LLM mode: Uses AI to extract data matching a predefined schema
+    Automatically applies fallback crawling if initial content retrieval fails.
     
     Perfect for consistent data extraction from similar page structures like product pages, articles, or listings.
     """
@@ -732,8 +986,20 @@ async def extract_structured_data(
                     timeout=timeout
                 )
                 
-                if not crawl_result.get("success", False):
-                    return crawl_result
+                # If initial crawl fails, try fallback
+                if not crawl_result.get("success", False) or not crawl_result.get("content", "").strip():
+                    fallback_result = await web_crawling.crawl_url_with_fallback(
+                        url=url,
+                        generate_markdown=generate_markdown,
+                        wait_for_js=wait_for_js,
+                        timeout=timeout
+                    )
+                    
+                    if fallback_result.get("success", False):
+                        crawl_result = fallback_result
+                        crawl_result["fallback_used"] = True
+                    else:
+                        return crawl_result
                 
                 # Simple CSS selector extraction using BeautifulSoup
                 from bs4 import BeautifulSoup
@@ -752,7 +1018,7 @@ async def extract_structured_data(
                     else:
                         extracted_data[key] = None
                 
-                return {
+                result = {
                     "success": True,
                     "url": url,
                     "extracted_data": extracted_data,
@@ -761,12 +1027,66 @@ async def extract_structured_data(
                     "markdown": crawl_result.get("markdown", "")
                 }
                 
+                if crawl_result.get("fallback_used"):
+                    result["fallback_used"] = True
+                
+                return result
+                
             except ImportError:
+                # If BeautifulSoup not available, try fallback crawl
+                try:
+                    fallback_result = await web_crawling.crawl_url_with_fallback(
+                        url=url,
+                        generate_markdown=generate_markdown,
+                        wait_for_js=wait_for_js,
+                        timeout=timeout
+                    )
+                    
+                    if fallback_result.get("success", False):
+                        return {
+                            "success": True,
+                            "url": url,
+                            "extracted_data": {"raw_content": fallback_result.get("content", "")[:500] + "..."},
+                            "processing_method": "fallback_crawl_only",
+                            "content": fallback_result.get("content", ""),
+                            "markdown": fallback_result.get("markdown", ""),
+                            "fallback_used": True,
+                            "note": "BeautifulSoup not available - CSS extraction skipped"
+                        }
+                
+                except Exception:
+                    pass
+                
                 return {
                     "success": False,
                     "error": "BeautifulSoup not available for CSS extraction"
                 }
+                
             except Exception as e:
+                # Try fallback on CSS extraction error
+                try:
+                    fallback_result = await web_crawling.crawl_url_with_fallback(
+                        url=url,
+                        generate_markdown=generate_markdown,
+                        wait_for_js=wait_for_js,
+                        timeout=timeout
+                    )
+                    
+                    if fallback_result.get("success", False):
+                        return {
+                            "success": True,
+                            "url": url,
+                            "extracted_data": {"raw_content": fallback_result.get("content", "")[:500] + "..."},
+                            "processing_method": "fallback_crawl_after_css_error",
+                            "content": fallback_result.get("content", ""),
+                            "markdown": fallback_result.get("markdown", ""),
+                            "fallback_used": True,
+                            "original_error": str(e)
+                        }
+                        
+                except Exception:
+                    pass
+                
                 return {
                     "success": False,
                     "error": f"CSS extraction error: {str(e)}"
@@ -781,6 +1101,19 @@ async def extract_structured_data(
                 timeout=timeout
             )
             
+            # If basic crawl fails, try fallback
+            if not crawl_result.get("success", False) or not crawl_result.get("content", "").strip():
+                fallback_result = await web_crawling.crawl_url_with_fallback(
+                    url=url,
+                    generate_markdown=generate_markdown,
+                    wait_for_js=wait_for_js,
+                    timeout=timeout
+                )
+                
+                if fallback_result.get("success", False):
+                    crawl_result = fallback_result
+                    crawl_result["fallback_used"] = True
+            
             if crawl_result.get("success", False):
                 crawl_result["processing_method"] = "basic_crawl_fallback"
                 crawl_result["note"] = "Used basic crawling - structured extraction not configured"
@@ -789,6 +1122,30 @@ async def extract_structured_data(
             return crawl_result
         
     except Exception as e:
+        # Final fallback attempt
+        try:
+            fallback_result = await web_crawling.crawl_url_with_fallback(
+                url=url,
+                generate_markdown=generate_markdown,
+                wait_for_js=wait_for_js,
+                timeout=timeout
+            )
+            
+            if fallback_result.get("success", False):
+                return {
+                    "success": True,
+                    "url": url,
+                    "extracted_data": {"raw_content": fallback_result.get("content", "")[:500] + "..."},
+                    "processing_method": "emergency_fallback",
+                    "content": fallback_result.get("content", ""),
+                    "markdown": fallback_result.get("markdown", ""),
+                    "fallback_used": True,
+                    "original_error": str(e)
+                }
+                
+        except Exception:
+            pass
+        
         return {
             "success": False,
             "error": f"Structured extraction error: {str(e)}"
@@ -872,6 +1229,7 @@ async def search_and_crawl(
     
     Provides both search metadata and full page content in structured format.
     Response size is controlled to prevent token limit issues.
+    Automatically applies fallback strategies for failed crawls.
     """
     _load_tool_modules()
     if not _tools_imported:
@@ -891,6 +1249,32 @@ async def search_and_crawl(
             generate_markdown=generate_markdown
         )
         
+        # Check for failed crawls and apply fallback
+        if result and isinstance(result, dict) and "crawled_pages" in result:
+            failed_pages = []
+            for i, page in enumerate(result["crawled_pages"]):
+                if isinstance(page, dict):
+                    if not page.get("success", True) or not page.get("content", "").strip():
+                        failed_pages.append((i, page.get("url", "")))
+            
+            # Apply fallback to failed pages
+            for idx, url in failed_pages:
+                if url:
+                    try:
+                        fallback_result = await web_crawling.crawl_url_with_fallback(
+                            url=url,
+                            generate_markdown=generate_markdown,
+                            timeout=30
+                        )
+                        
+                        if fallback_result.get("success", False):
+                            fallback_result["fallback_used"] = True
+                            # Update the page data
+                            result["crawled_pages"][idx].update(fallback_result)
+                            
+                    except Exception as fallback_error:
+                        result["crawled_pages"][idx]["fallback_error"] = str(fallback_error)
+        
         # Truncate content if too large
         if result and isinstance(result, dict):
             if "crawled_pages" in result:
@@ -902,7 +1286,61 @@ async def search_and_crawl(
                             page["markdown"] = page["markdown"][:max_content_per_page] + "... [truncated for size limit]"
         
         return result
+        
     except Exception as e:
+        # If search_and_crawl fails entirely, try with fallback crawling
+        try:
+            # First try to get search results only
+            search_result = await search.search_google({
+                "query": search_query,
+                "num_results": crawl_top_results
+            })
+            
+            if search_result.get("success", False) and "results" in search_result:
+                # Extract URLs and crawl with fallback
+                urls = [item.get("url", "") for item in search_result["results"] if item.get("url")]
+                crawled_pages = []
+                
+                for url in urls[:crawl_top_results]:
+                    try:
+                        fallback_result = await web_crawling.crawl_url_with_fallback(
+                            url=url,
+                            generate_markdown=generate_markdown,
+                            timeout=30
+                        )
+                        
+                        if fallback_result.get("success", False):
+                            fallback_result["fallback_used"] = True
+                            fallback_result["original_search_crawl_error"] = str(e)
+                            
+                            # Truncate if needed
+                            if "content" in fallback_result and len(fallback_result["content"]) > max_content_per_page:
+                                fallback_result["content"] = fallback_result["content"][:max_content_per_page] + "... [truncated for size limit]"
+                            if "markdown" in fallback_result and len(fallback_result["markdown"]) > max_content_per_page:
+                                fallback_result["markdown"] = fallback_result["markdown"][:max_content_per_page] + "... [truncated for size limit]"
+                            
+                        crawled_pages.append(fallback_result)
+                        
+                    except Exception as individual_error:
+                        crawled_pages.append({
+                            "success": False,
+                            "url": url,
+                            "error": f"Individual crawl failed: {str(individual_error)}",
+                            "original_search_crawl_error": str(e)
+                        })
+                
+                return {
+                    "success": True,
+                    "query": search_query,
+                    "search_results": search_result.get("results", []),
+                    "crawled_pages": crawled_pages,
+                    "fallback_used": True,
+                    "original_error": str(e)
+                }
+                
+        except Exception as fallback_error:
+            pass
+        
         return {
             "success": False,
             "error": f"Search and crawl error: {str(e)}"
@@ -972,6 +1410,7 @@ async def batch_crawl(
     
     Process multiple URLs concurrently for maximum efficiency while respecting server limits.
     Timeout automatically scales based on the number of URLs to crawl.
+    Automatically applies fallback strategies for failed individual crawls.
     
     Perfect for bulk content extraction, site auditing, and comparative analysis.
     """
@@ -999,6 +1438,33 @@ async def batch_crawl(
             utilities.batch_crawl(urls, config, base_timeout),
             timeout=total_timeout
         )
+        
+        # Check for failed crawls and apply fallback
+        if isinstance(result, list):
+            failed_urls = []
+            for i, crawl_result in enumerate(result):
+                if not crawl_result.get("success", True) or not crawl_result.get("markdown", "").strip():
+                    failed_urls.append((i, urls[i]))
+            
+            # Apply fallback to failed URLs
+            if failed_urls:
+                for idx, url in failed_urls:
+                    try:
+                        fallback_result = await web_crawling.crawl_url_with_fallback(
+                            url=url,
+                            generate_markdown=generate_markdown,
+                            extract_media=extract_media,
+                            wait_for_js=wait_for_js,
+                            timeout=base_timeout
+                        )
+                        
+                        if fallback_result.get("success", False):
+                            fallback_result["fallback_used"] = True
+                            result[idx] = fallback_result
+                        
+                    except Exception as fallback_error:
+                        result[idx]["fallback_error"] = str(fallback_error)
+        
         return result
         
     except asyncio.TimeoutError:
@@ -1007,10 +1473,38 @@ async def batch_crawl(
             "error": f"Batch crawl timed out after {total_timeout} seconds"
         }]
     except Exception as e:
-        return [{
-            "success": False,
-            "error": f"Batch crawl error: {str(e)}"
-        }]
+        # If batch crawl fails entirely, try individual fallbacks
+        try:
+            fallback_results = []
+            for url in urls:
+                try:
+                    fallback_result = await web_crawling.crawl_url_with_fallback(
+                        url=url,
+                        generate_markdown=generate_markdown,
+                        extract_media=extract_media,
+                        wait_for_js=wait_for_js,
+                        timeout=base_timeout
+                    )
+                    if fallback_result.get("success", False):
+                        fallback_result["fallback_used"] = True
+                        fallback_result["original_batch_error"] = str(e)
+                    fallback_results.append(fallback_result)
+                    
+                except Exception as individual_error:
+                    fallback_results.append({
+                        "success": False,
+                        "url": url,
+                        "error": f"Individual fallback failed: {str(individual_error)}",
+                        "original_batch_error": str(e)
+                    })
+            
+            return fallback_results
+            
+        except Exception:
+            return [{
+                "success": False,
+                "error": f"Batch crawl error: {str(e)}"
+            }]
 
 @mcp.tool()
 def get_tool_selection_guide() -> dict:
