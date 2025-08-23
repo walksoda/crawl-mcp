@@ -1,0 +1,36 @@
+{
+  "default_server": "local",
+  "servers": {
+    "local": {
+      "name": "Local Crawl4AI MCP Server",
+      "source": "../../crawl4ai_mcp/server.py",
+      "transport": "stdio",
+      "timeout": 30,
+      "description": "ローカルのCrawl4AI MCPサーバー（標準入出力）",
+      "enabled": true
+    },
+    "local_http": {
+      "name": "Local HTTP MCP Server",
+      "source": "http://127.0.0.1:8000",
+      "transport": "http",
+      "timeout": 30,
+      "description": "ローカルのCrawl4AI MCPサーバー（HTTP）",
+      "enabled": false
+    },
+    "script": {
+      "name": "Script Mode",
+      "source": "../../crawl4ai_mcp/server.py",
+      "transport": "stdio",
+      "timeout": 30,
+      "description": "スクリプトファイル直接実行",
+      "enabled": true
+    }
+  },
+  "test_config": {
+    "max_retry": 3,
+    "retry_delay": 2,
+    "log_level": "INFO",
+    "save_results": true,
+    "output_dir": "tests/client/results"
+  }
+}

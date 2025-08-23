@@ -10,7 +10,7 @@ This MCP wrapper: https://github.com/walksoda/crawl-mcp by walksoda
 This is NOT an official crawl4ai project.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 __author__ = "walksoda"
 __email__ = "walksoda@users.noreply.github.com"
 __original_lib__ = "crawl4ai"

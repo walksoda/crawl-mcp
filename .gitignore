@@ -123,6 +123,7 @@ docs/*TEMP_*.md
 *.bak
 *.backup
 *~
+crawl4ai_mcp/archived_servers
 
 # Node.js (if any) - User mentioned manual Playwright installation
 node_modules/
