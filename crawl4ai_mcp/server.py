@@ -51,6 +51,95 @@ def _load_heavy_imports():
     
     _heavy_imports_loaded = True
 
+def _estimate_tokens(text: str) -> int:
+    """Estimate token count (rough approximation: 4 chars = 1 token)"""
+    return len(str(text)) // 4
+
+def _apply_token_limit_fallback(result: dict, max_tokens: int = 20000) -> dict:
+    """Apply token limit fallback to MCP tool responses to prevent Claude Code errors"""
+    import json
+    result_copy = result.copy()
+    
+    # Check current size
+    current_tokens = _estimate_tokens(json.dumps(result_copy))
+    
+    if current_tokens <= max_tokens:
+        return result_copy
+    
+    # Add fallback indicators
+    result_copy["token_limit_applied"] = True
+    result_copy["original_response_tokens"] = current_tokens
+    result_copy["truncated_to_tokens"] = max_tokens
+    result_copy["fallback_note"] = "Response truncated to stay within MCP token limits"
+    
+    # Priority order for content truncation
+    content_fields = [
+        ("content", 8000),          # Main content - keep substantial portion
+        ("markdown", 6000),         # Markdown version  
+        ("raw_content", 2000),      # Raw text content
+        ("text", 2000),            # Extracted text
+        ("results", 4000),         # Search/crawl results
+        ("chunks", 2000),          # Content chunks
+        ("extracted_data", 1500),  # Structured data
+        ("summary", 1500),         # Summary content
+        ("final_summary", 1000),   # Final summary
+        ("metadata", 500),         # Metadata - keep small portion
+        ("entities", 1000),        # Extracted entities
+        ("table_data", 1500)       # Table data
+    ]
+    
+    for field, max_field_tokens in content_fields:
+        if field in result_copy and result_copy[field]:
+            field_content = result_copy[field]
+            
+            # Handle different field types
+            if isinstance(field_content, list):
+                # For lists, truncate by limiting number of items
+                if len(field_content) > 10:
+                    result_copy[field] = field_content[:10]
+                    result_copy[f"{field}_truncated_from"] = len(field_content)
+            elif isinstance(field_content, dict):
+                # For dicts, truncate string values
+                truncated_dict = {}
+                for k, v in field_content.items():
+                    if isinstance(v, str) and len(v) > 500:
+                        truncated_dict[k] = v[:500] + "... [TRUNCATED]"
+                    else:
+                        truncated_dict[k] = v
+                result_copy[field] = truncated_dict
+            elif isinstance(field_content, str):
+                # For strings, truncate with ellipsis
+                max_chars = max_field_tokens * 4
+                if len(field_content) > max_chars:
+                    result_copy[field] = field_content[:max_chars] + f"... [TRUNCATED: {len(field_content)} -> {max_chars} chars]"
+    
+    # Final size check and emergency truncation  
+    current_tokens = _estimate_tokens(json.dumps(result_copy))
+    if current_tokens > max_tokens:
+        # Emergency truncation - keep only essential fields
+        essential_fields = ["success", "url", "error", "title", "file_type", "processing_method"]
+        essential_result = {
+            key: result_copy.get(key) for key in essential_fields if key in result_copy
+        }
+        
+        essential_result.update({
+            "token_limit_applied": True,
+            "emergency_truncation": True,
+            "original_response_tokens": result.get("original_response_tokens", current_tokens),
+            "emergency_note": f"Severe truncation applied due to {current_tokens} token response. Use more specific parameters to reduce content size.",
+            "available_fields_in_original": list(result.keys()),
+        })
+        
+        # Add minimal content if available
+        if result.get("content"):
+            essential_result["content_preview"] = str(result["content"])[:2000] + "... [EMERGENCY TRUNCATION - use auto_summarize or filtering]"
+        elif result.get("summary"):
+            essential_result["summary_preview"] = str(result["summary"])[:1000] + "... [TRUNCATED]"
+            
+        return essential_result
+    
+    return result_copy
+
 def _load_tool_modules():
     """Load tool modules only when needed"""
     global _tools_imported
@@ -169,7 +258,7 @@ async def crawl_url(
             auto_summarize=auto_summarize, use_undetected_browser=use_undetected_browser
         )
         
-        # Check if crawling was successful - convert CrawlResponse to dict
+        # Convert CrawlResponse to dict
         if hasattr(result, 'model_dump'):
             result_dict = result.model_dump()
         elif hasattr(result, 'dict'):
@@ -178,7 +267,8 @@ async def crawl_url(
             result_dict = result
         
         if result_dict.get("success", True) and result_dict.get("markdown", "").strip():
-            return result_dict
+            # Apply token limit fallback before returning
+            return _apply_token_limit_fallback(result_dict, max_tokens=20000)
         
         # If initial crawling failed or returned empty content, try fallback with undetected browser
         fallback_result = await web_crawling.crawl_url_with_fallback(
@@ -195,12 +285,14 @@ async def crawl_url(
             fallback_dict = fallback_result.dict()
         else:
             fallback_dict = fallback_result
+            
         if fallback_dict.get("success", False):
             fallback_dict["fallback_used"] = True
             if use_undetected_browser:
                 fallback_dict["undetected_browser_used"] = True
         
-        return fallback_dict
+        # Apply token limit fallback before returning
+        return _apply_token_limit_fallback(fallback_dict, max_tokens=20000)
         
     except Exception as e:
         # If initial crawling throws an exception, try fallback with undetected browser
@@ -219,12 +311,14 @@ async def crawl_url(
                 fallback_dict = fallback_result.dict()
             else:
                 fallback_dict = fallback_result
+                
             if fallback_dict.get("success", False):
                 fallback_dict["fallback_used"] = True
                 fallback_dict["undetected_browser_used"] = True
                 fallback_dict["original_error"] = str(e)
             
-            return fallback_dict
+            # Apply token limit fallback before returning
+            return _apply_token_limit_fallback(fallback_dict, max_tokens=20000)
             
         except Exception as fallback_error:
             return {
@@ -283,7 +377,17 @@ async def extract_youtube_transcript(
             max_content_tokens=max_content_tokens, summary_length=summary_length,
             llm_provider=llm_provider, llm_model=llm_model
         )
-        return result
+        
+        # Apply token limit fallback to prevent MCP errors
+        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
+        
+        # If token limit was applied and auto_summarize was False, provide helpful suggestion
+        if result_with_fallback.get("token_limit_applied") and not auto_summarize:
+            if not result_with_fallback.get("emergency_truncation"):
+                result_with_fallback["suggestion"] = "Transcript was truncated due to MCP token limits. Consider setting auto_summarize=True for long transcripts."
+                
+        return result_with_fallback
+        
     except Exception as e:
         return {
             "success": False,
@@ -311,7 +415,17 @@ async def batch_extract_youtube_transcripts(
     
     try:
         result = await youtube.batch_extract_youtube_transcripts(request)
-        return result
+        
+        # Apply token limit fallback to prevent MCP errors
+        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
+        
+        # If token limit was applied, provide helpful suggestion
+        if result_with_fallback.get("token_limit_applied"):
+            if not result_with_fallback.get("emergency_truncation"):
+                result_with_fallback["suggestion"] = "Batch transcript data was truncated due to MCP token limits. Consider reducing the number of videos or enabling auto_summarize for individual videos."
+                
+        return result_with_fallback
+        
     except Exception as e:
         return {
             "success": False,
@@ -349,7 +463,17 @@ async def get_youtube_video_info(
             max_tokens=max_tokens, llm_provider=llm_provider, llm_model=llm_model,
             summary_length=summary_length, include_timestamps=include_timestamps
         )
-        return result
+        
+        # Apply token limit fallback to prevent MCP errors
+        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
+        
+        # If token limit was applied and summarize_transcript was False, provide helpful suggestion
+        if result_with_fallback.get("token_limit_applied") and not summarize_transcript:
+            if not result_with_fallback.get("emergency_truncation"):
+                result_with_fallback["suggestion"] = "Video info was truncated due to MCP token limits. Consider setting summarize_transcript=True for long transcripts."
+                
+        return result_with_fallback
+        
     except Exception as e:
         return {
             "success": False,
@@ -412,7 +536,17 @@ async def process_file(
             max_content_tokens=max_content_tokens, summary_length=summary_length,
             llm_provider=llm_provider, llm_model=llm_model
         )
-        return result
+        
+        # Apply token limit fallback to prevent MCP errors
+        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
+        
+        # If token limit was applied and auto_summarize was False, provide helpful suggestion
+        if result_with_fallback.get("token_limit_applied") and not auto_summarize:
+            if not result_with_fallback.get("emergency_truncation"):
+                result_with_fallback["suggestion"] = "Content was truncated due to MCP token limits. Consider setting auto_summarize=True for better content reduction."
+            
+        return result_with_fallback
+        
     except Exception as e:
         return {
             "success": False,
@@ -629,7 +763,8 @@ async def deep_crawl_site(
         
         # Check if crawling was successful
         if result.get("success", True):
-            return result
+            # Apply token limit fallback before returning
+            return _apply_token_limit_fallback(result, max_tokens=20000)
         
         # If deep crawl failed entirely, try with fallback strategy for the main URL
         try:
@@ -639,7 +774,7 @@ async def deep_crawl_site(
             
             if fallback_result.get("success", False):
                 # Convert single URL result to deep crawl format
-                return {
+                fallback_response = {
                     "success": True,
                     "results": [{
                         "url": url,
@@ -657,6 +792,9 @@ async def deep_crawl_site(
                     },
                     "original_error": result.get("error", "Deep crawl failed")
                 }
+                
+                # Apply token limit fallback before returning
+                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
             
         except Exception as fallback_error:
             result["fallback_error"] = str(fallback_error)
@@ -671,7 +809,7 @@ async def deep_crawl_site(
             )
             
             if fallback_result.get("success", False):
-                return {
+                fallback_response = {
                     "success": True,
                     "results": [{
                         "url": url,
@@ -689,6 +827,9 @@ async def deep_crawl_site(
                     },
                     "original_error": str(e)
                 }
+                
+                # Apply token limit fallback before returning
+                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
                 
         except Exception as fallback_error:
             pass
@@ -775,7 +916,8 @@ async def intelligent_extract(
         
         # Check if extraction was successful
         if result.get("success", True):
-            return result
+            # Apply token limit fallback before returning
+            return _apply_token_limit_fallback(result, max_tokens=20000)
         
         # If intelligent extraction failed, try with fallback crawling
         try:
@@ -788,7 +930,7 @@ async def intelligent_extract(
                 content = fallback_crawl.get("markdown", "") or fallback_crawl.get("content", "")
                 
                 if content.strip():
-                    return {
+                    fallback_response = {
                         "success": True,
                         "url": url,
                         "extraction_goal": extraction_goal,
@@ -801,6 +943,9 @@ async def intelligent_extract(
                         "fallback_used": True,
                         "original_error": result.get("error", "Intelligent extraction failed")
                     }
+                    
+                    # Apply token limit fallback before returning
+                    return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
                     
         except Exception as fallback_error:
             result["fallback_error"] = str(fallback_error)
@@ -817,7 +962,7 @@ async def intelligent_extract(
             if fallback_crawl.get("success", False):
                 content = fallback_crawl.get("markdown", "") or fallback_crawl.get("content", "")
                 
-                return {
+                fallback_response = {
                     "success": True,
                     "url": url,
                     "extraction_goal": extraction_goal,
@@ -830,6 +975,9 @@ async def intelligent_extract(
                     "fallback_used": True,
                     "original_error": str(e)
                 }
+                
+                # Apply token limit fallback before returning
+                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
                 
         except Exception as fallback_error:
             pass
@@ -875,7 +1023,8 @@ async def extract_entities(
         
         # Check if entity extraction was successful
         if result.get("success", True):
-            return result
+            # Apply token limit fallback before returning
+            return _apply_token_limit_fallback(result, max_tokens=20000)
         
         # If entity extraction failed, try with fallback crawling
         try:
@@ -905,7 +1054,7 @@ async def extract_entities(
                     if urls:
                         entities["urls"] = list(set(urls)) if deduplicate else urls
                 
-                return {
+                fallback_response = {
                     "success": True,
                     "url": url,
                     "entities": entities,
@@ -916,6 +1065,9 @@ async def extract_entities(
                     "note": "Basic regex extraction used - some entity types may not be fully supported",
                     "original_error": result.get("error", "Entity extraction failed")
                 }
+                
+                # Apply token limit fallback before returning
+                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
                 
         except Exception as fallback_error:
             result["fallback_error"] = str(fallback_error)
@@ -951,7 +1103,7 @@ async def extract_entities(
                     if urls:
                         entities["urls"] = list(set(urls)) if deduplicate else urls
                 
-                return {
+                fallback_response = {
                     "success": True,
                     "url": url,
                     "entities": entities,
@@ -962,6 +1114,9 @@ async def extract_entities(
                     "note": "Basic regex extraction used - some entity types may not be fully supported",
                     "original_error": str(e)
                 }
+                
+                # Apply token limit fallback before returning
+                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
                 
         except Exception as fallback_error:
             pass
@@ -1017,7 +1172,8 @@ async def extract_structured_data(
                 if result.get("success", False):
                     result["processing_method"] = "llm_table_extraction"
                     result["features_used"] = ["intelligent_chunking", "massive_table_support"]
-                    return result
+                    # Apply token limit fallback before returning
+                    return _apply_token_limit_fallback(result, max_tokens=20000)
                     
             except Exception as table_error:
                 # Fallback to CSS extraction if table extraction fails
@@ -1121,7 +1277,8 @@ async def extract_structured_data(
                 if crawl_result.get("fallback_used"):
                     result["fallback_used"] = True
                 
-                return result
+                # Apply token limit fallback before returning
+                return _apply_token_limit_fallback(result, max_tokens=20000)
                 
             except ImportError:
                 # If BeautifulSoup not available, try fallback crawl
@@ -1135,7 +1292,7 @@ async def extract_structured_data(
                     )
                     
                     if fallback_result.get("success", False):
-                        return {
+                        fallback_response = {
                             "success": True,
                             "url": url,
                             "extracted_data": {"raw_content": fallback_result.get("content", "")[:500] + "..."},
@@ -1145,6 +1302,9 @@ async def extract_structured_data(
                             "fallback_used": True,
                             "note": "BeautifulSoup not available - CSS extraction skipped"
                         }
+                        
+                        # Apply token limit fallback before returning
+                        return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
                 
                 except Exception:
                     pass
@@ -1166,7 +1326,7 @@ async def extract_structured_data(
                     )
                     
                     if fallback_result.get("success", False):
-                        return {
+                        fallback_response = {
                             "success": True,
                             "url": url,
                             "extracted_data": {"raw_content": fallback_result.get("content", "")[:500] + "..."},
@@ -1176,6 +1336,9 @@ async def extract_structured_data(
                             "fallback_used": True,
                             "original_error": str(e)
                         }
+                        
+                        # Apply token limit fallback before returning
+                        return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
                         
                 except Exception:
                     pass
@@ -1213,7 +1376,8 @@ async def extract_structured_data(
                 crawl_result["note"] = "Used basic crawling - structured extraction not configured"
                 crawl_result["extracted_data"] = {"raw_content": crawl_result.get("content", "")[:500] + "..."}
             
-            return crawl_result
+            # Apply token limit fallback before returning
+            return _apply_token_limit_fallback(crawl_result, max_tokens=20000)
         
     except Exception as e:
         # Final fallback attempt
@@ -1227,7 +1391,7 @@ async def extract_structured_data(
             )
             
             if fallback_result.get("success", False):
-                return {
+                fallback_response = {
                     "success": True,
                     "url": url,
                     "extracted_data": {"raw_content": fallback_result.get("content", "")[:500] + "..."},
@@ -1237,6 +1401,9 @@ async def extract_structured_data(
                     "fallback_used": True,
                     "original_error": str(e)
                 }
+                
+                # Apply token limit fallback before returning
+                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
                 
         except Exception:
             pass
@@ -1301,7 +1468,17 @@ async def batch_search_google(
     
     try:
         result = await search.batch_search_google(request, include_current_date)
-        return result
+        
+        # Apply token limit fallback to prevent MCP errors
+        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
+        
+        # If token limit was applied, provide helpful suggestion
+        if result_with_fallback.get("token_limit_applied"):
+            if not result_with_fallback.get("emergency_truncation"):
+                result_with_fallback["suggestion"] = "Batch search results were truncated due to MCP token limits. Consider reducing the number of queries or num_results per query."
+                
+        return result_with_fallback
+        
     except Exception as e:
         return {
             "success": False,
@@ -1380,7 +1557,8 @@ async def search_and_crawl(
                         if "markdown" in page and len(page["markdown"]) > max_content_per_page:
                             page["markdown"] = page["markdown"][:max_content_per_page] + "... [truncated for size limit]"
         
-        return result
+        # Apply token limit fallback before returning
+        return _apply_token_limit_fallback(result, max_tokens=20000)
         
     except Exception as e:
         # If search_and_crawl fails entirely, try with fallback crawling
@@ -1424,7 +1602,7 @@ async def search_and_crawl(
                             "original_search_crawl_error": str(e)
                         })
                 
-                return {
+                fallback_response = {
                     "success": True,
                     "query": search_query,
                     "search_results": search_result.get("results", []),
@@ -1432,6 +1610,9 @@ async def search_and_crawl(
                     "fallback_used": True,
                     "original_error": str(e)
                 }
+                
+                # Apply token limit fallback before returning
+                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
                 
         except Exception as fallback_error:
             pass
@@ -1565,7 +1746,16 @@ async def batch_crawl(
                     except Exception as fallback_error:
                         result[idx]["fallback_error"] = str(fallback_error)
         
-        return result
+        # Apply token limit fallback to the entire batch result
+        batch_response = {"batch_results": result, "total_urls": len(urls)}
+        final_result = _apply_token_limit_fallback(batch_response, max_tokens=20000)
+        
+        # Return just the batch_results list if no token limits were applied
+        if not final_result.get("token_limit_applied"):
+            return result
+        else:
+            # If token limits were applied, return the modified structure with metadata
+            return final_result.get("batch_results", result)
         
     except asyncio.TimeoutError:
         return [{
@@ -1600,7 +1790,10 @@ async def batch_crawl(
                         "original_batch_error": str(e)
                     })
             
-            return fallback_results
+            # Apply token limit fallback to emergency results  
+            batch_response = {"batch_results": fallback_results, "total_urls": len(urls)}
+            final_result = _apply_token_limit_fallback(batch_response, max_tokens=20000)
+            return final_result.get("batch_results", fallback_results)
             
         except Exception:
             return [{
@@ -1745,7 +1938,16 @@ async def multi_url_crawl(
                 }
                 results.append(error_result)
         
-        return results
+        # Apply token limit fallback to the entire multi-URL result
+        batch_response = {"multi_url_results": results, "total_urls": len(all_urls)}
+        final_result = _apply_token_limit_fallback(batch_response, max_tokens=20000)
+        
+        # Return just the results list if no token limits were applied
+        if not final_result.get("token_limit_applied"):
+            return results
+        else:
+            # If token limits were applied, return the modified structure
+            return final_result.get("multi_url_results", results)
         
     except Exception as e:
         return [{

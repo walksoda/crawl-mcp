@@ -120,6 +120,14 @@ docs/*WIP_*.md
 docs/*DEV_*.md
 docs/*TEMP_*.md
 
+# Project root markdown files (excluding README)
+/*.md
+!/README.md
+!/README_*.md
+!/CHANGELOG.md
+!/LICENSE.md
+!/CONTRIBUTING.md
+
 # Backup files
 *.bak
 *.backup

@@ -28,6 +28,7 @@ class LLMProviderConfig:
     base_url_env: Optional[str] = None  # Environment variable name for base URL (AOAI)
     api_version: Optional[str] = None  # API version for Azure OpenAI
     models: list = None
+    extra_headers: Optional[Dict[str, str]] = None  # Additional HTTP headers for API requests
 
 
 @dataclass
@@ -144,7 +145,8 @@ class ConfigManager:
                 base_url=provider_data.get('base_url'),
                 base_url_env=provider_data.get('base_url_env'),  # Environment variable for base URL
                 api_version=provider_data.get('api_version'),  # API version for Azure
-                models=provider_data.get('models', [])
+                models=provider_data.get('models', []),
+                extra_headers=provider_data.get('extra_headers')  # Custom HTTP headers
             )
         
         return MCPLLMConfig(
@@ -251,6 +253,13 @@ class ConfigManager:
         
         return None
     
+    def get_extra_headers(self, provider: str) -> Optional[Dict[str, str]]:
+        """Get extra headers for a provider"""
+        provider_config = self.get_provider_config(provider)
+        if not provider_config:
+            return None
+        return provider_config.extra_headers
+    
     def has_valid_api_key(self, provider: str) -> bool:
         """Check if a provider has a valid API key available"""
         provider_config = self.get_provider_config(provider)
@@ -344,18 +353,31 @@ class ConfigManager:
             print(f"⚠️ Model {target_model} not supported by {target_provider}, using first available model", file=sys.stderr)
             target_model = provider_config.models[0] if provider_config.models else 'default'
         
-        # Get API key and base URL
+        # Get API key, base URL, and extra headers
         api_token = self.get_api_key(target_provider)
         base_url = self.get_base_url(target_provider)
+        extra_headers = self.get_extra_headers(target_provider)
         
         print(f"🚀 Creating LLM config: {target_provider}/{target_model}", file=sys.stderr)
         
-        # Create LLMConfig (extra_headers not supported in current version)
-        llm_config = LLMConfig(
-            provider=f"{target_provider}/{target_model}",
-            api_token=api_token,
-            base_url=base_url
-        )
+        # Create LLMConfig with extra_headers support
+        config_params = {
+            "provider": f"{target_provider}/{target_model}",
+            "api_token": api_token,
+            "base_url": base_url
+        }
+        
+        # Add extra_headers if available and supported by current Crawl4AI version
+        if extra_headers:
+            try:
+                llm_config = LLMConfig(**config_params, extra_headers=extra_headers)
+                print(f"✅ Applied extra headers for {target_provider}: {list(extra_headers.keys())}", file=sys.stderr)
+            except TypeError:
+                # Fallback for older Crawl4AI versions without extra_headers support
+                llm_config = LLMConfig(**config_params)
+                print(f"⚠️ Extra headers specified but not supported by current Crawl4AI version", file=sys.stderr)
+        else:
+            llm_config = LLMConfig(**config_params)
         
         return llm_config
     

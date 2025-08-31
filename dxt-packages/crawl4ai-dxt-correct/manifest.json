@@ -2,7 +2,7 @@
   "dxt_version": "0.1",
   "name": "crawl4ai-extension",
   "display_name": "Crawl4AI Web Crawler MCP",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "🚀 Ultimate web crawling MCP extension - 21 tools, 2025 optimized, 100% verified, production-ready",
   "long_description": "🌟 **THE ULTIMATE WEB CRAWLING POWERHOUSE** 🌟\n\n🏆 **PERFECT SCORE**: 100% tool verification success rate\n🚀 **2025 OPTIMIZED**: Tool descriptions follow latest MCP best practices for maximum LLM efficiency\n⚡ **LIGHTNING FAST**: 71.4% code reduction (4,426→1,266 lines) + 88.5% token reduction\n🧠 **AI-POWERED**: Advanced cosine similarity filtering + hierarchical summarization\n🔥 **PRODUCTION READY**: Complete 21-tool suite with bulletproof error handling\n\n**🛠️ COMPLETE TOOLKIT:**\n• 🌐 Advanced web crawling (JavaScript support, deep crawling)\n• 🎬 YouTube transcripts (no API key needed)\n• 🔍 Google search with genre filtering\n• 📄 Document processing (PDF/Office/ZIP)\n• 🤖 LLM-powered content extraction\n• 📊 Batch processing with concurrency control\n• 🎯 Entity extraction (emails, phones, URLs)\n• 🧩 Structured data extraction\n\n**🔧 TECHNICAL EXCELLENCE:**\n• Modular architecture with full type safety\n• Adaptive filtering strategies (BM25, pruning, LLM)\n• GPT-4.1 support with auto-detection\n• Smart chunking with semantic boundaries\n• Rate limiting and error recovery\n• Comprehensive logging and monitoring\n\n**Perfect for developers who demand reliability, performance, and cutting-edge AI integration.**",
   "author": {

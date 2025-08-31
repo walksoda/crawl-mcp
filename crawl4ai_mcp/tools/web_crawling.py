@@ -49,6 +49,11 @@ youtube_processor = YouTubeProcessor()
 
 
 # Placeholder for summarize_web_content function
+# Response size limit for MCP protocol (approximately 100k tokens)
+# This prevents issues with oversized responses in Claude Desktop
+MAX_RESPONSE_TOKENS = 100000  # Conservative limit to ensure safe transmission
+MAX_RESPONSE_CHARS = MAX_RESPONSE_TOKENS * 4  # Rough estimate: 1 token ≈ 4 characters
+
 async def summarize_web_content(
     content: str,
     title: str = "",
@@ -58,14 +63,126 @@ async def summarize_web_content(
     llm_model: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Placeholder for web content summarization.
-    TODO: Implement LLM-based summarization.
+    Summarize web content using LLM with fallback to basic text truncation.
     """
-    return {
-        "success": False,
-        "error": "Summarization not yet implemented in modular architecture",
-        "summary": content  # Return original content as fallback
-    }
+    try:
+        # Import config
+        try:
+            from ..config import get_llm_config
+        except ImportError:
+            from config import get_llm_config
+        
+        # Get LLM configuration
+        llm_config = get_llm_config(llm_provider, llm_model)
+        
+        # Prepare summarization prompt based on summary length
+        length_instructions = {
+            "short": "Provide a brief 2-3 sentence summary of the main points.",
+            "medium": "Provide a comprehensive summary in 1-2 paragraphs covering key points.",
+            "long": "Provide a detailed summary covering all important information, insights, and context."
+        }
+        
+        prompt = f"""
+        Please summarize the following web content.
+        
+        Title: {title}
+        URL: {url}
+        
+        {length_instructions.get(summary_length, length_instructions["medium"])}
+        
+        Focus on:
+        - Main topics and key information
+        - Important facts, statistics, or findings
+        - Practical insights or conclusions
+        - Technical details if present
+        
+        Content to summarize:
+        {content[:50000]}  # Limit to prevent token overflow
+        """
+        
+        # Get provider info from config
+        provider_info = llm_config.provider.split('/')
+        provider = provider_info[0] if provider_info else 'openai'
+        model = provider_info[1] if len(provider_info) > 1 else 'gpt-4o'
+        
+        summary_text = None
+        
+        if provider == 'openai':
+            import openai
+            api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
+            if not api_key:
+                raise ValueError("OpenAI API key not found")
+            
+            client = openai.AsyncOpenAI(api_key=api_key, base_url=llm_config.base_url)
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are an expert content summarizer. Provide clear, concise summaries."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2000
+            )
+            summary_text = response.choices[0].message.content
+            
+        elif provider == 'anthropic':
+            import anthropic
+            api_key = llm_config.api_token or os.environ.get('ANTHROPIC_API_KEY')
+            if not api_key:
+                raise ValueError("Anthropic API key not found")
+            
+            client = anthropic.AsyncAnthropic(api_key=api_key)
+            response = await client.messages.create(
+                model=model,
+                max_tokens=2000,
+                temperature=0.3,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            summary_text = response.content[0].text
+        else:
+            # Fallback for unsupported providers
+            raise ValueError(f"LLM provider '{provider}' not supported for summarization")
+        
+        if summary_text:
+            # Calculate compression ratio
+            original_length = len(content)
+            summary_length_chars = len(summary_text)
+            compression_ratio = round((1 - summary_length_chars / original_length) * 100, 2)
+            
+            return {
+                "success": True,
+                "summary": summary_text,
+                "original_length": original_length,
+                "summary_length": summary_length_chars,
+                "compressed_ratio": compression_ratio,
+                "llm_provider": provider,
+                "llm_model": model,
+                "content_type": "web_content"
+            }
+        else:
+            raise ValueError("LLM returned empty summary")
+            
+    except Exception as e:
+        # Fallback to simple truncation if LLM fails
+        max_chars = {
+            "short": 500,
+            "medium": 1500,
+            "long": 3000
+        }.get(summary_length, 1500)
+        
+        truncated = content[:max_chars]
+        if len(content) > max_chars:
+            truncated += "... [Content truncated due to size]"
+        
+        return {
+            "success": False,
+            "error": f"LLM summarization failed: {str(e)}. Returning truncated content.",
+            "summary": truncated,
+            "original_length": len(content),
+            "summary_length": len(truncated),
+            "compressed_ratio": round((1 - len(truncated) / len(content)) * 100, 2) if content else 0,
+            "fallback_method": "truncation"
+        }
 
 
 # Complete implementation of internal crawl URL function
@@ -95,7 +212,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 
                 if youtube_result['success']:
                     transcript_data = youtube_result['transcript']
-                    return CrawlResponse(
+                    response = CrawlResponse(
                         success=True,
                         url=request.url,
                         title=f"YouTube Video Transcript: {youtube_result['video_id']}",
@@ -113,6 +230,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                             "metadata": youtube_result.get('metadata')
                         }
                     )
+                    return await _check_and_summarize_if_needed(response, request)
                 else:
                     # If YouTube transcript extraction fails, provide helpful error message
                     error_msg = youtube_result.get('error', 'Unknown error')
@@ -144,7 +262,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 )
                 
                 if file_result['success']:
-                    return CrawlResponse(
+                    response = CrawlResponse(
                         success=True,
                         url=request.url,
                         title=file_result.get('title'),
@@ -159,6 +277,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                             "processing_method": "markitdown"
                         }
                     )
+                    return await _check_and_summarize_if_needed(response, request)
                 else:
                     return CrawlResponse(
                         success=False,
@@ -342,7 +461,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     if hasattr(page_result, 'media') and page_result.media and request.extract_media:
                         all_media.extend(page_result.media)
             
-            return CrawlResponse(
+            response = CrawlResponse(
                 success=True,
                 url=request.url,
                 title=f"Deep crawl of {len(crawled_urls)} pages",
@@ -355,6 +474,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     "processing_method": "deep_crawling"
                 }
             )
+            return await _check_and_summarize_if_needed(response, request)
         
         elif hasattr(result, 'success') and result.success:
             # For deep crawling, result might contain multiple pages
@@ -511,7 +631,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     screenshot=result.screenshot if request.take_screenshot else None,
                     extracted_data=extracted_data
                 )
-            return response
+            return await _check_and_summarize_if_needed(response, request)
         else:
             # Handle case where result doesn't have success attribute or failed
             error_msg = "Failed to crawl URL"
@@ -568,6 +688,130 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 ]
             }
         )
+
+async def _check_and_summarize_if_needed(
+    response: CrawlResponse,
+    request: CrawlRequest
+) -> CrawlResponse:
+    """
+    Check if response content exceeds token limits and apply summarization if needed.
+    Respects user-specified limits when provided.
+    """
+    # Skip if response failed or already summarized
+    if not response.success or not response.content:
+        return response
+    
+    # Check if already summarized
+    if response.extracted_data and response.extracted_data.get("summarization_applied"):
+        return response
+    
+    # Estimate total response size (content + markdown + metadata)
+    total_chars = len(response.content or "") + len(response.markdown or "")
+    
+    # Determine effective token limit - user-specified takes precedence
+    effective_limit_chars = MAX_RESPONSE_CHARS
+    limit_source = "MCP_PROTOCOL_SAFETY"
+    
+    # If user explicitly set auto_summarize=True and max_content_tokens, use that instead
+    if hasattr(request, 'auto_summarize') and request.auto_summarize:
+        if hasattr(request, 'max_content_tokens') and request.max_content_tokens:
+            # Convert user's token limit to character estimate
+            user_limit_chars = request.max_content_tokens * 4
+            # Use the smaller limit (user preference or protocol safety)
+            if user_limit_chars < effective_limit_chars:
+                effective_limit_chars = user_limit_chars
+                limit_source = "USER_SPECIFIED"
+    
+    # Check if response exceeds the effective limit
+    if total_chars > effective_limit_chars:
+        try:
+            # Use markdown if available, otherwise use content
+            content_to_summarize = response.markdown or response.content
+            
+            # Determine summary length based on reduction needed
+            reduction_ratio = effective_limit_chars / total_chars
+            if reduction_ratio > 0.5:
+                summary_length = "medium"
+            elif reduction_ratio > 0.3:
+                summary_length = "short"
+            else:
+                summary_length = "short"  # Aggressive reduction needed
+            
+            # Force summarization to meet token limits
+            summary_result = await summarize_web_content(
+                content=content_to_summarize,
+                title=response.title or "",
+                url=response.url,
+                summary_length=summary_length,
+                llm_provider=request.llm_provider if hasattr(request, 'llm_provider') else None,
+                llm_model=request.llm_model if hasattr(request, 'llm_model') else None
+            )
+            
+            if summary_result.get("success"):
+                # Update response with summarized content
+                if limit_source == "USER_SPECIFIED":
+                    prefix = f"⚠️ Content exceeded user-specified limit ({total_chars:,} chars > {effective_limit_chars:,} chars). Auto-summarized:\n\n"
+                else:
+                    prefix = f"⚠️ Content exceeded MCP token limit ({total_chars:,} chars > {effective_limit_chars:,} chars). Auto-summarized:\n\n"
+                
+                response.content = f"{prefix}{summary_result['summary']}"
+                response.markdown = response.content
+                
+                # Update extracted_data
+                if response.extracted_data is None:
+                    response.extracted_data = {}
+                
+                response.extracted_data.update({
+                    "auto_summarization_reason": limit_source,
+                    "original_size_chars": total_chars,
+                    "effective_limit_chars": effective_limit_chars,
+                    "user_specified_limit": limit_source == "USER_SPECIFIED",
+                    "user_max_content_tokens": request.max_content_tokens if hasattr(request, 'max_content_tokens') else None,
+                    "summarization_applied": True,
+                    "summary_length": summary_length,
+                    "compression_ratio": summary_result.get("compressed_ratio", 0),
+                    "llm_provider": summary_result.get("llm_provider", "unknown"),
+                    "llm_model": summary_result.get("llm_model", "unknown"),
+                })
+            else:
+                # Summarization failed, truncate content
+                truncate_at = effective_limit_chars - 500  # Leave room for message
+                prefix = f"⚠️ Content exceeded limit ({total_chars:,} chars > {effective_limit_chars:,} chars).\n\nSummarization failed: {summary_result.get('error', 'Unknown error')}\n\nTruncated content:\n\n"
+                response.content = f"{prefix}{response.content[:truncate_at]}... [Content truncated]"
+                response.markdown = response.content
+                
+                if response.extracted_data is None:
+                    response.extracted_data = {}
+                
+                response.extracted_data.update({
+                    "auto_truncation_reason": limit_source,
+                    "original_size_chars": total_chars,
+                    "effective_limit_chars": effective_limit_chars,
+                    "user_specified_limit": limit_source == "USER_SPECIFIED",
+                    "truncation_applied": True,
+                    "summarization_attempted": True,
+                    "summarization_error": summary_result.get("error", "Unknown error")
+                })
+                
+        except Exception as e:
+            # Final fallback: aggressive truncation
+            truncate_at = effective_limit_chars - 500
+            prefix = f"⚠️ Content exceeded limit ({total_chars:,} chars > {effective_limit_chars:,} chars).\n\nEmergency truncation applied due to error: {str(e)}\n\n"
+            response.content = f"{prefix}{response.content[:truncate_at]}... [Content truncated]"
+            response.markdown = response.content
+            
+            if response.extracted_data is None:
+                response.extracted_data = {}
+                
+            response.extracted_data.update({
+                "emergency_truncation_reason": limit_source,
+                "original_size_chars": total_chars,
+                "effective_limit_chars": effective_limit_chars,
+                "user_specified_limit": limit_source == "USER_SPECIFIED",
+                "truncation_error": str(e)
+            })
+    
+    return response
 
 
 # Other internal functions for specialized extraction
@@ -867,19 +1111,277 @@ async def _internal_extract_entities(
 
 async def _internal_llm_extract_entities(
     url: str,
+    entity_types: List[str],
     provider: Optional[str] = None,
     model: Optional[str] = None,
-    instruction: Optional[str] = None
+    custom_instructions: Optional[str] = None,
+    include_context: bool = True,
+    deduplicate: bool = True
 ) -> Dict[str, Any]:
     """
-    Internal LLM extract entities implementation.
-    TODO: Implement LLM-based named entity recognition.
+    Internal LLM extract entities implementation using AI-powered named entity recognition.
+    
+    Supports both standard entity types (emails, phones, etc.) and advanced NER
+    (people, organizations, locations, custom entities).
     """
-    return {
-        "url": url,
-        "success": False,
-        "error": "LLM entity extraction not yet implemented in modular architecture"
-    }
+    try:
+        # First crawl the URL to get the content
+        request = CrawlRequest(url=url, generate_markdown=True)
+        crawl_result = await _internal_crawl_url(request)
+        
+        if not crawl_result.success:
+            return {
+                "url": url,
+                "success": False,
+                "error": f"Failed to crawl URL: {crawl_result.error}"
+            }
+        
+        content = crawl_result.content or ""
+        if not content.strip():
+            return {
+                "url": url,
+                "success": True,
+                "entities": {},
+                "entity_types_requested": entity_types,
+                "processing_method": "llm_extraction",
+                "content_length": 0,
+                "total_entities_found": 0,
+                "note": "No content found to extract entities from"
+            }
+        
+        # Get LLM configuration
+        try:
+            from ..config import get_llm_config
+        except ImportError:
+            from config import get_llm_config
+        
+        llm_config = get_llm_config(provider, model)
+        
+        # Define entity types and their descriptions
+        entity_descriptions = {
+            "emails": "Email addresses (e.g., user@example.com)",
+            "phones": "Phone numbers in various formats",
+            "urls": "Web URLs and links", 
+            "dates": "Dates in various formats",
+            "ips": "IP addresses",
+            "prices": "Prices and monetary amounts",
+            "credit_cards": "Credit card numbers",
+            "coordinates": "Geographic coordinates (latitude, longitude)",
+            "social_media": "Social media handles and profiles",
+            "people": "Names of people, individuals, persons",
+            "organizations": "Company names, institutions, organizations",
+            "locations": "Places, cities, countries, geographic locations",
+            "products": "Product names, brands, models",
+            "events": "Events, conferences, meetings, occasions"
+        }
+        
+        # Build entity types description for prompt
+        requested_entities = []
+        for entity_type in entity_types:
+            description = entity_descriptions.get(entity_type, f"Custom entity type: {entity_type}")
+            requested_entities.append(f"- {entity_type}: {description}")
+        
+        entity_types_text = "\n".join(requested_entities)
+        
+        # Prepare extraction prompt
+        extraction_prompt = f"""
+You are an expert entity extraction specialist. Extract all instances of the specified entity types from the given web content.
+
+ENTITY TYPES TO EXTRACT:
+{entity_types_text}
+
+EXTRACTION INSTRUCTIONS:
+- Extract ALL instances of each specified entity type from the content
+- Maintain exact accuracy - extract entities exactly as they appear in the source
+- For each entity type, provide a list of unique entities found
+- If context is requested, include a brief surrounding text snippet for each entity
+- Remove duplicates within each entity type
+- If no entities of a specific type are found, return an empty list for that type
+- Return results in valid JSON format
+
+{f"ADDITIONAL INSTRUCTIONS: {custom_instructions}" if custom_instructions else ""}
+
+Please provide a JSON response with the following structure:
+{{
+    "entities": {{
+        "entity_type_1": [
+            {{
+                "value": "extracted_entity_text",
+                "context": "surrounding text context (if requested)",
+                "confidence": "High/Medium/Low"
+            }}
+        ],
+        "entity_type_2": [...]
+    }},
+    "extraction_summary": {{
+        "total_entities_found": number,
+        "entity_types_found": ["list", "of", "types", "with", "results"],
+        "entity_types_empty": ["list", "of", "types", "with", "no", "results"],
+        "extraction_confidence": "High/Medium/Low"
+    }}
+}}
+
+WEB CONTENT TO ANALYZE:
+{content[:40000]}  # Limit content to prevent token overflow
+"""
+        
+        # Make LLM API call
+        provider_info = llm_config.provider.split('/')
+        provider_name = provider_info[0] if provider_info else 'openai'
+        model_name = provider_info[1] if len(provider_info) > 1 else 'gpt-4o'
+        
+        extracted_content = None
+        
+        if provider_name == 'openai':
+            import openai
+            
+            api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
+            if not api_key:
+                raise ValueError("OpenAI API key not found")
+            
+            client = openai.AsyncOpenAI(api_key=api_key, base_url=llm_config.base_url)
+            
+            response = await client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": "You are an expert entity extraction specialist focused on accuracy and comprehensive extraction."},
+                    {"role": "user", "content": extraction_prompt}
+                ],
+                temperature=0.1,  # Low temperature for consistent extraction
+                max_tokens=4000
+            )
+            
+            extracted_content = response.choices[0].message.content
+            
+        elif provider_name == 'anthropic':
+            import anthropic
+            
+            api_key = llm_config.api_token or os.environ.get('ANTHROPIC_API_KEY')
+            if not api_key:
+                raise ValueError("Anthropic API key not found")
+            
+            client = anthropic.AsyncAnthropic(api_key=api_key)
+            
+            response = await client.messages.create(
+                model=model_name,
+                max_tokens=4000,
+                temperature=0.1,
+                messages=[
+                    {"role": "user", "content": extraction_prompt}
+                ]
+            )
+            
+            extracted_content = response.content[0].text
+            
+        elif provider_name == 'ollama':
+            import aiohttp
+            
+            base_url = llm_config.base_url or 'http://localhost:11434'
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{base_url}/api/generate",
+                    json={
+                        "model": model_name,
+                        "prompt": extraction_prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.1
+                        }
+                    }
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        extracted_content = result.get('response', '')
+                    else:
+                        raise ValueError(f"Ollama API request failed: {response.status}")
+                        
+        else:
+            return {
+                "url": url,
+                "success": False,
+                "error": f"LLM provider '{provider_name}' not supported for entity extraction"
+            }
+        
+        # Parse JSON response
+        if extracted_content:
+            try:
+                import json
+                # Clean up the extracted content if it's wrapped in markdown
+                content_to_parse = extracted_content
+                if content_to_parse.startswith('```json'):
+                    content_to_parse = content_to_parse.replace('```json', '').replace('```', '').strip()
+                
+                extraction_result = json.loads(content_to_parse) if isinstance(content_to_parse, str) else content_to_parse
+                
+                # Process entities to match expected format
+                processed_entities = {}
+                for entity_type, entities_list in extraction_result.get("entities", {}).items():
+                    if entity_type in entity_types:
+                        if include_context and isinstance(entities_list, list) and entities_list:
+                            # Keep full entity objects with context if requested
+                            processed_entities[entity_type] = entities_list
+                        else:
+                            # Extract just the values if no context requested
+                            if isinstance(entities_list, list):
+                                values = []
+                                for entity in entities_list:
+                                    if isinstance(entity, dict):
+                                        values.append(entity.get('value', str(entity)))
+                                    else:
+                                        values.append(str(entity))
+                                processed_entities[entity_type] = list(set(values)) if deduplicate else values
+                            else:
+                                processed_entities[entity_type] = entities_list
+                
+                summary = extraction_result.get("extraction_summary", {})
+                
+                return {
+                    "url": url,
+                    "success": True,
+                    "entities": processed_entities,
+                    "entity_types_requested": entity_types,
+                    "processing_method": "llm_extraction",
+                    "llm_provider": provider_name,
+                    "llm_model": model_name,
+                    "content_length": len(content),
+                    "total_entities_found": summary.get("total_entities_found", sum(len(v) for v in processed_entities.values())),
+                    "extraction_confidence": summary.get("extraction_confidence", "Medium"),
+                    "entity_types_found": summary.get("entity_types_found", list(processed_entities.keys())),
+                    "entity_types_empty": summary.get("entity_types_empty", [et for et in entity_types if et not in processed_entities]),
+                    "include_context": include_context,
+                    "deduplicated": deduplicate
+                }
+                
+            except (json.JSONDecodeError, AttributeError) as e:
+                # Fallback: treat as plain text
+                return {
+                    "url": url,
+                    "success": True,
+                    "entities": {"raw_extraction": [str(extracted_content)]},
+                    "entity_types_requested": entity_types,
+                    "processing_method": "llm_extraction_fallback",
+                    "llm_provider": provider_name,
+                    "llm_model": model_name,
+                    "content_length": len(content),
+                    "total_entities_found": 1,
+                    "extraction_confidence": "Low",
+                    "json_parse_error": str(e),
+                    "note": f"JSON parsing failed, returned raw LLM output: {str(e)}"
+                }
+        else:
+            return {
+                "url": url,
+                "success": False,
+                "error": "LLM entity extraction returned empty result"
+            }
+            
+    except Exception as e:
+        return {
+            "url": url,
+            "success": False,
+            "error": f"LLM entity extraction error: {str(e)}"
+        }
 
 
 async def _internal_extract_structured_data(request: StructuredExtractionRequest) -> CrawlResponse:
@@ -1307,12 +1809,23 @@ async def extract_entities(
     """
     Extract specific entity types from web pages using regex patterns or LLM.
     
-    Supports regex: emails, phones, urls, dates, ips, social_media, prices, credit_cards, coordinates
-    Supports LLM: names (people/organizations/locations) when use_llm=True
+    Built-in support for: emails, phones, urls, dates, ips, social_media, prices, credit_cards, coordinates
+    LLM mode adds: people names, organizations, locations, and custom entities
+    Automatically applies fallback crawling if initial content retrieval fails.
+    
+    Perfect for contact information extraction, data mining, and content analysis.
     """
-    if use_llm and "names" in entity_types:
-        # Use LLM-based extraction for named entities
-        return await _internal_llm_extract_entities(url, llm_provider, llm_model)
+    if use_llm:
+        # Use LLM-based extraction for all entity types when requested
+        return await _internal_llm_extract_entities(
+            url=url,
+            entity_types=entity_types,
+            provider=llm_provider,
+            model=llm_model,
+            custom_instructions=None,  # Could be added as parameter in future
+            include_context=include_context,
+            deduplicate=deduplicate
+        )
     else:
         # Use regex-based extraction
         return await _internal_extract_entities(
