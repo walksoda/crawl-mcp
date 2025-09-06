@@ -46,20 +46,22 @@ async def extract_youtube_transcript(
     try:
         # Check if URL is valid YouTube URL
         if not youtube_processor.is_youtube_url(url):
-            return YouTubeTranscriptResponse(
+            response = YouTubeTranscriptResponse(
                 success=False,
                 url=url,
                 error="URL is not a valid YouTube video URL"
             )
+            return response.model_dump()
         
         # Extract video ID
         video_id = youtube_processor.extract_video_id(url)
         if not video_id:
-            return YouTubeTranscriptResponse(
+            response = YouTubeTranscriptResponse(
                 success=False,
                 url=url,
                 error="Could not extract video ID from URL"
             )
+            return response.model_dump()
         
         # Process the YouTube URL
         result = await youtube_processor.process_youtube_url(
@@ -92,7 +94,7 @@ async def extract_youtube_transcript(
                     f"- Alternative methods: get_youtube_video_info, batch_extract_youtube_transcripts\n" \
                     f"- Check if video has available captions"
             
-            return YouTubeTranscriptResponse(
+            response = YouTubeTranscriptResponse(
                 success=False,
                 url=url,
                 video_id=video_id,
@@ -104,6 +106,7 @@ async def extract_youtube_transcript(
                     'diagnostic_tool': 'get_system_diagnostics'
                 }
             )
+            return response.model_dump()
         
         # Get transcript data
         transcript_data = result['transcript']
@@ -185,7 +188,7 @@ async def extract_youtube_transcript(
                     'reason': f'Content ({estimated_tokens} tokens) is below threshold ({max_content_tokens} tokens)'
                 })
         
-        return YouTubeTranscriptResponse(
+        response = YouTubeTranscriptResponse(
             success=True,
             url=url,
             video_id=video_id,
@@ -194,13 +197,15 @@ async def extract_youtube_transcript(
             metadata=metadata,
             processing_method="youtube_transcript_api"
         )
+        return response.model_dump()
                 
     except Exception as e:
-        return YouTubeTranscriptResponse(
+        response = YouTubeTranscriptResponse(
             success=False,
             url=url,
             error=f"YouTube transcript processing error: {str(e)}"
         )
+        return response.model_dump()
 
 
 async def batch_extract_youtube_transcripts(
