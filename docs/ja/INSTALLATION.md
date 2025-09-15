@@ -8,6 +8,40 @@
 
 ### 🐧 Linux/macOS
 
+#### Ubuntu 24.04 LTSユーザー（手動インストールが必要）
+
+**⚠️ 重要:** Ubuntu 24.04のt64ライブラリ移行により、自動セットアップスクリプトは廃止されました。手動インストールを使用してください：
+
+```bash
+# Ubuntu 24.04 LTS 手動セットアップ（t64移行により必要）
+sudo apt update && sudo apt install -y \
+  libnss3 \
+  libatk-bridge2.0-0 \
+  libxss1 \
+  libasound2t64 \
+  libgbm1 \
+  libgtk-3-0t64 \
+  libxshmfence-dev \
+  libxrandr2 \
+  libxcomposite1 \
+  libxcursor1 \
+  libxdamage1 \
+  libxi6 \
+  fonts-noto-color-emoji \
+  fonts-unifont \
+  python3-venv \
+  python3-pip
+
+# Playwrightとブラウザをインストール
+python3 -m venv venv
+source venv/bin/activate
+pip install playwright==1.54.0
+playwright install chromium
+sudo playwright install-deps
+```
+
+#### その他のLinuxディストリビューション/macOS（自動スクリプト）
+
 ```bash
 # Playwrightのシステム依存関係をインストール（全方法で必要）
 sudo bash scripts/prepare_for_uvx_playwright.sh
@@ -112,6 +146,17 @@ pip install -r requirements.txt  # 安定性のため固定バージョンをイ
 ```
 
 3. **Playwrightブラウザ依存関係のインストール（Linux/WSL）:**
+
+**Ubuntu 24.04 LTS:**
+```bash
+sudo apt update && sudo apt install -y \
+  libnss3 libatk-bridge2.0-0 libxss1 libasound2t64 \
+  libgbm1 libgtk-3-0t64 libxshmfence-dev libxrandr2 \
+  libxcomposite1 libxcursor1 libxdamage1 libxi6 \
+  fonts-noto-color-emoji fonts-unifont
+```
+
+**その他のLinuxディストリビューション:**
 ```bash
 sudo apt-get update
 sudo apt-get install libnss3 libnspr4 libasound2 libatk-bridge2.0-0 libdrm2 libgtk-3-0 libgbm1
@@ -178,7 +223,12 @@ sudo apt-get install libnss3 libnspr4 libasound2 libatk-bridge2.0-0 libdrm2 libg
 - PYTHONPATHが正しく設定されていることを確認
 - 依存関係をインストール: `pip install -r requirements.txt`
 
-**Playwrightブラウザエラー:**
+**Playwrightブラウザエラー（Ubuntu 24.04 LTS）:**
+- t64ライブラリ名を使用: `sudo apt-get install libnss3 libnspr4 libasound2t64 libgtk-3-0t64`
+- t64移行により手動インストールが必要（前提条件セクションを参照）
+- WSLの場合: X11転送またはヘッドレスモードを確認
+
+**Playwrightブラウザエラー（その他のLinux）:**
 - システム依存関係をインストール: `sudo apt-get install libnss3 libnspr4 libasound2`
 - WSLの場合: X11転送またはヘッドレスモードを確認
 

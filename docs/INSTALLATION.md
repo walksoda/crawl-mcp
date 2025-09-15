@@ -8,6 +8,40 @@ This guide provides detailed installation instructions for the Crawl4AI MCP Serv
 
 ### 🐧 Linux/macOS
 
+#### Ubuntu 24.04 LTS Users (Manual Installation Required)
+
+**⚠️ IMPORTANT:** Due to Ubuntu 24.04's t64 library transition, the automated setup scripts are deprecated. Please use manual installation:
+
+```bash
+# Ubuntu 24.04 LTS Manual Setup (required due to t64 transition)
+sudo apt update && sudo apt install -y \
+  libnss3 \
+  libatk-bridge2.0-0 \
+  libxss1 \
+  libasound2t64 \
+  libgbm1 \
+  libgtk-3-0t64 \
+  libxshmfence-dev \
+  libxrandr2 \
+  libxcomposite1 \
+  libxcursor1 \
+  libxdamage1 \
+  libxi6 \
+  fonts-noto-color-emoji \
+  fonts-unifont \
+  python3-venv \
+  python3-pip
+
+# Install Playwright and browsers
+python3 -m venv venv
+source venv/bin/activate
+pip install playwright==1.54.0
+playwright install chromium
+sudo playwright install-deps
+```
+
+#### Other Linux Distributions/macOS (Automated Script)
+
 ```bash
 # Install system dependencies for Playwright (required for all methods)
 sudo bash scripts/prepare_for_uvx_playwright.sh
@@ -112,6 +146,17 @@ pip install -r requirements.txt  # Installs pinned versions for stability
 ```
 
 3. **Install Playwright browser dependencies (Linux/WSL):**
+
+**Ubuntu 24.04 LTS:**
+```bash
+sudo apt update && sudo apt install -y \
+  libnss3 libatk-bridge2.0-0 libxss1 libasound2t64 \
+  libgbm1 libgtk-3-0t64 libxshmfence-dev libxrandr2 \
+  libxcomposite1 libxcursor1 libxdamage1 libxi6 \
+  fonts-noto-color-emoji fonts-unifont
+```
+
+**Other Linux distributions:**
 ```bash
 sudo apt-get update
 sudo apt-get install libnss3 libnspr4 libasound2 libatk-bridge2.0-0 libdrm2 libgtk-3-0 libgbm1
@@ -178,7 +223,12 @@ If installation fails:
 - Verify PYTHONPATH is set correctly
 - Install dependencies: `pip install -r requirements.txt`
 
-**Playwright Browser Errors:**
+**Playwright Browser Errors (Ubuntu 24.04 LTS):**
+- Use t64 library names: `sudo apt-get install libnss3 libnspr4 libasound2t64 libgtk-3-0t64`
+- Manual installation required due to t64 transition (see Prerequisites section)
+- For WSL: Ensure X11 forwarding or headless mode
+
+**Playwright Browser Errors (Other Linux):**
 - Install system dependencies: `sudo apt-get install libnss3 libnspr4 libasound2`
 - For WSL: Ensure X11 forwarding or headless mode
 

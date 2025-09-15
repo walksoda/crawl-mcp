@@ -20,7 +20,21 @@ A comprehensive Model Context Protocol (MCP) server that wraps the powerful craw
 
 **Install system dependencies for Playwright:**
 
-**Linux/macOS:**
+**Ubuntu 24.04 LTS (Manual Required):**
+```bash
+# Manual setup required due to t64 library transition
+sudo apt update && sudo apt install -y \
+  libnss3 libatk-bridge2.0-0 libxss1 libasound2t64 \
+  libgbm1 libgtk-3-0t64 libxshmfence-dev libxrandr2 \
+  libxcomposite1 libxcursor1 libxdamage1 libxi6 \
+  fonts-noto-color-emoji fonts-unifont python3-venv python3-pip
+
+python3 -m venv venv && source venv/bin/activate
+pip install playwright==1.54.0 && playwright install chromium
+sudo playwright install-deps
+```
+
+**Other Linux/macOS:**
 ```bash
 sudo bash scripts/prepare_for_uvx_playwright.sh
 ```
