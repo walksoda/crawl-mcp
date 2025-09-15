@@ -18,11 +18,9 @@ crawl-mcp/
 │   ├── youtube_processor.py   # YouTube統合
 │   ├── google_search_processor.py # Google検索統合
 │   └── strategies.py          # クローリング戦略
-├── dxt-packages/              # DXT配布パッケージ
-│   └── crawl4ai-dxt-correct/  # 本番DXTパッケージ
-│       ├── server/            # ミラーサーバーコード
-│       ├── manifest.json      # パッケージメタデータ
-│       └── crawl4ai-dxt-correct.dxt # 圧縮パッケージ
+├── Dockerfile                 # Docker設定ファイル
+├── docker-compose.yml         # Docker Compose設定
+├── .dockerignore              # Docker除外設定
 ├── scripts/                   # セットアップとユーティリティスクリプト
 ├── configs/                   # 設定例
 ├── examples/                  # 使用例とテスト
@@ -50,47 +48,50 @@ crawl-mcp/
 - `prompts/` - ワークフロープロンプト定義
 - `models/` - リクエスト/レスポンススキーマ
 
-## 🔄 デュアルサーバーアーキテクチャ
+## 🔄 開発・配布方式
 
-このプロジェクトは**2つの同期サーバー実装**を維持しています：
+このプロジェクトは**複数の配布方法**をサポートしています：
 
-1. **開発サーバー**: `crawl4ai_mcp/server.py`
-   - 開発とテストに使用
-   - 直接的なPython実行
+1. **開発**: `crawl4ai_mcp/server.py`
+   - 開発用の直接Python実行
+   - 仮想環境セットアップ
    - デバッグと修正が容易
 
-2. **配布サーバー**: `dxt-packages/crawl4ai-dxt-correct/server/crawl4ai_mcp/server.py`
-   - 本番デプロイメント用にパッケージ化
-   - DXTパッケージ形式で配布
-   - エンドユーザーがUVX経由で使用
+2. **UVX配布**: PyPIパッケージ
+   - GitHub Releases経由で配布
+   - 自動UVX対応
+   - エンドユーザーの簡単インストール
 
-### 重要な同期ワークフロー
+3. **Docker配布**: コンテナデプロイメント
+   - 本番対応のコンテナイメージ
+   - マルチブラウザヘッドレスサポート
+   - 簡単なスケーリングとデプロイメント
 
-**⚠️ 重要**: メインサーバーを変更する際は、DXTパッケージに同期する必要があります：
+### 開発ワークフロー
+
+**標準的な開発プロセス**：
 
 ```bash
-# 1. メインサーバーで開発・テスト
-vim crawl4ai_mcp/server.py
+# 1. 開発環境のセットアップ
+source ./venv/bin/activate
 
-# 2. 変更が動作することを確認
+# 2. 開発・テスト
+vim crawl4ai_mcp/server.py
 python -m crawl4ai_mcp.server
 
-# 3. 同期前に差分をチェック
-diff crawl4ai_mcp/server.py dxt-packages/crawl4ai-dxt-correct/server/crawl4ai_mcp/server.py
+# 3. Dockerテスト（オプション）
+docker-compose up --build
 
-# 4. DXTパッケージに変更を同期
-cp crawl4ai_mcp/server.py dxt-packages/crawl4ai-dxt-correct/server/crawl4ai_mcp/server.py
+# 4. バージョン更新
+vim pyproject.toml  # バージョン番号を更新
 
-# 5. DXTパッケージをリビルド
-cd dxt-packages/crawl4ai-dxt-correct/
-python -m zipfile -c crawl4ai-dxt-correct.dxt manifest.json README.md requirements.txt server/
+# 5. コミット・タグ付け
+git add .
+git commit -m "feat: 新機能を追加"
+git tag -a v0.1.4 -m "Release v0.1.4"
 
-# 6. DXTパッケージデプロイメントをテスト
-uvx --from file://./crawl4ai-dxt-correct.dxt crawl-mcp --help
-
-# 7. 両方の変更をコミット
-git add crawl4ai_mcp/server.py dxt-packages/crawl4ai-dxt-correct/
-git commit -m "feat: サーバーに新機能を追加"
+# 6. プッシュ（自動配布トリガー）
+git push origin main --tags
 ```
 
 ### 同期が必要な変更

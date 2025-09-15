@@ -45,7 +45,7 @@ scripts/prepare_for_uvx_playwright.ps1
 
 ```bash
 # 上のシステム準備後 - これだけです！
-uvx --from crawl4ai-dxt-correct crawl4ai_mcp
+uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
 ```
 
 **✅ 利점：** ゼロ設定、自動依存関係管理、分離環境

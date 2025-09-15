@@ -38,8 +38,33 @@ scripts/prepare_for_uvx_playwright.ps1
 uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
 ```
 
+**Docker (Production-Ready):**
+```bash
+# Clone the repository
+git clone https://github.com/walksoda/crawl-mcp
+cd crawl-mcp
+
+# Build and run with Docker Compose (STDIO mode)
+docker-compose up --build
+
+# Or build and run HTTP mode on port 8000
+docker-compose --profile http up --build crawl4ai-mcp-http
+
+# Or build manually
+docker build -t crawl4ai-mcp .
+docker run -it crawl4ai-mcp
+```
+
+**Docker Features:**
+- 🔧 **Multi-Browser Support**: Chromium, Firefox, Webkit headless browsers
+- 🐧 **Google Chrome**: Additional Chrome Stable for compatibility
+- ⚡ **Optimized Performance**: Pre-configured browser flags for Docker
+- 🔒 **Security**: Non-root user execution
+- 📦 **Complete Dependencies**: All required libraries included
+
 ### Claude Desktop Setup
 
+**UVX Installation:**
 Add to your `claude_desktop_config.json`:
 
 ```json
@@ -56,6 +81,18 @@ Add to your `claude_desktop_config.json`:
       "env": {
         "CRAWL4AI_LANG": "en"
       }
+    }
+  }
+}
+```
+
+**Docker HTTP Mode:**
+```json
+{
+  "mcpServers": {
+    "crawl-mcp": {
+      "transport": "http",
+      "baseUrl": "http://localhost:8000"
     }
   }
 }

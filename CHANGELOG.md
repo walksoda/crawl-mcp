@@ -5,7 +5,7 @@
 ### 🔧 Fixed
 - **Relative Import Errors**: Resolved `attempted relative import beyond top-level package` errors in `batch_crawl` and `extract_structured_data` tools
 - **Import Statements**: Replaced relative imports (`..models`) with absolute imports (`crawl4ai_mcp.models`) for better reliability
-- **DXT Package Synchronization**: Applied fixes to both main server and DXT package to maintain consistency
+- **Multi-Platform Support**: Applied fixes to main server with UVX and Docker deployment options
 
 ### ✨ Added
 - **Comprehensive Test Suite**: Added complete MCP tools testing framework in `tests/client/` directory
@@ -37,7 +37,7 @@
 
 ### 📦 Package Updates
 - **pyproject.toml**: Updated version to 0.1.1
-- **DXT Package**: Updated version to 1.4.1 with fixes included
+- **Docker Support**: Added comprehensive Docker and docker-compose configurations
 - **Dependencies**: No breaking changes, all existing dependencies maintained
 
 ### 🔄 Migration Notes

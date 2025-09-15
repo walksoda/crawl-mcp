@@ -45,7 +45,7 @@ scripts/prepare_for_uvx_playwright.ps1
 
 ```bash
 # After system preparation above - that's it!
-uvx --from crawl4ai-dxt-correct crawl4ai_mcp
+uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
 ```
 
 **✅ Benefits:** Zero configuration, automatic dependency management, isolated environment

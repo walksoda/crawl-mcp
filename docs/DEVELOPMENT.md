@@ -18,11 +18,9 @@ crawl-mcp/
 │   ├── youtube_processor.py   # YouTube integration
 │   ├── google_search_processor.py # Google search integration
 │   └── strategies.py          # Crawling strategies
-├── dxt-packages/              # DXT distribution packages
-│   └── crawl4ai-dxt-correct/  # Production DXT package
-│       ├── server/            # Mirrored server code
-│       ├── manifest.json      # Package metadata
-│       └── crawl4ai-dxt-correct.dxt # Compressed package
+├── Dockerfile                 # Docker container configuration
+├── docker-compose.yml         # Docker Compose configuration
+├── .dockerignore              # Docker build exclusions
 ├── scripts/                   # Setup and utility scripts
 ├── configs/                   # Configuration examples
 ├── examples/                  # Usage examples and tests
@@ -50,47 +48,50 @@ crawl-mcp/
 - `prompts/` - Workflow prompt definitions
 - `models/` - Request/response schemas
 
-## 🔄 Dual Server Architecture
+## 🔄 Development & Distribution
 
-This project maintains **two synchronized server implementations**:
+This project supports **multiple distribution methods**:
 
-1. **Development Server**: `crawl4ai_mcp/server.py`
-   - Used for development and testing
-   - Direct Python execution
+1. **Development**: `crawl4ai_mcp/server.py`
+   - Direct Python execution for development
+   - Virtual environment setup
    - Easy debugging and modification
 
-2. **Distribution Server**: `dxt-packages/crawl4ai-dxt-correct/server/crawl4ai_mcp/server.py`
-   - Packaged for production deployment
-   - Distributed via DXT package format
-   - Used by end users through UVX
+2. **UVX Distribution**: PyPI package
+   - Distributed via GitHub releases
+   - Automatic UVX compatibility
+   - Easy installation for end users
 
-### Critical Synchronization Workflow
+3. **Docker Distribution**: Container deployment
+   - Production-ready container images
+   - Multi-browser headless support
+   - Easy scaling and deployment
 
-**⚠️ IMPORTANT**: When modifying the main server, changes MUST be synchronized to the DXT package:
+### Development Workflow
+
+**Standard development process**:
 
 ```bash
-# 1. Develop and test in main server
-vim crawl4ai_mcp/server.py
+# 1. Set up development environment
+source ./venv/bin/activate
 
-# 2. Verify changes work
+# 2. Develop and test
+vim crawl4ai_mcp/server.py
 python -m crawl4ai_mcp.server
 
-# 3. Check differences before synchronization
-diff crawl4ai_mcp/server.py dxt-packages/crawl4ai-dxt-correct/server/crawl4ai_mcp/server.py
+# 3. Test with Docker (optional)
+docker-compose up --build
 
-# 4. Synchronize changes to DXT package
-cp crawl4ai_mcp/server.py dxt-packages/crawl4ai-dxt-correct/server/crawl4ai_mcp/server.py
+# 4. Update version
+vim pyproject.toml  # Update version number
 
-# 5. Rebuild DXT package
-cd dxt-packages/crawl4ai-dxt-correct/
-python -m zipfile -c crawl4ai-dxt-correct.dxt manifest.json README.md requirements.txt server/
+# 5. Commit and tag
+git add .
+git commit -m "feat: Add new functionality"
+git tag -a v0.1.4 -m "Release v0.1.4"
 
-# 6. Test DXT package deployment
-uvx --from file://./crawl4ai-dxt-correct.dxt crawl-mcp --help
-
-# 7. Commit both changes
-git add crawl4ai_mcp/server.py dxt-packages/crawl4ai-dxt-correct/
-git commit -m "feat: Add new functionality to server"
+# 6. Push (triggers automatic distribution)
+git push origin main --tags
 ```
 
 ### Changes Requiring Synchronization
@@ -196,15 +197,15 @@ python test_mcp_youtube.py
 # 1. Lint commit messages with textlint
 npx textlint commit-message.txt
 
-# 2. Check server synchronization
-diff crawl4ai_mcp/server.py dxt-packages/crawl4ai-dxt-correct/server/crawl4ai_mcp/server.py
+# 2. Test Docker build
+docker build -t crawl4ai-mcp:test . --quiet
 
-# 3. Verify no differences exist (empty output means synchronized)
-echo "Servers synchronized: $([ -z "$(diff crawl4ai_mcp/server.py dxt-packages/crawl4ai-dxt-correct/server/crawl4ai_mcp/server.py)" ] && echo "✅" || echo "❌")"
+# 3. Verify Docker functionality
+echo "Docker build: $(docker build -t crawl4ai-mcp:test . --quiet > /dev/null 2>&1 && echo "✅" || echo "❌")"
 
-# 4. Test both implementations
+# 4. Test UVX installation
 python -m crawl4ai_mcp.server --help
-uvx --from ./dxt-packages/crawl4ai-dxt-correct/crawl4ai-dxt-correct.dxt crawl-mcp --help
+uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --help
 ```
 
 ## 🔧 Development Tools and Configuration
@@ -271,33 +272,46 @@ export PYTHONUNBUFFERED=1
 
 ## 📦 Build and Packaging
 
-### DXT Package Management
+### Docker Container Management
 
-**Building DXT Package:**
+**Building Docker Images:**
 ```bash
-cd dxt-packages/crawl4ai-dxt-correct/
+# Build development image
+docker build -t crawl4ai-mcp:dev .
 
-# Ensure server is synchronized
-cp ../../crawl4ai_mcp/server.py server/crawl4ai_mcp/server.py
+# Build production image with multi-browser support
+docker build -t crawl4ai-mcp:latest .
 
-# Build package
-python -m zipfile -c crawl4ai-dxt-correct.dxt manifest.json README.md requirements.txt server/
+# Verify image contents
+docker images | grep crawl4ai-mcp
+```
 
-# Verify package contents
-python -m zipfile -l crawl4ai-dxt-correct.dxt
+**Testing Docker Containers:**
+```bash
+# Test STDIO mode (default)
+docker-compose up --build
+
+# Test HTTP mode
+docker-compose --profile http up --build crawl4ai-mcp-http
+
+# Test individual container
+docker run -it crawl4ai-mcp:latest
 ```
 
 **Version Management:**
 ```bash
-# Update version in manifest.json
-vim dxt-packages/crawl4ai-dxt-correct/manifest.json
+# Update version in pyproject.toml
+vim pyproject.toml
 
-# Update version history
-vim FINAL_RELEASE_NOTES.md
+# Update Docker tags
+docker tag crawl4ai-mcp:latest crawl4ai-mcp:v0.1.4
 
-# Tag release
-git tag -a v1.x.x -m "Release version 1.x.x"
-git push origin v1.x.x
+# Push to registry (if applicable)
+# docker push crawl4ai-mcp:v0.1.4
+
+# Tag git release
+git tag -a v0.1.4 -m "Release v0.1.4 - Docker support"
+git push origin v0.1.4
 ```
 
 ### UVX Compatibility
@@ -409,14 +423,13 @@ tail -f server.log | grep -E "(REQUEST|RESPONSE|ERROR)"
    python -m crawl4ai_mcp.server
    ```
 
-4. **Synchronize and Build**
+4. **Test and Build**
    ```bash
-   # Sync to DXT package
-   cp crawl4ai_mcp/server.py dxt-packages/crawl4ai-dxt-correct/server/crawl4ai_mcp/server.py
+   # Test with Docker
+   docker-compose up --build
    
-   # Rebuild DXT package
-   cd dxt-packages/crawl4ai-dxt-correct/
-   python -m zipfile -c crawl4ai-dxt-correct.dxt manifest.json README.md requirements.txt server/
+   # Test UVX installation
+   uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --help
    ```
 
 5. **Quality Checks**
@@ -424,8 +437,8 @@ tail -f server.log | grep -E "(REQUEST|RESPONSE|ERROR)"
    # Run tests
    python examples/pure_http_test.py
    
-   # Check synchronization
-   diff crawl4ai_mcp/server.py dxt-packages/crawl4ai-dxt-correct/server/crawl4ai_mcp/server.py
+   # Test Docker build
+   docker build -t crawl4ai-mcp:test .
    
    # Lint commit message
    npx textlint commit-message.txt
@@ -441,8 +454,8 @@ tail -f server.log | grep -E "(REQUEST|RESPONSE|ERROR)"
 ### Code Review Process
 
 **Before Submitting:**
-- [ ] Changes tested in both development and DXT package
-- [ ] Server synchronization verified
+- [ ] Changes tested in development environment
+- [ ] Docker containers build successfully
 - [ ] Documentation updated if needed
 - [ ] Commit messages follow standards
 - [ ] No breaking changes without discussion
@@ -492,8 +505,8 @@ grep "Response size:" server.log | awk '{sum+=$3; count++} END {print sum/count}
 ## 💡 Development Best Practices
 
 1. **Always use virtual environment** - Essential for dependency isolation
-2. **Test both server implementations** - Main and DXT package must work identically
-3. **Synchronize before committing** - Prevent deployment inconsistencies
+2. **Test multiple deployment methods** - UVX and Docker must work correctly
+3. **Test before committing** - Ensure all functionality works
 4. **Follow commit message standards** - English only, no emojis, clear descriptions
 5. **Profile performance regularly** - Monitor memory and CPU usage
 6. **Document thoroughly** - Update docs with new features
