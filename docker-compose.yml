@@ -20,12 +20,12 @@ services:
       - CRAWL4AI_HEADLESS=true
       - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
       - DISPLAY=:99
-      # Chrome-specific flags for Docker
-      - CHROME_FLAGS=--no-sandbox --disable-dev-shm-usage --disable-gpu --headless
+      # Chrome-specific flags for Docker (quoted because value contains spaces)
+      - 'CHROME_FLAGS=--no-sandbox --disable-dev-shm-usage --disable-gpu --headless'
     
     # Optional: expose port for HTTP mode
     ports:
-      - "8000:8000"
+      - "5000:8000"
     
     # Optional: volume mount for persistent data
     volumes:
@@ -55,11 +55,11 @@ services:
       - CRAWL4AI_HEADLESS=true
       - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
       - DISPLAY=:99
-      # Chrome-specific flags for Docker
-      - CHROME_FLAGS=--no-sandbox --disable-dev-shm-usage --disable-gpu --headless
+      # Chrome-specific flags for Docker (quoted because value contains spaces)
+      - 'CHROME_FLAGS=--no-sandbox --disable-dev-shm-usage --disable-gpu --headless'
     
     ports:
-      - "8000:8000"
+      - "5001:8000"
     
     volumes:
       - ./logs:/app/logs
@@ -71,7 +71,7 @@ services:
       - http
     
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health", "||", "exit", "1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
