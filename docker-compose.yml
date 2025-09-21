@@ -5,8 +5,7 @@
 
 services:
   crawl4ai-mcp:
-    build: .
-    image: crawl4ai-mcp:latest
+    image: ghcr.io/tekgnosis-net/crawl-mcp:latest
     container_name: crawl4ai-mcp-server
     restart: unless-stopped
     
@@ -45,8 +44,7 @@ services:
 
   # Alternative configuration for HTTP mode
   crawl4ai-mcp-http:
-    build: .
-    image: crawl4ai-mcp:latest
+    image: ghcr.io/tekgnosis-net/crawl-mcp:latest
     container_name: crawl4ai-mcp-http
     restart: unless-stopped
     
