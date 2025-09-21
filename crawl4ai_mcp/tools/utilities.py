@@ -519,8 +519,7 @@ async def get_tool_selection_guide() -> Dict[str, Any]:
                     "Use get_supported_file_formats for file processing issues"
                 ]
             }
-        }
-        
+    }
     except Exception as e:
         return {
             "success": False,
@@ -609,8 +608,7 @@ async def get_llm_config_info() -> Dict[str, Any]:
                     "cost_effective": "gpt-3.5-turbo, local ollama models"
                 }
             }
-        }
-        
+    }
     except Exception as e:
         return {
             "success": False,
