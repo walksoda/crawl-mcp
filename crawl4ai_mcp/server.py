@@ -1709,8 +1709,8 @@ async def batch_crawl(
     wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to load (default: False)")] = False,
     max_concurrent: Annotated[int, Field(description="Maximum concurrent crawls (default: 3)")] = 3,
     use_undetected_browser: Annotated[bool, Field(description="Use undetected browser for all URLs to bypass bot detection (default: False)")] = False
-) -> List[Dict[str, Any]]:
-    """
+ ) -> List[Dict[str, Any]]:
+    r"""
     Crawl multiple URLs in batch with intelligent rate limiting and error handling.
     
     Process multiple URLs concurrently for maximum efficiency while respecting server limits.
@@ -1846,7 +1846,7 @@ async def multi_url_crawl(
     
     Pattern Examples:
     - Wildcard: '*news*', '*api*', '*.pdf', 'https://docs.*'
-    - Regex: r'.*\/(api|v\d+)\/', r'https:\/\/[^\/]+\.com\/news'
+    - Regex: r'.*/(api|v\\d)/', r'https://[^/]+\\.com/news'
     
     Perfect for mixed-domain crawling with site-specific optimizations.
     """
