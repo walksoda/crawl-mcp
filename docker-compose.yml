@@ -1,4 +1,7 @@
-version: '3.8'
+# Docker Compose file for crawl4ai-mcp server
+# This configuration sets up the crawl4ai-mcp server in both STDIO and HTTP modes
+# with environment variables optimized for headless browser operation in Docker.
+
 
 services:
   crawl4ai-mcp:
