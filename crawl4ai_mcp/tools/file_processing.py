@@ -121,8 +121,8 @@ class BM25SimilarityFilter:
 class AdaptiveChunking:
     """Adaptive chunking strategy selector"""
     
-    def get_optimal_strategy(self, content: str, url: str = "", 
-                           max_chunk_tokens: int = 8000, chunk_overlap: int = 500):
+    def get_optimal_strategy(self, content: str, url: str = "",
+                             max_chunk_tokens: int = 8000, chunk_overlap: int = 500):
         """Select optimal chunking strategy based on content analysis"""
         content_length = len(content)
         
