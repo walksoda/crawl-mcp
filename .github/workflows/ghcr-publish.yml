@@ -69,7 +69,6 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
           tags: |
             type=sha,format=long
-            type=ref,ref=branch,format=short
             type=semver,pattern=v*.*.*
 
       - name: Build and push
