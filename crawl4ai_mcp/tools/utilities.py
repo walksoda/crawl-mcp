@@ -88,10 +88,12 @@ TOOL_SELECTION_GUIDE = {
             "Search result crawling and content extraction",
             "Batch search operations with analysis",
             "Academic, news, technical content discovery",
-            "Competitive analysis and research"
+            "Competitive analysis and research",
+            "Recent content filtering with date ranges",
+            "Time-sensitive searches (last week, month, etc.)"
         ],
         "complexity": "moderate to advanced",
-        "parameters": ["query", "search_genre", "num_results", "crawl_top_results", "include_current_date"]
+        "parameters": ["query", "search_genre", "num_results", "crawl_top_results", "recent_days", "auto_summarize", "summary_length"]
     },
     "batch_operations": {
         "tools": ["batch_crawl", "batch_extract_youtube_transcripts", "batch_search_google"],
@@ -99,12 +101,13 @@ TOOL_SELECTION_GUIDE = {
         "use_cases": [
             "Bulk website crawling and analysis",
             "Mass YouTube video processing",
-            "Multiple search query execution",
+            "Multiple search query execution with date filtering",
             "Efficient large-scale data collection",
-            "Performance optimization for multiple operations"
+            "Performance optimization for multiple operations",
+            "Time-based batch analysis (recent trends, etc.)"
         ],
         "complexity": "advanced",
-        "parameters": ["urls/queries", "max_concurrent", "base_timeout", "config"]
+        "parameters": ["urls/queries", "max_concurrent", "base_timeout", "recent_days", "auto_summarize", "summary_length", "llm_provider"]
     },
     "configuration_and_info": {
         "tools": ["get_llm_config_info", "get_supported_file_formats", "get_search_genres", "get_youtube_api_setup_guide", "get_tool_selection_guide"],
@@ -370,13 +373,13 @@ async def get_tool_selection_guide() -> Dict[str, Any]:
                 },
                 "search": {
                     "tool": "search_google",
-                    "description": "Search Google with genre filtering",
-                    "example": '{"request": {"query": "AI research", "search_genre": "academic"}}'
+                    "description": "Search Google with genre filtering and date ranges",
+                    "example": '{"request": {"query": "AI research", "search_genre": "academic"}, "recent_days": 30}'
                 },
                 "search_crawl": {
                     "tool": "search_and_crawl",
-                    "description": "Search and automatically crawl top results",
-                    "example": '{"search_query": "competitor analysis", "crawl_top_results": 5}'
+                    "description": "Search and automatically crawl top results with date filtering",
+                    "example": '{"search_query": "competitor analysis", "crawl_top_results": 5, "recent_days": 7}'
                 },
                 "multiple_urls": {
                     "tool": "batch_crawl",
@@ -483,6 +486,7 @@ async def get_tool_selection_guide() -> Dict[str, Any]:
                     "Use appropriate timeouts based on site complexity",
                     "Enable wait_for_js for Single Page Applications",
                     "Use search genres for targeted results",
+                    "Use recent_days parameter for time-sensitive searches",
                     "Enable auto_summarize for large content",
                     "Set appropriate batch sizes for efficiency"
                 ],

@@ -5,7 +5,7 @@ Contains complete Google search functionality, batch search, and search+crawl op
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Annotated
 from pydantic import Field
 
@@ -24,20 +24,26 @@ from ..google_search_processor import GoogleSearchProcessor
 # Import the internal crawl function
 from .web_crawling import _internal_crawl_url
 
+# Import time parsing utilities
+from ..utils.time_parser import parse_time_period
+
 # Initialize Google search processor
 google_search_processor = GoogleSearchProcessor()
 
 
 # MCP Tool implementations
 async def search_google(
-    request: Annotated[Dict[str, Any], Field(description="GoogleSearchRequest with query and search parameters")],
-    include_current_date: Annotated[bool, Field(description="Append current date to query for latest results (default: True)")] = True
+    request: Annotated[Dict[str, Any], Field(description="GoogleSearchRequest with query and search parameters")]
 ) -> Dict[str, Any]:
     """
     Perform Google search with genre filtering and extract structured results with metadata.
     
     Returns web search results with titles, snippets, URLs, and metadata.
     Supports targeted search genres for better results.
+    
+    Date Filtering:
+    - recent_days: Filters to recent results (e.g., 7 for last week, 30 for last month)
+    - Set to None to search all dates without filtering
     """
     try:
         # Extract parameters from request dictionary
@@ -54,12 +60,18 @@ async def search_google(
         language = request.get('language', 'en')
         region = request.get('region', 'us')
         safe_search = request.get('safe_search', True)
+        recent_days = request.get('recent_days')
         
-        # Enhance query with current date for latest results
+        # Process query for date filtering
         enhanced_query = query
-        if include_current_date:
-            current_date = datetime.now().strftime("%Y-%m-%d")
-            enhanced_query = f"{query} {current_date}"
+        
+        # Add date filtering if recent_days is specified
+        if recent_days and recent_days > 0:
+            from datetime import datetime, timedelta
+            # Calculate start date for filtering
+            start_date = (datetime.now() - timedelta(days=recent_days)).strftime("%Y-%m-%d")
+            # Add date range to query for more focused results
+            enhanced_query = f"{query} after:{start_date}"
         
         # Perform search using GoogleSearchProcessor
         result = await google_search_processor.search_google(
@@ -96,14 +108,22 @@ async def search_google(
 
 
 async def batch_search_google(
-    request: Annotated[Dict[str, Any], Field(description="GoogleBatchSearchRequest with multiple queries and parameters")],
-    include_current_date: Annotated[bool, Field(description="Append current date to queries for latest results (default: True)")] = True
+    request: Annotated[Dict[str, Any], Field(description="GoogleBatchSearchRequest with multiple queries and parameters")]
 ) -> Dict[str, Any]:
     """
-    Perform multiple Google searches in batch with analysis.
+    Perform multiple Google searches in batch with optional AI summarization.
     
     Process multiple search queries concurrently with controlled rate limiting.
     Includes batch processing statistics and result analysis.
+    
+    Date Filtering:
+    - recent_days: Filters to recent results (e.g., 7 for last week, 30 for last month)
+    - Set to None to search all dates without filtering
+    
+    AI Summarization:
+    - Disabled by default (auto_summarize=False)
+    - When enabled, summarizes all search result snippets using LLM
+    - Supports multiple summary lengths and LLM providers
     """
     try:
         # Extract parameters from request dictionary
@@ -124,12 +144,26 @@ async def batch_search_google(
         search_genre = request.get('search_genre')
         language = request.get('language', 'en')
         region = request.get('region', 'us')
+        recent_days = request.get('recent_days')
+        auto_summarize = request.get('auto_summarize', False)
+        summary_length = request.get('summary_length', 'medium')
+        llm_provider = request.get('llm_provider')
+        llm_model = request.get('llm_model')
         
-        # Enhance queries with current date for latest results
-        enhanced_queries = queries
-        if include_current_date:
-            current_date = datetime.now().strftime("%Y-%m-%d")
-            enhanced_queries = [f"{query} {current_date}" for query in queries]
+        # Process queries for date enhancement
+        enhanced_queries = []
+        for query in queries:
+            enhanced_query = query
+            
+            # Add date filtering if recent_days is specified
+            if recent_days and recent_days > 0:
+                from datetime import datetime, timedelta
+                # Calculate start date for filtering
+                start_date = (datetime.now() - timedelta(days=recent_days)).strftime("%Y-%m-%d")
+                # Add date range to query for more focused results
+                enhanced_query = f"{query} after:{start_date}"
+            
+            enhanced_queries.append(enhanced_query)
         
         # Perform batch search using GoogleSearchProcessor
         batch_results = await google_search_processor.batch_search(
@@ -168,7 +202,56 @@ async def batch_search_google(
         # Generate analysis using GoogleSearchProcessor
         analysis_result = google_search_processor.analyze_search_results(batch_results)
         
-        return {
+        # Apply AI summarization if requested
+        summarization_result = None
+        if auto_summarize and successful > 0:
+            try:
+                # Import summarization function
+                from .web_crawling import summarize_web_content
+                
+                # Collect all result snippets and titles
+                all_content = []
+                for result in processed_results:
+                    if result.get('success') and result.get('results'):
+                        for search_result in result['results']:
+                            title = search_result.get('title', '')
+                            snippet = search_result.get('snippet', '')
+                            url = search_result.get('url', '')
+                            if title and snippet:
+                                all_content.append(f"Title: {title}\nURL: {url}\nSnippet: {snippet}\n")
+                
+                if all_content:
+                    combined_content = "\n".join(all_content)
+                    summary_result = await summarize_web_content(
+                        content=combined_content,
+                        title="Batch Search Results Summary",
+                        url="multiple_search_queries",
+                        summary_length=summary_length,
+                        llm_provider=llm_provider,
+                        llm_model=llm_model
+                    )
+                    
+                    if summary_result.get("success"):
+                        summarization_result = {
+                            "summary": summary_result["summary"],
+                            "original_results_count": len(all_content),
+                            "compression_ratio": summary_result.get("compressed_ratio", 0),
+                            "llm_provider": summary_result.get("llm_provider", "unknown"),
+                            "llm_model": summary_result.get("llm_model", "unknown"),
+                            "summary_length": summary_length
+                        }
+                    else:
+                        summarization_result = {
+                            "error": summary_result.get("error", "Summarization failed"),
+                            "fallback_applied": True
+                        }
+            except Exception as e:
+                summarization_result = {
+                    "error": f"Summarization error: {str(e)}",
+                    "fallback_applied": True
+                }
+        
+        response = {
             "success": True,
             "total_queries": len(queries),
             "successful_searches": successful,
@@ -181,9 +264,16 @@ async def batch_search_google(
                 "search_genre": search_genre,
                 "language": language,
                 "region": region,
-                "date_enhanced": include_current_date
+                "recent_days_filter": recent_days,
+                "auto_summarize_enabled": auto_summarize
             }
         }
+        
+        # Add summarization result if available
+        if summarization_result:
+            response["ai_summary"] = summarization_result
+        
+        return response
         
     except Exception as e:
         return {
@@ -204,7 +294,7 @@ async def search_and_crawl(
     generate_markdown: Annotated[bool, Field(description="Convert crawled content to markdown (default: True)")] = True,
     search_genre: Annotated[Optional[str], Field(description="Content type filter - 'academic', 'news', 'technical', etc. (default: None)")] = None,
     base_timeout: Annotated[int, Field(description="Base timeout, auto-scales with crawl count (default: 30)")] = 30,
-    include_current_date: Annotated[bool, Field(description="Add current date to query (default: True)")] = True
+    recent_days: Annotated[Optional[int], Field(description="Filter results to past N days (e.g., 7 for last week, 30 for last month). Set to None to search all dates.")] = None
 ) -> Dict[str, Any]:
     """
     Perform Google search and automatically crawl top results for full content analysis.
@@ -228,11 +318,26 @@ async def search_and_crawl(
         # Base timeout + additional time per URL (15s per additional URL after the first)
         dynamic_timeout = base_timeout + max(0, (crawl_top_results - 1) * 15)
         
-        # Enhance query with current date for latest results
+        # Process query for OR conditions and date enhancement
         enhanced_query = search_query
-        if include_current_date:
-            current_date = datetime.now().strftime("%Y-%m-%d")
-            enhanced_query = f"{search_query} {current_date}"
+
+        # Convert space-separated keywords to OR conditions
+        keywords = search_query.split()
+        if len(keywords) > 1:
+            # Use OR between keywords for more flexible search
+            enhanced_query = " OR ".join(keywords)
+
+        # Optionally add date filtering for recent results
+        parsed_period = parse_time_period(recent_days)
+        if parsed_period:
+            # parse_time_period returns either int (days) or string (date)
+            if isinstance(parsed_period, int):
+                # It's a number of days
+                date_filter = (datetime.now() - timedelta(days=parsed_period)).strftime("%Y-%m-%d")
+            else:
+                # It's already a date string
+                date_filter = parsed_period
+            enhanced_query = f"{enhanced_query} after:{date_filter}"
         
         # Step 1: Perform Google search
         search_result = await google_search_processor.search_google(

@@ -793,10 +793,7 @@ class GoogleSearchProcessor:
             'documents': 'filetype:pdf OR filetype:doc OR filetype:docx',
             'presentations': 'filetype:ppt OR filetype:pptx',
             'spreadsheets': 'filetype:xls OR filetype:xlsx',
-            
-            # Time-based (Google official time operators)
-            'recent': '"2024" OR "2023" OR "recent" OR "latest"',
-            
+
             # Language and Region (Google official lang: operator)
             'japanese': 'site:jp OR lang:ja',
             'english': 'lang:en'
@@ -819,10 +816,7 @@ class GoogleSearchProcessor:
             'documents': 'Document files (PDF, Word, etc.)',
             'presentations': 'Presentation files (PowerPoint, etc.)',
             'spreadsheets': 'Spreadsheet files (Excel, etc.)',
-            
-            # Time-based (Google official time operators)
-            'recent': 'Recent content from the last 1-2 years',
-            
+
             # Language and Region (Google official lang: operator)
             'japanese': 'Japanese language content and .jp domains',
             'english': 'English language content'

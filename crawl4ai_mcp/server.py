@@ -537,8 +537,30 @@ async def process_file(
             llm_provider=llm_provider, llm_model=llm_model
         )
         
+        # Convert FileProcessResponse object to dict for JSON serialization
+        if hasattr(result, 'model_dump'):
+            result_dict = result.model_dump()
+        elif hasattr(result, 'dict'):
+            result_dict = result.dict()
+        else:
+            # Fallback: manual conversion
+            result_dict = {
+                'success': getattr(result, 'success', False),
+                'url': getattr(result, 'url', None),
+                'filename': getattr(result, 'filename', None),
+                'file_type': getattr(result, 'file_type', None),
+                'size_bytes': getattr(result, 'size_bytes', None),
+                'is_archive': getattr(result, 'is_archive', False),
+                'content': getattr(result, 'content', None),
+                'title': getattr(result, 'title', None),
+                'metadata': getattr(result, 'metadata', None),
+                'archive_contents': getattr(result, 'archive_contents', None),
+                'error': getattr(result, 'error', None),
+                'processing_time': getattr(result, 'processing_time', None)
+            }
+        
         # Apply token limit fallback to prevent MCP errors
-        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
+        result_with_fallback = _apply_token_limit_fallback(result_dict, max_tokens=20000)
         
         # If token limit was applied and auto_summarize was False, provide helpful suggestion
         if result_with_fallback.get("token_limit_applied") and not auto_summarize:
@@ -1415,18 +1437,19 @@ async def extract_structured_data(
 
 @mcp.tool()
 async def search_google(
-    request: Annotated[Dict[str, Any], Field(description="GoogleSearchRequest dictionary containing: query (required), num_results (default: 10), search_genre (optional: 'academic', 'news', 'technical', etc.), language (default: 'en'), region (default: 'us')")],
-    include_current_date: Annotated[bool, Field(description="Append current date to query for latest results (default: True)")] = True
+    request: Annotated[Dict[str, Any], Field(description="GoogleSearchRequest dictionary containing: query (required), num_results (default: 10), search_genre (optional), language (default: 'en'), region (default: 'us'), recent_days (optional, filter to past N days)")]
 ) -> Dict[str, Any]:
     """
     Perform Google search with genre filtering and extract structured results with metadata.
-    
+
     Advanced search with genre-specific filtering for targeted results:
     - academic: Research papers, citations, scholarly content
     - news: Recent news articles and updates  
     - technical: Documentation, tutorials, stack overflow
     - commercial: Product pages, reviews, shopping
     - social: Social media content and discussions
+    
+    Date filtering: Use recent_days in request to filter to recent results (e.g., 7 for last week).
     
     Returns web search results with titles, snippets, URLs, and metadata.
     """
@@ -1438,7 +1461,7 @@ async def search_google(
         }
     
     try:
-        result = await search.search_google(request, include_current_date)
+        result = await search.search_google(request)
         return result
     except Exception as e:
         return {
@@ -1448,14 +1471,16 @@ async def search_google(
 
 @mcp.tool()
 async def batch_search_google(
-    request: Annotated[Dict[str, Any], Field(description="GoogleBatchSearchRequest dictionary containing: queries (required list), num_results (default: 5), search_genre (optional), max_concurrent (default: 3), and analysis options")],
-    include_current_date: Annotated[bool, Field(description="Append current date to queries for latest results (default: True)")] = True
+    request: Annotated[Dict[str, Any], Field(description="GoogleBatchSearchRequest dictionary containing: queries (required list), num_results_per_query (default: 10), search_genre (optional), max_concurrent (default: 3), recent_days (optional), auto_summarize (default: False), summary_length (default: 'medium'), llm_provider (optional), llm_model (optional)")]
 ) -> Dict[str, Any]:
     """
     Perform multiple Google searches efficiently with analysis and comparison.
     
     Execute multiple search queries with intelligent rate limiting and result analysis.
     Provides comparative insights across different search topics.
+    
+    Date filtering: Use recent_days in request to filter to recent results (e.g., 7 for last week).
+    AI summarization: Disabled by default, enable with auto_summarize=True in request.
     
     Perfect for research, competitive analysis, and comprehensive topic exploration.
     """
@@ -1467,18 +1492,8 @@ async def batch_search_google(
         }
     
     try:
-        result = await search.batch_search_google(request, include_current_date)
-        
-        # Apply token limit fallback to prevent MCP errors
-        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
-        
-        # If token limit was applied, provide helpful suggestion
-        if result_with_fallback.get("token_limit_applied"):
-            if not result_with_fallback.get("emergency_truncation"):
-                result_with_fallback["suggestion"] = "Batch search results were truncated due to MCP token limits. Consider reducing the number of queries or num_results per query."
-                
-        return result_with_fallback
-        
+        result = await search.batch_search_google(request)
+        return _apply_token_limit_fallback(result, max_tokens=25000)
     except Exception as e:
         return {
             "success": False,
@@ -1487,17 +1502,15 @@ async def batch_search_google(
 
 @mcp.tool()
 async def search_and_crawl(
-    search_query: Annotated[str, Field(description="Search query to find and crawl content. Examples: 'AI research papers 2024', 'Python best practices', 'climate change data'")],
-    crawl_top_results: Annotated[int, Field(description="Number of top search results to crawl (default: 2, max: 3)")] = 2,
-    search_genre: Annotated[Optional[str], Field(description="Search genre filter: 'academic', 'news', 'technical', 'commercial', 'social' (default: None)")] = None,
-    generate_markdown: Annotated[bool, Field(description="Generate markdown content from crawled pages (default: True)")] = True,
-    max_content_per_page: Annotated[int, Field(description="Maximum content length per page in characters (default: 5000)")] = 5000
+    request: Annotated[Dict[str, Any], Field(description="SearchAndCrawlRequest dictionary containing: search_query (required), crawl_top_results (default: 2), search_genre (optional), recent_days (optional), generate_markdown (default: True), max_content_per_page (default: 5000)")]
 ) -> Dict[str, Any]:
     """
     Search Google and automatically crawl top results for comprehensive content extraction.
     
     Combines search and crawling in one operation: finds relevant pages, then extracts full content.
     Perfect for research, competitive analysis, and comprehensive topic investigation.
+    
+    Date filtering: Use recent_days in request to filter to recent results (e.g., 7 for last week).
     
     Provides both search metadata and full page content in structured format.
     Response size is controlled to prevent token limit issues.
@@ -1511,13 +1524,25 @@ async def search_and_crawl(
         }
     
     try:
-        # Limit results to prevent large responses
-        crawl_top_results = min(crawl_top_results, 3)
+        # Extract parameters from request
+        search_query = request.get('search_query')
+        if not search_query:
+            return {
+                "success": False,
+                "error": "search_query is required in request"
+            }
+        
+        crawl_top_results = min(request.get('crawl_top_results', 2), 3)
+        search_genre = request.get('search_genre')
+        recent_days = request.get('recent_days')
+        generate_markdown = request.get('generate_markdown', True)
+        max_content_per_page = request.get('max_content_per_page', 5000)
         
         result = await search.search_and_crawl(
             search_query=search_query, 
             crawl_top_results=crawl_top_results,
-            search_genre=search_genre, 
+            search_genre=search_genre,
+            recent_days=recent_days,
             generate_markdown=generate_markdown
         )
         
@@ -1565,8 +1590,8 @@ async def search_and_crawl(
         try:
             # First try to get search results only
             search_result = await search.search_google({
-                "query": search_query,
-                "num_results": crawl_top_results
+                "query": request.get('search_query', ''),
+                "num_results": request.get('crawl_top_results', 2)
             })
             
             if search_result.get("success", False) and "results" in search_result:
@@ -1574,7 +1599,10 @@ async def search_and_crawl(
                 urls = [item.get("url", "") for item in search_result["results"] if item.get("url")]
                 crawled_pages = []
                 
-                for url in urls[:crawl_top_results]:
+                generate_markdown = request.get('generate_markdown', True)
+                max_content_per_page = request.get('max_content_per_page', 5000)
+                
+                for url in urls[:request.get('crawl_top_results', 2)]:
                     try:
                         fallback_result = await web_crawling.crawl_url_with_fallback(
                             url=url,
@@ -1604,7 +1632,7 @@ async def search_and_crawl(
                 
                 fallback_response = {
                     "success": True,
-                    "query": search_query,
+                    "query": request.get('search_query', ''),
                     "search_results": search_result.get("results", []),
                     "crawled_pages": crawled_pages,
                     "fallback_used": True,
