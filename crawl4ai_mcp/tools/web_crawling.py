@@ -108,12 +108,11 @@ async def summarize_web_content(
         summary_text = None
         
         if provider == 'openai':
-            import openai
-            api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
-            if not api_key:
-                raise ValueError("OpenAI API key not found")
-            
-            client = openai.AsyncOpenAI(api_key=api_key, base_url=llm_config.base_url)
+            # Use centralized OpenAI client factory (chat)
+            from ..config import get_llm_config
+            from .utilities import create_openai_client
+            provider_cfg = get_llm_config().get_provider_config('openai')
+            client = create_openai_client('openai', provider_cfg, purpose='chat')
             response = await client.chat.completions.create(
                 model=model,
                 messages=[
@@ -908,13 +907,10 @@ async def _internal_intelligent_extract(
             extracted_content = None
             
             if provider == 'openai':
-                import openai
-                
-                api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
-                if not api_key:
-                    raise ValueError("OpenAI API key not found")
-                
-                client = openai.AsyncOpenAI(api_key=api_key, base_url=llm_config.base_url)
+                from ..config import get_llm_config
+                from .utilities import create_openai_client
+                provider_cfg = get_llm_config().get_provider_config('openai')
+                client = create_openai_client('openai', provider_cfg, purpose='chat')
                 
                 response = await client.chat.completions.create(
                     model=model,
@@ -1233,13 +1229,10 @@ WEB CONTENT TO ANALYZE:
         extracted_content = None
         
         if provider_name == 'openai':
-            import openai
-            
-            api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
-            if not api_key:
-                raise ValueError("OpenAI API key not found")
-            
-            client = openai.AsyncOpenAI(api_key=api_key, base_url=llm_config.base_url)
+            from ..config import get_llm_config
+            from .utilities import create_openai_client
+            provider_cfg = get_llm_config().get_provider_config('openai')
+            client = create_openai_client('openai', provider_cfg, purpose='chat')
             
             response = await client.chat.completions.create(
                 model=model_name,
@@ -1506,14 +1499,11 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                 extracted_content = None
                 
                 if provider == 'openai':
-                    import openai
-                    
-                    api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
-                    if not api_key:
-                        raise ValueError("OpenAI API key not found")
-                    
-                    client = openai.AsyncOpenAI(api_key=api_key, base_url=llm_config.base_url)
-                    
+                    from ..config import get_llm_config
+                    from .utilities import create_openai_client
+                    provider_cfg = get_llm_config().get_provider_config('openai')
+                    client = create_openai_client('openai', provider_cfg, purpose='chat')
+
                     response = await client.chat.completions.create(
                         model=model,
                         messages=[
@@ -1523,7 +1513,7 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                         temperature=0.1,  # Low temperature for consistent extraction
                         max_tokens=4000
                     )
-                    
+
                     extracted_content = response.choices[0].message.content
                     
                 elif provider == 'anthropic':
