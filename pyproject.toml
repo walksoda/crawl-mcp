@@ -1,6 +1,6 @@
 [project]
 name = "crawl-mcp"
-version = "0.1.3"
+version = "0.1.4"
 description = "Unofficial MCP server wrapper for crawl4ai - Advanced web crawling through Model Context Protocol"
 authors = [{name = "walksoda", email = "walksoda@users.noreply.github.com"}]
 license = {text = "MIT"}
