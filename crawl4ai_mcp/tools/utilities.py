@@ -1,3 +1,41 @@
+import os
+
+def create_openai_client(provider: str, provider_cfg: dict, purpose: str = "chat"):
+    """
+    Create and return an OpenAI client for chat completions.
+    provider: 'openai' (only supported)
+    provider_cfg: dict with 'api_key' or similar
+    purpose: 'chat' (default)
+    """
+    if provider != "openai":
+        raise ValueError(f"Provider {provider} not supported")
+    try:
+        import openai
+    except ImportError:
+        raise ImportError("openai package is required. Please install with 'pip install openai'.")
+
+    api_key = provider_cfg.get("api_key") or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("OpenAI API key not found in provider_cfg or environment variable OPENAI_API_KEY")
+
+    # Support separate base URLs for chat and embedding
+    chat_base_url = provider_cfg.get("chat_base_url") or os.environ.get("OPENAI_CHAT_BASE_URL")
+    embedding_base_url = provider_cfg.get("embedding_base_url") or os.environ.get("OPENAI_EMBEDDING_BASE_URL")
+    default_base_url = provider_cfg.get("base_url") or os.environ.get("OPENAI_BASE_URL")
+
+    if purpose == "chat" and chat_base_url:
+        base_url = chat_base_url
+    elif purpose == "embedding" and embedding_base_url:
+        base_url = embedding_base_url
+    else:
+        base_url = default_base_url
+
+    # If base_url is set, use it in the client
+    if base_url:
+        openai_client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
+    else:
+        openai_client = openai.AsyncOpenAI(api_key=api_key)
+    return openai_client
 """
 Utility tools for Crawl4AI MCP Server.
 
