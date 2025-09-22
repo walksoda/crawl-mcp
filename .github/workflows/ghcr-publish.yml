@@ -50,6 +50,7 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          platforms: linux/amd64,linux/arm64
 
       - name: Output image
         run: |

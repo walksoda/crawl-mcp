@@ -56,6 +56,14 @@ RUN apt-get update && apt-get install -y \
     # Build tools for Python wheels
     gcc \
     g++ \
+    libicu-dev \
+    libwoff1 \
+    libharfbuzz-icu0 \
+    libjpeg62-turbo \
+    libwebp7 \
+    libffi8 \
+    libevdev2 \
+    libjson-glib-1.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome for additional headless browser option
