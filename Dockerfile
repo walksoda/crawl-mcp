@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
     ca-certificates \
+    software-properties-common \
     # Chrome/Chromium dependencies
     libnss3 \
     libnspr4 \
@@ -36,8 +37,9 @@ RUN apt-get update && apt-get install -y \
     libxfixes3 \
     libxtst6 \
     xdg-utils \
-    # Video and audio codecs for rich content (removed specific old-version packages
-    # that are not available on some Debian suites used by the slim image)
+    # Video and audio codecs for rich content
+    libavcodec58 \
+    libavformat58 \
     # Webkit specific dependencies
     libgtk-4-1 \
     libxslt1.1 \
@@ -54,13 +56,12 @@ RUN apt-get update && apt-get install -y \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Google Chrome for additional headless browser option only on amd64
-# (the official chrome deb is amd64-only and causes failures during multi-platform builds)
-RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
-            wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - && \
-            echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-            apt-get update && apt-get install -y google-chrome-stable && rm -rf /var/lib/apt/lists/*; \
-        fi
+# Install Google Chrome for additional headless browser option
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better Docker layer caching
 COPY requirements.txt .
