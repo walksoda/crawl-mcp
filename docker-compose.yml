@@ -5,9 +5,9 @@
 
 services:
   crawl4ai-mcp:
-    #build: .
-    #image: crawl-mcp-http:latest
-    image: ghcr.io/tekgnosis-net/crawl-mcp:latest
+    build: .
+    image: crawl-mcp-http:latest
+    #image: ghcr.io/tekgnosis-net/crawl-mcp:latest
     container_name: crawl4ai-mcp-http
     restart: unless-stopped
     platform: linux/amd64
