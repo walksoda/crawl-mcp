@@ -69,39 +69,6 @@ docker build -t crawl4ai-mcp .
 docker run -it crawl4ai-mcp
 ```
 
-## Docker & CI (GHCR)
-
-This repository publishes Docker images to GitHub Container Registry (GHCR) via GitHub Actions.
-
-- Compose image configuration: `docker-compose.yml` uses an environment variable `CRAWL_IMAGE` with a fallback to the GHCR latest image:
-
-```yaml
-image: ${CRAWL_IMAGE:-ghcr.io/tekgnosis-net/crawl-mcp:latest}
-```
-
-- CI workflow (`.github/workflows/ghcr-publish.yml`) builds multi-arch images (amd64 + arm64), runs a simple CI gate (lint + pytest if available), caches builds to GHCR, and pushes images using the repository's `GITHUB_TOKEN` (or a PAT if you prefer).
-
-- Release workflow (`.github/workflows/release.yml`) triggers on semver tags like `v1.2.3`, builds tagged multi-arch images and creates a GitHub Release.
-
-How to override the image for local testing:
-
-```bash
-# Use local image instead of GHCR
-export CRAWL_IMAGE=my-local-image:dev
-docker-compose up
-```
-
-How to trigger a release image (example):
-
-```bash
-# Tag and push
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-CI notes:
-- If your organization restricts `GITHUB_TOKEN` package write access, create a PAT with `write:packages` and set it as `GHCR_PAT` in repo secrets. Update the workflow to use that secret instead of `GITHUB_TOKEN`.
-
 **Docker Features:**
 - 🔧 **Multi-Browser Support**: Chromium, Firefox, Webkit headless browsers
 - 🐧 **Google Chrome**: Additional Chrome Stable for compatibility
