@@ -63,7 +63,6 @@ jobs:
 
       - name: Extract metadata (tags)
         id: meta
-        if: ${{ github.event_name == 'push' }}
         uses: docker/metadata-action@v4
         with:
           images: |
