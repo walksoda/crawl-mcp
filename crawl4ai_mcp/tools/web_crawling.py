@@ -96,9 +96,9 @@ async def summarize_web_content(
         - Practical insights or conclusions
         - Technical details if present
         
-    Content to summarize:
-    {content[:50000]}  # Limit to prevent token overflow
-    """
+        Content to summarize:
+        {content[:50000]}  # Limit to prevent token overflow
+        """
         
         # Get provider info from config
         provider_info = llm_config.provider.split('/')
