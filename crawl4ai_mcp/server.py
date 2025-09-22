@@ -2036,12 +2036,15 @@ def main():
         if args[i] == "--transport" and i + 1 < len(args):
             transport = args[i + 1]
             i += 2
+            print (f"Setting transport to {transport}")
         elif args[i] == "--host" and i + 1 < len(args):
             host = args[i + 1]
             i += 2
+            print (f"Setting host to {host}")
         elif args[i] == "--port" and i + 1 < len(args):
             port = int(args[i + 1])
             i += 2
+            print (f"Setting port to {port}")
         else:
             i += 1
     
@@ -2050,9 +2053,15 @@ def main():
         if transport == "stdio":
             mcp.run()
         elif transport == "streamable-http" or transport == "http":
-            mcp.run(transport="streamable-http", host=host, port=port)
+            print(f"Starting Streamable HTTP server on {host}:{port}")
+            mcp.settings.host = host
+            mcp.settings.port = port
+            mcp.run(transport="streamable-http")
         elif transport == "sse":
-            mcp.run(transport="sse", host=host, port=port)
+            print(f"Starting SSE server on {host}:{port}")
+            mcp.settings.host = host
+            mcp.settings.port = port
+            mcp.run(transport="sse")
         else:
             print(f"Unknown transport: {transport}")
             sys.exit(1)
