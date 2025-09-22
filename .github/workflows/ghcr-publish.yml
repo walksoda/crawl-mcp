@@ -53,6 +53,7 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           # Automated multi-tagging for GHCR
           platforms: linux/amd64,linux/arm64
+          push: true
 
       - name: Output image
         run: |
