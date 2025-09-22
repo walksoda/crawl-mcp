@@ -85,6 +85,8 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # Copy requirements first for better Docker layer caching
 COPY requirements.txt .
 
+# Upgrade pip to the latest version
+RUN pip install --upgrade pip
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
