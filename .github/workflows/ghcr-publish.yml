@@ -36,10 +36,10 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: |
-            ghcr.io/${{ github.repository_owner }}/${{ github.repository }}
+            ghcr.io/${{ github.repository_owner }}/crawl-mcp
           tags: |
             type=sha,format=long
-            type=ref,ref=branch,format=short
+            type=ref,format=short
             type=semver,pattern=v*.*.*
 
       - name: Build and push
