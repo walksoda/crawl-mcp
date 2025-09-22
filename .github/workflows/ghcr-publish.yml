@@ -39,8 +39,6 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/crawl-mcp
           tags: |
             type=sha,format=long
-            type=ref,format=short
-            type=semver,pattern=v*.*.*
 
       - name: Build and push
         uses: docker/build-push-action@v5
