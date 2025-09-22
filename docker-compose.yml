@@ -1,6 +1,7 @@
-# Docker Compose file for crawl4ai-mcp server (uses GHCR image by default)
+# Docker Compose file for crawl4ai-mcp server
 # This configuration sets up the crawl4ai-mcp server in both STDIO and HTTP modes
 # with environment variables optimized for headless browser operation in Docker.
+
 
 services:
   crawl4ai-mcp:
@@ -9,16 +10,18 @@ services:
     image: ${CRAWL_IMAGE:-ghcr.io/tekgnosis-net/crawl-mcp:latest}
     # Hint the platform to ensure the pulled image matches the host (override if needed)
     platform: ${CRAWL_PLATFORM:-linux/amd64}
-  # Note: the service uses the GHCR image by default. To build locally, remove
-  # the `image:` line or run `docker compose build crawl4ai-mcp` manually.
+    # Optional build context: if you want to build locally instead of pulling from GHCR,
+    # set CRAWL_IMAGE to empty and use `docker compose build crawl4ai-mcp` (or set
+    # the environment variable ENABLE_LOCAL_BUILD=1 to enable building by default).
+    build: ${CRAWL_BUILD_CONTEXT:-.}
     container_name: crawl4ai-mcp-server
     restart: unless-stopped
-
+    
     # For STDIO mode (default)
     stdin_open: true
     tty: true
-
-    # Environment variables (mapping form - safer for complex values)
+    
+    # Environment variables
     environment:
       FASTMCP_LOG_LEVEL: ${FASTMCP_LOG_LEVEL:-INFO}
       PYTHONUNBUFFERED: "1"
@@ -29,16 +32,16 @@ services:
       DISPLAY: :99
       # Chrome-specific flags for Docker (quoted because value contains spaces)
       CHROME_FLAGS: '--no-sandbox --disable-dev-shm-usage --disable-gpu --headless'
-
+    
     # Optional: expose port for HTTP mode
     ports:
       - "5050:8000"
-
+    
     # Optional: volume mount for persistent data
     volumes:
       - ./logs:/app/logs
       - ./cache:/app/cache
-
+    
     # Health check
     healthcheck:
       test: ["CMD", "python", "-c", "import crawl4ai_mcp.server; print('OK')"]
@@ -52,31 +55,34 @@ services:
     image: ${CRAWL_IMAGE:-ghcr.io/tekgnosis-net/crawl-mcp:latest}
     container_name: crawl4ai-mcp-http
     restart: unless-stopped
-
+    
     environment:
-      FASTMCP_LOG_LEVEL: ${FASTMCP_LOG_LEVEL:-INFO}
-      PYTHONUNBUFFERED: "1"
-      CRAWL4AI_BROWSER_TYPE: ${CRAWL4AI_BROWSER_TYPE:-chromium}
-      CRAWL4AI_HEADLESS: "true"
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      DISPLAY: :99
-      CHROME_FLAGS: '--no-sandbox --disable-dev-shm-usage --disable-gpu --headless'
-
+      - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-INFO}
+      - PYTHONUNBUFFERED=1
+      # Headless browser optimization
+      - CRAWL4AI_BROWSER_TYPE=${CRAWL4AI_BROWSER_TYPE:-chromium}
+      - CRAWL4AI_HEADLESS=true
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+      - DISPLAY=:99
+      # Chrome-specific flags for Docker (quoted because value contains spaces)
+      - 'CHROME_FLAGS=--no-sandbox --disable-dev-shm-usage --disable-gpu --headless'
+    
     ports:
       - "5051:8000"
-
+    
     volumes:
       - ./logs:/app/logs
       - ./cache:/app/cache
-
+    
     command: ["python", "-m", "crawl4ai_mcp.server", "--transport", "http", "--host", "0.0.0.0", "--port", "8000"]
-
-    profiles:
-      - http
-
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+        # Environment variables (mapping form - safer for complex values)
+        environment:
+          FASTMCP_LOG_LEVEL: ${FASTMCP_LOG_LEVEL:-INFO}
+          PYTHONUNBUFFERED: "1"
+          # Headless browser optimization
+          CRAWL4AI_BROWSER_TYPE: ${CRAWL4AI_BROWSER_TYPE:-chromium}
+          CRAWL4AI_HEADLESS: "true"
+          PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+          DISPLAY: :99
+          # Chrome-specific flags for Docker (quoted because value contains spaces)
+          CHROME_FLAGS: '--no-sandbox --disable-dev-shm-usage --disable-gpu --headless'
