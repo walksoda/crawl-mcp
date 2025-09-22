@@ -394,7 +394,7 @@ async def get_youtube_video_info(
             "video_info": video_info,
             "transcript_info": transcript_info,
             "processing_method": "youtube_video_info_api"
-        }
+    }
     except Exception as e:
         return {
             "success": False,

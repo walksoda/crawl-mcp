@@ -661,10 +661,8 @@ class GoogleSearchProcessor:
             }
         else:
             # For failed searches, add simplified query suggestions if no results found
-            if (
-                'No search results found' in result.get('error', '') or
-                result.get('total_results', 0) == 0
-            ):
+            if ('No search results found' in result.get('error', '') or 
+                result.get('total_results', 0) == 0):
                 suggestions = self._generate_simplified_query_suggestions(query)
                 if suggestions:
                     quoted_suggestions = [f"'{s}'" for s in suggestions]
