@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  crawl4ai-mcp:
+    image: crawl-mcp:local-amd64
+    platform: linux/amd64
+
+  crawl4ai-mcp-http:
+    image: crawl-mcp:local-amd64
+    platform: linux/amd64
+
+# This override file is intended for local development to force docker-compose
+# to use the locally-built image `crawl-mcp:local-amd64` rather than pulling
+# the GHCR image. It is safe to keep but can be removed when you want to use
+# the remote image again.
