@@ -47,9 +47,6 @@ RUN apt-get update && apt-get install -y \
     libsecret-1-0 \
     libhyphen0 \
     libgles2 \
-    # Build tools required to compile some Python wheels (e.g. madoka)
-    build-essential \
-    python3-dev \
     # Gstreamer for multimedia support
     gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-good \
