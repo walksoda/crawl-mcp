@@ -78,7 +78,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
         rm -rf /var/lib/apt/lists/*; \
     else \
         apt-get update && \
-        apt-get install -y chromium && \
+        (apt-get install -y chromium || apt-get install -y chromium-browser) && \
         rm -rf /var/lib/apt/lists/*; \
     fi
 
