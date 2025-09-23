@@ -90,6 +90,9 @@ RUN pip install --upgrade pip
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create playwright browsers directory with proper permissions before installing
+RUN mkdir -p /ms-playwright && chmod 755 /ms-playwright
+
 # Install playwright browsers (chromium, firefox, webkit)
 RUN playwright install chromium firefox webkit
 
