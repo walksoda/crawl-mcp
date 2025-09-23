@@ -7,6 +7,7 @@ def create_openai_client(provider: str, provider_cfg: dict, purpose: str = "chat
     provider_cfg: dict with 'api_key' or similar
     purpose: 'chat' (default)
     """
+    print(f"[DEBUG] create_openai_client called with provider: {provider}, purpose: {purpose}")
     if provider != "openai":
         raise ValueError(f"Provider {provider} not supported")
     try:
@@ -275,6 +276,7 @@ async def batch_crawl(
     
     Returns List of CrawlResponse objects for each URL.
     """
+    print(f"[DEBUG] batch_crawl called with {len(urls)} URLs")
     if not urls:
         return []
     
@@ -343,6 +345,7 @@ async def get_tool_selection_guide() -> Dict[str, Any]:
     
     Returns dictionary with tool selection guide, workflows, and complexity mapping.
     """
+    print("[DEBUG] get_tool_selection_guide called")
     try:
         return {
             "success": True,
@@ -576,6 +579,7 @@ async def get_llm_config_info() -> Dict[str, Any]:
     
     Returns dictionary with LLM configuration details including available providers and models.
     """
+    print("[DEBUG] get_llm_config_info called")
     try:
         # Import config functions
         try:
