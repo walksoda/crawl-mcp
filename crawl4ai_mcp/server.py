@@ -160,9 +160,7 @@ def _load_tool_modules():
             from crawl4ai_mcp.tools import web_crawling, search, youtube, file_processing, utilities
             _tools_imported = True
         except ImportError:
-            _tools_imported = False
-
-def _ensure_browser_setup():
+            _tools_imported = Falsedef _ensure_browser_setup():
     """Browser setup with lazy loading"""
     global _browser_setup_done, _browser_setup_failed
     
