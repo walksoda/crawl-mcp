@@ -944,6 +944,24 @@ async def _internal_intelligent_extract(
                 
                 extracted_content = response.content[0].text
                 
+            elif provider == 'ollama':
+                from ..config import get_llm_config
+                from .utilities import create_openai_client
+                provider_cfg = get_llm_config().get_provider_config('ollama')
+                client = create_openai_client('ollama', provider_cfg, purpose='chat')
+                
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": "You are an expert content analyst specializing in precise information extraction."},
+                        {"role": "user", "content": extraction_prompt}
+                    ],
+                    temperature=0.1,  # Low temperature for consistent extraction
+                    max_tokens=4000
+                )
+                
+                extracted_content = response.choices[0].message.content
+                
             else:
                 # Fallback for unsupported providers
                 return {

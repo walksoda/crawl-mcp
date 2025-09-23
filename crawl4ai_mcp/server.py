@@ -961,9 +961,9 @@ async def intelligent_extract(
                 url=url, generate_markdown=True, timeout=60
             )
             
-            if fallback_crawl.get("success", False):
+            if fallback_crawl.success:
                 # Attempt basic extraction from fallback content
-                content = fallback_crawl.get("markdown", "") or fallback_crawl.get("content", "")
+                content = fallback_crawl.markdown or fallback_crawl.content or ""
                 
                 if content.strip():
                     fallback_response = {
@@ -974,8 +974,8 @@ async def intelligent_extract(
                             "raw_content": content[:2000] + ("..." if len(content) > 2000 else ""),
                             "note": "Fallback extraction - manual processing may be needed"
                         },
-                        "content": fallback_crawl.get("content", ""),
-                        "markdown": fallback_crawl.get("markdown", ""),
+                        "content": fallback_crawl.content or "",
+                        "markdown": fallback_crawl.markdown or "",
                         "fallback_used": True,
                         "original_error": result.get("error", "Intelligent extraction failed")
                     }
