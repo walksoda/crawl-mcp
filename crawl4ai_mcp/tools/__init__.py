@@ -4,6 +4,9 @@ Tools module for Crawl4AI MCP Server.
 Contains all MCP tool implementations organized by functionality.
 """
 
+# Import the modules themselves for server.py to access
+from . import youtube, file_processing, web_crawling, search, utilities
+
 # YouTube tools
 from .youtube import (
     extract_youtube_transcript,
@@ -12,7 +15,7 @@ from .youtube import (
     get_youtube_api_setup_guide
 )
 
-# File processing tools  
+# File processing tools
 from .file_processing import (
     process_file,
     get_supported_file_formats,

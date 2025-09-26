@@ -11,7 +11,6 @@ RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
     ca-certificates \
-    software-properties-common \
     # Chrome/Chromium dependencies
     libnss3 \
     libnspr4 \
@@ -38,8 +37,8 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     xdg-utils \
     # Video and audio codecs for rich content
-    libavcodec58 \
-    libavformat58 \
+    libavcodec-extra61 \
+    libavformat-extra61 \
     # Webkit specific dependencies
     libgtk-4-1 \
     libxslt1.1 \
@@ -54,20 +53,45 @@ RUN apt-get update && apt-get install -y \
     gstreamer1.0-plugins-good \
     # Process management
     procps \
+    # Build tools for Python wheels
+    gcc \
+    g++ \
+    libicu-dev \
+    libwoff1 \
+    libharfbuzz-icu0 \
+    libjpeg62-turbo \
+    libwebp7 \
+    libffi8 \
+    libevdev2 \
+    libjson-glib-1.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome for additional headless browser option
-RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update \
-    && apt-get install -y google-chrome-stable \
-    && rm -rf /var/lib/apt/lists/*
+
+# Install browser: Chrome for amd64, Chromium for others
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then \
+        wget -O /usr/share/keyrings/google-chrome.gpg https://dl.google.com/linux/linux_signing_key.pub && \
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+        apt-get update && \
+        apt-get install -y google-chrome-stable && \
+        rm -rf /var/lib/apt/lists/*; \
+    else \
+        apt-get update && \
+        (apt-get install -y chromium || apt-get install -y chromium-browser) && \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # Copy requirements first for better Docker layer caching
 COPY requirements.txt .
 
+# Upgrade pip to the latest version
+RUN pip install --upgrade pip
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Create playwright browsers directory with proper permissions before installing
+RUN mkdir -p /ms-playwright && chmod 755 /ms-playwright
 
 # Install playwright browsers (chromium, firefox, webkit)
 RUN playwright install chromium firefox webkit

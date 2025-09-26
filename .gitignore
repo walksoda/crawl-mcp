@@ -51,6 +51,9 @@ Thumbs.db
 *.log
 logs/
 
+# Local chat history (always ignore)
+.local_chat_history/
+
 # Environment variables
 .env
 .env.local
