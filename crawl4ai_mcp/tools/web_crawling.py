@@ -422,12 +422,22 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                         if request.execute_js:
                             config.js_code = request.execute_js
                         
-                        # Run crawler with config
+                        # Run crawler with config and proper timeout
                         arun_params = {"url": request.url, "config": config}
-                        
-                        result = await crawler.arun(**arun_params)
+
+                        # Apply timeout to crawler.arun() to prevent hanging
+                        result = await asyncio.wait_for(
+                            crawler.arun(**arun_params),
+                            timeout=request.timeout
+                        )
                         break  # Success, no need to try other browsers
-                        
+
+                except asyncio.TimeoutError:
+                    # Handle timeout specifically
+                    error_msg = f"Crawl timeout after {request.timeout}s for {request.url}"
+                    if browser_type == browsers_to_try[-1]:
+                        raise TimeoutError(error_msg)
+                    continue  # Try next browser
                 except Exception as browser_error:
                     # If this is the last browser to try, raise the error
                     if browser_type == browsers_to_try[-1]:

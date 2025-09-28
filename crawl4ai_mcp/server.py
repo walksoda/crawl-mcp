@@ -1737,9 +1737,10 @@ async def batch_crawl(
             "use_undetected_browser": use_undetected_browser
         }
         
-        # Add timeout handling
+        # Add timeout handling - optimized for faster response
         import asyncio
-        total_timeout = base_timeout * len(urls) + 60  # Extra buffer
+        # Reduced timeout: base + 10s per URL (instead of base * URLs)
+        total_timeout = base_timeout + (len(urls) * 10) + 30  # More reasonable timeout
         
         result = await asyncio.wait_for(
             utilities.batch_crawl(urls, config, base_timeout),
@@ -1750,7 +1751,17 @@ async def batch_crawl(
         if isinstance(result, list):
             failed_urls = []
             for i, crawl_result in enumerate(result):
-                if not crawl_result.get("success", True) or not crawl_result.get("markdown", "").strip():
+                # Handle both dict and CrawlResponse objects
+                if hasattr(crawl_result, 'success'):
+                    # CrawlResponse object
+                    success = crawl_result.success
+                    markdown = getattr(crawl_result, 'markdown', '') or ''
+                else:
+                    # Dictionary object
+                    success = crawl_result.get("success", True)
+                    markdown = crawl_result.get("markdown", "") or ""
+
+                if not success or not markdown.strip():
                     failed_urls.append((i, urls[i]))
             
             # Apply fallback to failed URLs with undetected browser
@@ -1766,24 +1777,50 @@ async def batch_crawl(
                             use_undetected_browser=True  # Force undetected for fallback
                         )
                         
-                        if fallback_result.get("success", False):
-                            fallback_result["fallback_used"] = True
-                            fallback_result["undetected_browser_used"] = True
-                            result[idx] = fallback_result
-                        
+                        # Handle both dict and CrawlResponse objects for fallback
+                        if hasattr(fallback_result, 'success'):
+                            # CrawlResponse object - convert to dict
+                            if fallback_result.success:
+                                fallback_dict = fallback_result.dict()
+                                fallback_dict["fallback_used"] = True
+                                fallback_dict["undetected_browser_used"] = True
+                                result[idx] = fallback_dict
+                        else:
+                            # Dictionary object
+                            if fallback_result.get("success", False):
+                                fallback_result["fallback_used"] = True
+                                fallback_result["undetected_browser_used"] = True
+                                result[idx] = fallback_result
+
                     except Exception as fallback_error:
-                        result[idx]["fallback_error"] = str(fallback_error)
+                        # Handle CrawlResponse objects in error case
+                        if hasattr(result[idx], 'dict'):
+                            error_dict = result[idx].dict()
+                            error_dict["fallback_error"] = str(fallback_error)
+                            result[idx] = error_dict
+                        else:
+                            result[idx]["fallback_error"] = str(fallback_error)
         
+        # Convert CrawlResponse objects to dictionaries for JSON serialization
+        dict_results = []
+        for crawl_result in result:
+            if hasattr(crawl_result, 'dict'):
+                # CrawlResponse object
+                dict_results.append(crawl_result.dict())
+            else:
+                # Already a dictionary
+                dict_results.append(crawl_result)
+
         # Apply token limit fallback to the entire batch result
-        batch_response = {"batch_results": result, "total_urls": len(urls)}
+        batch_response = {"batch_results": dict_results, "total_urls": len(urls)}
         final_result = _apply_token_limit_fallback(batch_response, max_tokens=20000)
-        
+
         # Return just the batch_results list if no token limits were applied
         if not final_result.get("token_limit_applied"):
-            return result
+            return dict_results
         else:
             # If token limits were applied, return the modified structure with metadata
-            return final_result.get("batch_results", result)
+            return final_result.get("batch_results", dict_results)
         
     except asyncio.TimeoutError:
         return [{
@@ -1804,11 +1841,22 @@ async def batch_crawl(
                         timeout=base_timeout,
                         use_undetected_browser=True  # Force undetected for emergency fallback
                     )
-                    if fallback_result.get("success", False):
-                        fallback_result["fallback_used"] = True
-                        fallback_result["undetected_browser_used"] = True
-                        fallback_result["original_batch_error"] = str(e)
-                    fallback_results.append(fallback_result)
+                    # Handle CrawlResponse objects in emergency fallback
+                    if hasattr(fallback_result, 'success'):
+                        # CrawlResponse object - convert to dict
+                        fallback_dict = fallback_result.dict()
+                        if fallback_result.success:
+                            fallback_dict["fallback_used"] = True
+                            fallback_dict["undetected_browser_used"] = True
+                            fallback_dict["original_batch_error"] = str(e)
+                        fallback_results.append(fallback_dict)
+                    else:
+                        # Dictionary object
+                        if fallback_result.get("success", False):
+                            fallback_result["fallback_used"] = True
+                            fallback_result["undetected_browser_used"] = True
+                            fallback_result["original_batch_error"] = str(e)
+                        fallback_results.append(fallback_result)
                     
                 except Exception as individual_error:
                     fallback_results.append({

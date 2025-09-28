@@ -25,3 +25,6 @@ youtube-transcript-api==1.2.1
 
 # Playwright for lightweight browser automation - fixed version
 playwright==1.54.0
+
+# Date utilities for time parsing functionality
+python-dateutil>=2.9.0.post0

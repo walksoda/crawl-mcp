@@ -256,17 +256,28 @@ async def batch_crawl(
     dynamic_timeout = base_timeout + max(0, (len(urls) - 1) * 10)
     default_config["timeout"] = dynamic_timeout
     
-    # Limit concurrent processing to be respectful to servers
-    max_concurrent = min(len(urls), 5)  # Max 5 concurrent requests
+    # Limit concurrent processing to be respectful to servers and prevent hangs
+    max_concurrent = min(len(urls), 2)  # Reduced to 2 concurrent requests for stability
     semaphore = asyncio.Semaphore(max_concurrent)
-    
+
     async def crawl_single_url(url: str) -> CrawlResponse:
         async with semaphore:
             try:
-                # Create crawl request with merged configuration  
+                # Create crawl request with merged configuration
                 request = CrawlRequest(url=url, **default_config)
-                result = await _internal_crawl_url(request)
+                # Add individual URL timeout to prevent hangs
+                result = await asyncio.wait_for(
+                    _internal_crawl_url(request),
+                    timeout=dynamic_timeout
+                )
                 return result
+            except asyncio.TimeoutError:
+                # Handle individual URL timeouts
+                return CrawlResponse(
+                    success=False,
+                    url=url,
+                    error=f"Individual URL timeout after {dynamic_timeout}s: {url}"
+                )
             except Exception as e:
                 # Return error response for failed URLs
                 return CrawlResponse(
@@ -275,9 +286,24 @@ async def batch_crawl(
                     error=f"Batch crawl error for {url}: {str(e)}"
                 )
     
-    # Process all URLs concurrently with semaphore control
+    # Process all URLs concurrently with semaphore control and global timeout
     tasks = [crawl_single_url(url) for url in urls]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    try:
+        # Add overall batch timeout to prevent infinite hangs
+        batch_timeout = dynamic_timeout * 2  # Allow extra time for batch processing
+        results = await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=batch_timeout
+        )
+    except asyncio.TimeoutError:
+        # If batch times out, return timeout errors for all URLs
+        results = [
+            CrawlResponse(
+                success=False,
+                url=url,
+                error=f"Batch timeout after {batch_timeout}s"
+            ) for url in urls
+        ]
     
     # Handle any exceptions that occurred
     processed_results = []

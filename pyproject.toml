@@ -1,6 +1,6 @@
 [project]
 name = "crawl-mcp"
-version = "0.1.4"
+version = "0.1.5"
 description = "Unofficial MCP server wrapper for crawl4ai - Advanced web crawling through Model Context Protocol"
 authors = [{name = "walksoda", email = "walksoda@users.noreply.github.com"}]
 license = {text = "MIT"}
@@ -42,6 +42,7 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "youtube-transcript-api==1.2.1",
     "playwright==1.54.0",
+    "python-dateutil>=2.9.0.post0",
 ]
 
 [project.urls]
