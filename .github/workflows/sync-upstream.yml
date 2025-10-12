@@ -1,0 +1,31 @@
+name: Sync upstream to upstream-updated
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # every hour
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout your repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/walksoda/crawl-mcp.git
+
+      - name: Fetch upstream
+        run: git fetch upstream
+
+      - name: Create/update upstream-updated branch
+        run: |
+          git checkout -B upstream-updated upstream/main
+          git push origin upstream-updated --force

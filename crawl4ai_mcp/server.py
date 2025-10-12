@@ -30,6 +30,7 @@ from pydantic import Field, BaseModel
 
 # Create MCP server with clean initialization
 mcp = FastMCP("Crawl4AI")
+print("[DEBUG] MCP server initialized")
 
 # Global lazy loading state
 _heavy_imports_loaded = False
@@ -43,6 +44,7 @@ def _load_heavy_imports():
     if _heavy_imports_loaded:
         return
         
+    print("[DEBUG] Loading heavy imports...")
     global asyncio, json, AsyncWebCrawler
     
     import asyncio
@@ -50,6 +52,7 @@ def _load_heavy_imports():
     from crawl4ai import AsyncWebCrawler
     
     _heavy_imports_loaded = True
+    print("[DEBUG] Heavy imports loaded successfully")
 
 def _estimate_tokens(text: str) -> int:
     """Estimate token count (rough approximation: 4 chars = 1 token)"""
@@ -164,11 +167,14 @@ def _ensure_browser_setup():
     global _browser_setup_done, _browser_setup_failed
     
     if _browser_setup_done:
+        print("[DEBUG] Browser already set up")
         return True
     if _browser_setup_failed:
+        print("[DEBUG] Browser setup previously failed")
         return False
         
     try:
+        print("[DEBUG] Checking browser cache...")
         # Quick browser cache check
         import glob
         from pathlib import Path
@@ -176,12 +182,15 @@ def _ensure_browser_setup():
         cache_pattern = str(Path.home() / ".cache" / "ms-playwright" / "chromium-*")
         if glob.glob(cache_pattern):
             _browser_setup_done = True
+            print("[DEBUG] Browser cache found, setup complete")
             return True
         else:
             _browser_setup_failed = True
+            print("[DEBUG] Browser cache not found, setup failed")
             return False
-    except Exception:
+    except Exception as e:
         _browser_setup_failed = True
+        print(f"[DEBUG] Browser setup failed with exception: {e}")
         return False
 
 # Tool definitions with immediate registration but lazy implementation
@@ -194,6 +203,7 @@ def get_system_diagnostics() -> dict:
     Returns detailed information about the environment, browser installations,
     and provides specific recommendations for fixing issues.
     """
+    print("[DEBUG] Executing get_system_diagnostics tool")
     _load_heavy_imports()
     
     import platform
@@ -243,8 +253,10 @@ async def crawl_url(
     
     Returns structured data with content, metadata, and optional media/screenshots.
     """
+    print(f"[DEBUG] crawl_url called with URL: {url}")
     _load_tool_modules()
     if not _tools_imported:
+        print("[DEBUG] Tool modules not imported")
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -349,6 +361,7 @@ async def extract_youtube_transcript(
     
     Note: Automatic transcription may contain errors.
     """
+    print(f"[DEBUG] extract_youtube_transcript called with URL: {url}")
     _load_tool_modules()
     if not _tools_imported:
         return {
@@ -522,6 +535,7 @@ async def process_file(
     Supports PDF, Word, Excel, PowerPoint, and ZIP archives using MarkItDown.
     Handles large files with automatic chunking and summarization.
     """
+    print(f"[DEBUG] process_file called with URL: {url}")
     _load_tool_modules()
     if not _tools_imported:
         return {
@@ -947,9 +961,9 @@ async def intelligent_extract(
                 url=url, generate_markdown=True, timeout=60
             )
             
-            if fallback_crawl.get("success", False):
+            if fallback_crawl.success:
                 # Attempt basic extraction from fallback content
-                content = fallback_crawl.get("markdown", "") or fallback_crawl.get("content", "")
+                content = fallback_crawl.markdown or fallback_crawl.content or ""
                 
                 if content.strip():
                     fallback_response = {
@@ -960,8 +974,8 @@ async def intelligent_extract(
                             "raw_content": content[:2000] + ("..." if len(content) > 2000 else ""),
                             "note": "Fallback extraction - manual processing may be needed"
                         },
-                        "content": fallback_crawl.get("content", ""),
-                        "markdown": fallback_crawl.get("markdown", ""),
+                        "content": fallback_crawl.content or "",
+                        "markdown": fallback_crawl.markdown or "",
                         "fallback_used": True,
                         "original_error": result.get("error", "Intelligent extraction failed")
                     }
@@ -1453,8 +1467,10 @@ async def search_google(
     
     Returns web search results with titles, snippets, URLs, and metadata.
     """
+    print(f"[DEBUG] search_google called with request: {request}")
     _load_tool_modules()
     if not _tools_imported:
+        print("[DEBUG] Tool modules not imported for search_google")
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -1462,8 +1478,10 @@ async def search_google(
     
     try:
         result = await search.search_google(request)
+        print(f"[DEBUG] search_google completed successfully")
         return result
     except Exception as e:
+        print(f"[DEBUG] search_google failed with error: {e}")
         return {
             "success": False,
             "error": f"Google search error: {str(e)}"
@@ -1894,7 +1912,7 @@ async def multi_url_crawl(
     
     Pattern Examples:
     - Wildcard: '*news*', '*api*', '*.pdf', 'https://docs.*'
-    - Regex: r'.*\/(api|v\d+)\/', r'https:\/\/[^\/]+\.com\/news'
+    - Regex: r'.*/(api|v\d+)/', r'https://[^/]+\.com/news'
     
     Perfect for mixed-domain crawling with site-specific optimizations.
     """
@@ -2065,6 +2083,7 @@ def get_tool_selection_guide() -> dict:
 
 def main():
     """Clean main entry point - FastMCP 2.0 with no banner issues"""
+    print("[DEBUG] Starting MCP server main function")
     import sys
     
     if len(sys.argv) > 1 and sys.argv[1] == "--help":
@@ -2084,12 +2103,15 @@ def main():
         if args[i] == "--transport" and i + 1 < len(args):
             transport = args[i + 1]
             i += 2
+            print (f"Setting transport to {transport}")
         elif args[i] == "--host" and i + 1 < len(args):
             host = args[i + 1]
             i += 2
+            print (f"Setting host to {host}")
         elif args[i] == "--port" and i + 1 < len(args):
             port = int(args[i + 1])
             i += 2
+            print (f"Setting port to {port}")
         else:
             i += 1
     
@@ -2098,9 +2120,15 @@ def main():
         if transport == "stdio":
             mcp.run()
         elif transport == "streamable-http" or transport == "http":
-            mcp.run(transport="streamable-http", host=host, port=port)
+            print(f"Starting Streamable HTTP server on {host}:{port}")
+            mcp.settings.host = host
+            mcp.settings.port = port
+            mcp.run(transport="streamable-http")
         elif transport == "sse":
-            mcp.run(transport="sse", host=host, port=port)
+            print(f"Starting SSE server on {host}:{port}")
+            mcp.settings.host = host
+            mcp.settings.port = port
+            mcp.run(transport="sse")
         else:
             print(f"Unknown transport: {transport}")
             sys.exit(1)

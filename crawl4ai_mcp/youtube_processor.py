@@ -599,16 +599,12 @@ Video Information:
                 model = provider_info[1] if len(provider_info) > 1 else 'gpt-4o'
                 
                 if provider == 'openai':
-                    import openai
-                    
-                    # Get API key from config
-                    api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
-                    
-                    if not api_key:
-                        raise ValueError("OpenAI API key not found")
-                    
-                    client = openai.AsyncOpenAI(api_key=api_key)
-                    
+                    # Use centralized factory to create an OpenAI client (chat)
+                    from ..config import get_llm_config
+                    from .utilities import create_openai_client
+                    provider_cfg = get_llm_config().get_provider_config('openai')
+                    client = create_openai_client('openai', provider_cfg, purpose='chat')
+
                     response = await client.chat.completions.create(
                         model=model,
                         messages=[

@@ -1,12 +1,15 @@
 # Fixed versions to prevent unintended behavior changes
 crawl4ai==0.7.4
-fastmcp==2.0.0
+fastmcp==2.12.3
 pydantic>=2.0.0
 asyncio
 typing-extensions
 python-dotenv>=1.0.0
 scikit-learn>=1.3.0
 numpy>=1.24.0
+
+# Date/time utilities
+python-dateutil>=2.8.0
 
 # File processing - explicit dependencies to avoid conflicts
 markitdown==0.1.2
