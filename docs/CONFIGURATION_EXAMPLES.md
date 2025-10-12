@@ -114,7 +114,7 @@ Comprehensive configuration examples for different installation methods, platfor
       "args": ["-m", "crawl4ai_mcp.server"],
       "cwd": "/path/to/crawl",
       "env": {
-        "PYTHONPATH": "/path/to/crawl/venv/lib/python3.10/site-packages"
+        "PYTHONPATH": "/path/to/crawl/venv/lib/python3.11/site-packages"
       }
     }
   }
@@ -133,7 +133,7 @@ Comprehensive configuration examples for different installation methods, platfor
       "args": ["-m", "crawl4ai_mcp.server"],
       "cwd": "/home/user/prj/crawl",
       "env": {
-        "PYTHONPATH": "/home/user/prj/crawl/venv/lib/python3.10/site-packages"
+        "PYTHONPATH": "/home/user/prj/crawl/venv/lib/python3.11/site-packages"
       }
     }
   }
@@ -174,7 +174,7 @@ Comprehensive configuration examples for different installation methods, platfor
       "args": ["-m", "crawl4ai_mcp.server", "--transport", "http", "--port", "8080"],
       "cwd": "/path/to/project",
       "env": {
-        "PYTHONPATH": "/path/to/venv/lib/python3.10/site-packages"
+        "PYTHONPATH": "/path/to/venv/lib/python3.11/site-packages"
       }
     }
   }
@@ -299,7 +299,7 @@ Comprehensive configuration examples for different installation methods, platfor
       "args": ["-m", "crawl4ai_mcp.server"],
       "cwd": "/path/to/crawl",
       "env": {
-        "PYTHONPATH": "/path/to/crawl/venv/lib/python3.10/site-packages",
+        "PYTHONPATH": "/path/to/crawl/venv/lib/python3.11/site-packages",
         "OPENAI_API_KEY": "your-api-key-here",
         "ANTHROPIC_API_KEY": "your-api-key-here"
       }

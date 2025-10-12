@@ -4,6 +4,8 @@ This guide provides detailed installation instructions for the Crawl4AI MCP Serv
 
 ## 🔧 Prerequisites Setup (Required First)
 
+**Python 3.11 or later is required (FastMCP dependency baseline)**
+
 **Before using any installation method, you MUST prepare system dependencies for Playwright:**
 
 ### 🐧 Linux/macOS

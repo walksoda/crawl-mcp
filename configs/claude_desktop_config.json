@@ -5,7 +5,7 @@
       "args": ["-m", "crawl4ai_mcp.server"],
       "cwd": "/home/user/prj/crawl",
       "env": {
-        "PYTHONPATH": "/home/user/prj/crawl/venv/lib/python3.10/site-packages"
+        "PYTHONPATH": "/home/user/prj/crawl/venv/lib/python3.11/site-packages"
       },
       "llm_config": {
         "default_provider": "openai",

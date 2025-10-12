@@ -18,6 +18,8 @@
 
 ### 前提条件（最初に必須）
 
+- Python 3.11 以上（FastMCP が Python 3.11+ を要求）
+
 **Playwright用システム依存関係のインストール:**
 
 **Linux/macOS:**
