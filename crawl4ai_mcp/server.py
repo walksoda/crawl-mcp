@@ -306,7 +306,7 @@ async def crawl_url(
 
         if result_dict.get("success", True) and result_dict.get("markdown", "").strip():
             # Apply token limit fallback before returning
-            return _apply_token_limit_fallback(result_dict, max_tokens=20000)
+            return _apply_token_limit_fallback(result_dict, max_tokens=25000)
         
         # If initial crawling failed or returned empty content, try fallback with undetected browser
         fallback_result = await web_crawling.crawl_url_with_fallback(
@@ -335,7 +335,7 @@ async def crawl_url(
                 fallback_dict["undetected_browser_used"] = True
 
         # Apply token limit fallback before returning
-        return _apply_token_limit_fallback(fallback_dict, max_tokens=20000)
+        return _apply_token_limit_fallback(fallback_dict, max_tokens=25000)
         
     except Exception as e:
         # If initial crawling throws an exception, try fallback with undetected browser
@@ -366,7 +366,7 @@ async def crawl_url(
                 fallback_dict["original_error"] = str(e)
 
             # Apply token limit fallback before returning
-            return _apply_token_limit_fallback(fallback_dict, max_tokens=20000)
+            return _apply_token_limit_fallback(fallback_dict, max_tokens=25000)
             
         except Exception as fallback_error:
             return {
@@ -834,7 +834,7 @@ async def deep_crawl_site(
         # Check if crawling was successful
         if result.get("success", True):
             # Apply token limit fallback before returning
-            return _apply_token_limit_fallback(result, max_tokens=20000)
+            return _apply_token_limit_fallback(result, max_tokens=25000)
         
         # If deep crawl failed entirely, try with fallback strategy for the main URL
         try:
@@ -864,7 +864,7 @@ async def deep_crawl_site(
                 }
                 
                 # Apply token limit fallback before returning
-                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
+                return _apply_token_limit_fallback(fallback_response, max_tokens=25000)
             
         except Exception as fallback_error:
             result["fallback_error"] = str(fallback_error)
@@ -899,7 +899,7 @@ async def deep_crawl_site(
                 }
                 
                 # Apply token limit fallback before returning
-                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
+                return _apply_token_limit_fallback(fallback_response, max_tokens=25000)
                 
         except Exception as fallback_error:
             pass
@@ -987,7 +987,7 @@ async def intelligent_extract(
         # Check if extraction was successful
         if result.get("success", True):
             # Apply token limit fallback before returning
-            return _apply_token_limit_fallback(result, max_tokens=20000)
+            return _apply_token_limit_fallback(result, max_tokens=25000)
         
         # If intelligent extraction failed, try with fallback crawling
         try:
@@ -1015,7 +1015,7 @@ async def intelligent_extract(
                     }
                     
                     # Apply token limit fallback before returning
-                    return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
+                    return _apply_token_limit_fallback(fallback_response, max_tokens=25000)
                     
         except Exception as fallback_error:
             result["fallback_error"] = str(fallback_error)
@@ -1047,7 +1047,7 @@ async def intelligent_extract(
                 }
                 
                 # Apply token limit fallback before returning
-                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
+                return _apply_token_limit_fallback(fallback_response, max_tokens=25000)
                 
         except Exception as fallback_error:
             pass
@@ -1094,7 +1094,7 @@ async def extract_entities(
         # Check if entity extraction was successful
         if result.get("success", True):
             # Apply token limit fallback before returning
-            return _apply_token_limit_fallback(result, max_tokens=20000)
+            return _apply_token_limit_fallback(result, max_tokens=25000)
         
         # If entity extraction failed, try with fallback crawling
         try:
@@ -1137,7 +1137,7 @@ async def extract_entities(
                 }
                 
                 # Apply token limit fallback before returning
-                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
+                return _apply_token_limit_fallback(fallback_response, max_tokens=25000)
                 
         except Exception as fallback_error:
             result["fallback_error"] = str(fallback_error)
@@ -1186,7 +1186,7 @@ async def extract_entities(
                 }
                 
                 # Apply token limit fallback before returning
-                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
+                return _apply_token_limit_fallback(fallback_response, max_tokens=25000)
                 
         except Exception as fallback_error:
             pass
@@ -1243,7 +1243,7 @@ async def extract_structured_data(
                     result["processing_method"] = "llm_table_extraction"
                     result["features_used"] = ["intelligent_chunking", "massive_table_support"]
                     # Apply token limit fallback before returning
-                    return _apply_token_limit_fallback(result, max_tokens=20000)
+                    return _apply_token_limit_fallback(result, max_tokens=25000)
                     
             except Exception as table_error:
                 # Fallback to CSS extraction if table extraction fails
@@ -1348,7 +1348,7 @@ async def extract_structured_data(
                     result["fallback_used"] = True
                 
                 # Apply token limit fallback before returning
-                return _apply_token_limit_fallback(result, max_tokens=20000)
+                return _apply_token_limit_fallback(result, max_tokens=25000)
                 
             except ImportError:
                 # If BeautifulSoup not available, try fallback crawl
@@ -1374,7 +1374,7 @@ async def extract_structured_data(
                         }
                         
                         # Apply token limit fallback before returning
-                        return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
+                        return _apply_token_limit_fallback(fallback_response, max_tokens=25000)
                 
                 except Exception:
                     pass
@@ -1408,7 +1408,7 @@ async def extract_structured_data(
                         }
                         
                         # Apply token limit fallback before returning
-                        return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
+                        return _apply_token_limit_fallback(fallback_response, max_tokens=25000)
                         
                 except Exception:
                     pass
@@ -1447,7 +1447,7 @@ async def extract_structured_data(
                 crawl_result["extracted_data"] = {"raw_content": crawl_result.get("content", "")[:500] + "..."}
             
             # Apply token limit fallback before returning
-            return _apply_token_limit_fallback(crawl_result, max_tokens=20000)
+            return _apply_token_limit_fallback(crawl_result, max_tokens=25000)
         
     except Exception as e:
         # Final fallback attempt
@@ -1473,7 +1473,7 @@ async def extract_structured_data(
                 }
                 
                 # Apply token limit fallback before returning
-                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
+                return _apply_token_limit_fallback(fallback_response, max_tokens=25000)
                 
         except Exception:
             pass
@@ -1636,7 +1636,7 @@ async def search_and_crawl(
                             page["markdown"] = page["markdown"][:max_content_per_page] + "... [truncated for size limit]"
         
         # Apply token limit fallback before returning
-        return _apply_token_limit_fallback(result, max_tokens=20000)
+        return _apply_token_limit_fallback(result, max_tokens=25000)
         
     except Exception as e:
         # If search_and_crawl fails entirely, try with fallback crawling
@@ -1693,7 +1693,7 @@ async def search_and_crawl(
                 }
                 
                 # Apply token limit fallback before returning
-                return _apply_token_limit_fallback(fallback_response, max_tokens=20000)
+                return _apply_token_limit_fallback(fallback_response, max_tokens=25000)
                 
         except Exception as fallback_error:
             pass
@@ -1866,7 +1866,7 @@ async def batch_crawl(
 
         # Apply token limit fallback to the entire batch result
         batch_response = {"batch_results": dict_results, "total_urls": len(urls)}
-        final_result = _apply_token_limit_fallback(batch_response, max_tokens=20000)
+        final_result = _apply_token_limit_fallback(batch_response, max_tokens=25000)
 
         # Return just the batch_results list if no token limits were applied
         if not final_result.get("token_limit_applied"):
@@ -1921,7 +1921,7 @@ async def batch_crawl(
             
             # Apply token limit fallback to emergency results  
             batch_response = {"batch_results": fallback_results, "total_urls": len(urls)}
-            final_result = _apply_token_limit_fallback(batch_response, max_tokens=20000)
+            final_result = _apply_token_limit_fallback(batch_response, max_tokens=25000)
             return final_result.get("batch_results", fallback_results)
             
         except Exception:
@@ -2069,7 +2069,7 @@ async def multi_url_crawl(
         
         # Apply token limit fallback to the entire multi-URL result
         batch_response = {"multi_url_results": results, "total_urls": len(all_urls)}
-        final_result = _apply_token_limit_fallback(batch_response, max_tokens=20000)
+        final_result = _apply_token_limit_fallback(batch_response, max_tokens=25000)
         
         # Return just the results list if no token limits were applied
         if not final_result.get("token_limit_applied"):
