@@ -442,7 +442,6 @@ async def extract_youtube_transcript(
             "error": f"YouTube transcript error: {str(e)}"
         }
 
-@mcp.tool()
 async def batch_extract_youtube_transcripts(
     request: Annotated[Dict[str, Any], Field(description="YouTubeBatchRequest dictionary containing: urls (required list of YouTube URLs), languages (default: ['ja', 'en']), max_concurrent (default: 3, max: 5), include_timestamps, translate_to, preserve_formatting, include_metadata (all optional booleans)")]
 ) -> Dict[str, Any]:
@@ -1522,7 +1521,6 @@ async def search_google(
             "error": f"Google search error: {str(e)}"
         }
 
-@mcp.tool()
 async def batch_search_google(
     request: Annotated[Dict[str, Any], Field(description="GoogleBatchSearchRequest dictionary containing: queries (required list), num_results_per_query (default: 10), search_genre (optional), max_concurrent (default: 3), recent_days (optional), auto_summarize (default: False), summary_length (default: 'medium'), llm_provider (optional), llm_model (optional)")]
 ) -> Dict[str, Any]:
@@ -1753,7 +1751,6 @@ async def get_llm_config_info() -> Dict[str, Any]:
             "error": f"LLM config info error: {str(e)}"
         }
 
-@mcp.tool()
 async def batch_crawl(
     urls: Annotated[List[str], Field(description="List of URLs to crawl. Examples: ['https://site1.com', 'https://site2.com/page', 'https://docs.example.com']")],
     base_timeout: Annotated[int, Field(description="Base timeout in seconds, auto-adjusted based on URL count (default: 30)")] = 30,
@@ -1930,7 +1927,6 @@ async def batch_crawl(
                 "error": f"Batch crawl error: {str(e)}"
             }]
 
-@mcp.tool()
 async def multi_url_crawl(
     url_configurations: Annotated[Dict[str, Dict], Field(description="URL pattern to configuration mapping. Example: {'*news*': {'wait_for_js': True}, '*api*': {'timeout': 120}}")],
     pattern_matching: Annotated[str, Field(description="Pattern matching method: 'wildcard' (*.com), 'regex' (advanced patterns) (default: 'wildcard')")] = "wildcard",

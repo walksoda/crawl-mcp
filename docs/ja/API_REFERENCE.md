@@ -57,11 +57,17 @@ Crawl4AI MCPサーバーで利用可能なすべてのMCPツールの完全リ�
 - `user_agent`: カスタムユーザーエージェント文字列
 - `headers`: カスタムHTTPヘッダー
 - `cookies`: 認証用クッキー
+- `include_cleaned_html`: クリーンなHTMLをレスポンスに含める（デフォルト: False、markdownのみ）
 - `auto_summarize`: LLMを使用した大容量コンテンツの自動要約
 - `max_content_tokens`: 自動要約トリガーの最大トークン数（デフォルト: 15000）
 - `summary_length`: 要約の長さ設定（'short', 'medium', 'long'）
 - `llm_provider`: 要約用LLMプロバイダー（未指定時は自動検出）
 - `llm_model`: 要約用特定LLMモデル（未指定時は自動検出）
+
+**レスポンス動作:**
+- デフォルトでは、トークン使用量を削減するためmarkdownコンテンツのみ返します
+- `include_cleaned_html=True`を設定すると、クリーンなHTMLコンテンツも受け取れます
+- トークン制限: 25000トークン（超過時は推奨事項付きで自動切り詰め）
 
 ### `deep_crawl_site`
 
@@ -78,10 +84,6 @@ Crawl4AI MCPサーバーで利用可能なすべてのMCPツールの完全リ�
 ### `crawl_url_with_fallback`
 
 最大信頼性のための複数フォールバック戦略を持つ堅牢なクローリング。
-
-### `batch_crawl`
-
-統一レポート付きの複数URL並列処理。
 
 ## 🧠 AI搭載抽出ツール
 
@@ -155,19 +157,6 @@ CSS/XPathセレクターまたはLLMスキーマを使用した従来型構造�
 - `preserve_formatting`: 元の書式を保持
 - `include_metadata`: 動画メタデータを含める
 
-### `batch_extract_youtube_transcripts`
-
-**📺 YouTubeバッチ処理**: 複数YouTube動画のトランスクリプトを並列抽出。
-
-**✅ 安定したバッチ処理のための制御された同時実行による性能向上。**
-
-**パラメータ:**
-- `urls`: YouTube動画URLのリスト
-- `languages`: 優先言語リスト
-- `translate_to`: 翻訳対象言語（オプション）
-- `include_timestamps`: トランスクリプトにタイムスタンプを含める
-- `max_concurrent`: 最大同時リクエスト数（1-5、デフォルト: 3）
-
 ### `get_youtube_video_info`
 
 **📋 YouTube情報**: 完全なトランスクリプト抽出なしでYouTube動画の利用可能トランスクリプト情報を取得。
@@ -199,23 +188,6 @@ CSS/XPathセレクターまたはLLMスキーマを使用した従来型構造�
 - Google公式オペレーターを使用した7つの最適化された検索ジャンル
 - URL分類とドメイン分析
 - デフォルトでセーフサーチ強制
-
-### `batch_search_google`
-
-**🔍 Google一括検索**: 包括的分析付き複数Google検索実行。
-
-**パラメータ:**
-- `queries`: 検索クエリのリスト
-- `num_results_per_query`: クエリあたりの結果数（1-100、デフォルト: 10）
-- `max_concurrent`: 最大同時検索数（1-5、デフォルト: 3）
-- `language`: 検索言語（デフォルト: "en"）
-- `region`: 検索地域（デフォルト: "us"）
-- `search_genre`: コンテンツジャンルフィルタ（オプション）
-
-**戻り値:**
-- 各クエリの個別検索結果
-- クエリ間分析と統計
-- ドメイン分布と結果タイプ分析
 
 ### `search_and_crawl`
 
@@ -256,19 +228,17 @@ CSS/XPathセレクターまたはLLMスキーマを使用した従来型構造�
 
 - `crawl_website_prompt`: ガイド付きWebサイトクローリングワークフロー
 - `analyze_crawl_results_prompt`: クロール結果分析
-- `batch_crawl_setup_prompt`: バッチクローリングセットアップ
 
 ## 📊 ツール分類
 
 ### 複雑さ別
 - **簡単**: `crawl_url`, `extract_entities`, `process_file`
 - **中程度**: `deep_crawl_site`, `search_google`, `extract_youtube_transcript`
-- **高度**: `intelligent_extract`, `search_and_crawl`, `batch_crawl`
+- **高度**: `intelligent_extract`, `search_and_crawl`
 
 ### 用途別
 - **コンテンツ発見**: `search_google`, `search_and_crawl`
 - **データ抽出**: `crawl_url`, `intelligent_extract`, `extract_entities`
-- **バッチ処理**: `batch_crawl`, `batch_search_google`, `batch_extract_youtube_transcripts`
 - **メディア処理**: `extract_youtube_transcript`, `process_file`
 - **サイト分析**: `deep_crawl_site`, `crawl_url_with_fallback`
 

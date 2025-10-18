@@ -57,11 +57,17 @@ Advanced web crawling with deep crawling support, intelligent filtering, and aut
 - `user_agent`: Custom user agent string
 - `headers`: Custom HTTP headers
 - `cookies`: Authentication cookies
+- `include_cleaned_html`: Include cleaned HTML in response (default: False, markdown only)
 - `auto_summarize`: Automatically summarize large content using LLM
 - `max_content_tokens`: Maximum tokens before triggering auto-summarization (default: 15000)
 - `summary_length`: Summary length setting ('short', 'medium', 'long')
 - `llm_provider`: LLM provider for summarization (auto-detected if not specified)
 - `llm_model`: Specific LLM model for summarization (auto-detected if not specified)
+
+**Response Behavior:**
+- By default, returns markdown content only to reduce token usage
+- Set `include_cleaned_html=True` to also receive cleaned HTML content
+- Token limit: 25000 tokens (automatically truncated with recommendations if exceeded)
 
 ### `deep_crawl_site`
 
@@ -78,10 +84,6 @@ Dedicated tool for comprehensive site mapping and recursive crawling.
 ### `crawl_url_with_fallback`
 
 Robust crawling with multiple fallback strategies for maximum reliability.
-
-### `batch_crawl`
-
-Parallel processing of multiple URLs with unified reporting.
 
 ## 🧠 AI-Powered Extraction Tools
 
@@ -155,19 +157,6 @@ Traditional structured data extraction using CSS/XPath selectors or LLM schemas.
 - `preserve_formatting`: Preserve original formatting
 - `include_metadata`: Include video metadata
 
-### `batch_extract_youtube_transcripts`
-
-**📺 Batch YouTube Processing**: Extract transcripts from multiple YouTube videos in parallel.
-
-**✅ Enhanced performance with controlled concurrency for stable batch processing.**
-
-**Parameters:**
-- `urls`: List of YouTube video URLs
-- `languages`: Preferred languages list
-- `translate_to`: Target language for translation (optional)
-- `include_timestamps`: Include timestamps in transcript
-- `max_concurrent`: Maximum concurrent requests (1-5, default: 3)
-
 ### `get_youtube_video_info`
 
 **📋 YouTube Info**: Get available transcript information for a YouTube video without extracting the full transcript.
@@ -199,23 +188,6 @@ Traditional structured data extraction using CSS/XPath selectors or LLM schemas.
 - 7 optimized search genres using Google official operators
 - URL classification and domain analysis
 - Safe search enforced by default
-
-### `batch_search_google`
-
-**🔍 Batch Google Search**: Perform multiple Google searches with comprehensive analysis.
-
-**Parameters:**
-- `queries`: List of search queries
-- `num_results_per_query`: Results per query (1-100, default: 10)
-- `max_concurrent`: Maximum concurrent searches (1-5, default: 3)
-- `language`: Search language (default: "en")
-- `region`: Search region (default: "us")
-- `search_genre`: Content genre filter (optional)
-
-**Returns:**
-- Individual search results for each query
-- Cross-query analysis and statistics
-- Domain distribution and result type analysis
 
 ### `search_and_crawl`
 
@@ -256,19 +228,17 @@ Traditional structured data extraction using CSS/XPath selectors or LLM schemas.
 
 - `crawl_website_prompt`: Guided website crawling workflows
 - `analyze_crawl_results_prompt`: Crawl result analysis
-- `batch_crawl_setup_prompt`: Batch crawling setup
 
 ## 📊 Tool Categories
 
 ### By Complexity
 - **Simple**: `crawl_url`, `extract_entities`, `process_file`
 - **Moderate**: `deep_crawl_site`, `search_google`, `extract_youtube_transcript`
-- **Advanced**: `intelligent_extract`, `search_and_crawl`, `batch_crawl`
+- **Advanced**: `intelligent_extract`, `search_and_crawl`
 
 ### By Use Case
 - **Content Discovery**: `search_google`, `search_and_crawl`
 - **Data Extraction**: `crawl_url`, `intelligent_extract`, `extract_entities`
-- **Batch Processing**: `batch_crawl`, `batch_search_google`, `batch_extract_youtube_transcripts`
 - **Media Processing**: `extract_youtube_transcript`, `process_file`
 - **Site Analysis**: `deep_crawl_site`, `crawl_url_with_fallback`
 
