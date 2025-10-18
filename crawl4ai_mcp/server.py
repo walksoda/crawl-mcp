@@ -134,7 +134,7 @@ def _apply_token_limit_fallback(result: dict, max_tokens: int = 20000) -> dict:
     current_tokens = _estimate_tokens(json.dumps(result_copy))
     if current_tokens > max_tokens:
         # Emergency truncation - keep only essential fields
-        essential_fields = ["success", "url", "error", "title", "file_type", "processing_method", "query", "search_query"]
+        essential_fields = ["success", "url", "error", "title", "file_type", "processing_method", "query", "search_query", "video_id", "language_info"]
         essential_result = {
             key: result_copy.get(key) for key in essential_fields if key in result_copy
         }
@@ -164,6 +164,37 @@ def _apply_token_limit_fallback(result: dict, max_tokens: int = 20000) -> dict:
         if result.get("results") and isinstance(result["results"], list):
             essential_result["results"] = result["results"][:3]
             essential_result["results_truncated_info"] = f"Showing 3 of {len(result['results'])} results"
+        
+        # Special handling for YouTube transcript data
+        if result.get("transcript") and isinstance(result["transcript"], list):
+            # Try to fit as many transcript entries as possible within token budget
+            transcript_entries = result["transcript"]
+            total_entries = len(transcript_entries)
+            
+            # Reserve tokens for other essential fields (approximately 2000 tokens)
+            available_tokens = max_tokens - 2000
+            
+            # Binary search to find maximum number of entries that fit
+            entries_to_include = []
+            for i, entry in enumerate(transcript_entries):
+                test_entries = transcript_entries[:i+1]
+                test_size = _estimate_tokens(json.dumps(test_entries))
+                if test_size > available_tokens:
+                    break
+                entries_to_include = test_entries
+            
+            if entries_to_include:
+                essential_result["transcript"] = entries_to_include
+                included_count = len(entries_to_include)
+                percentage = int((included_count / total_entries) * 100)
+                essential_result["transcript_truncated_info"] = f"Showing {included_count} of {total_entries} entries ({percentage}%)"
+                essential_result["transcript_total_entries"] = total_entries
+                
+                # Calculate time coverage if timestamps are available
+                if entries_to_include and "start" in entries_to_include[-1]:
+                    last_timestamp = entries_to_include[-1].get("start", 0)
+                    essential_result["transcript_time_coverage_seconds"] = last_timestamp
+                    essential_result["transcript_time_coverage_formatted"] = f"{int(last_timestamp // 60)}:{int(last_timestamp % 60):02d}"
             
         return essential_result
     
