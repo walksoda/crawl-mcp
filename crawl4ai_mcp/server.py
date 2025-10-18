@@ -254,6 +254,7 @@ async def crawl_url(
     extract_media: Annotated[bool, Field(description="Whether to extract media files (default: False)")] = False,
     take_screenshot: Annotated[bool, Field(description="Whether to take a screenshot (default: False)")] = False,
     generate_markdown: Annotated[bool, Field(description="Whether to generate markdown (default: True)")] = True,
+    include_cleaned_html: Annotated[bool, Field(description="Include cleaned HTML in content field (default: False, only markdown returned)")] = False,
     wait_for_selector: Annotated[Optional[str], Field(description="Wait for specific element to load. CSS selector or XPath. Examples: '.content-loaded', '#dynamic-content', '[data-loaded=\"true\"]' (default: None)")] = None,
     timeout: Annotated[int, Field(description="Request timeout in seconds (default: 60)")] = 60,
     wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to complete (default: False)")] = False,
@@ -262,15 +263,18 @@ async def crawl_url(
 ) -> dict:
     """
     Extract content from web pages with JavaScript support. Auto-detects PDFs and documents.
-    
+
     Core web crawling tool with comprehensive configuration options.
     Essential for SPAs: set wait_for_js=true for JavaScript-heavy sites.
-    
+
     NEW v0.7.4: Supports undetected browser mode to bypass sophisticated bot detection.
-    Automatically falls back to enhanced strategies if initial crawling fails 
+    Automatically falls back to enhanced strategies if initial crawling fails
     due to JavaScript errors, anti-bot protection, or other issues.
-    
-    Returns structured data with content, metadata, and optional media/screenshots.
+
+    By default, returns markdown content only for optimal readability and reduced token usage.
+    Set include_cleaned_html=True to also receive the cleaned HTML content field.
+
+    Returns structured data with markdown, metadata, and optional media/screenshots.
     """
     _load_tool_modules()
     if not _tools_imported:
@@ -283,6 +287,7 @@ async def crawl_url(
         result = await web_crawling.crawl_url(
             url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
             take_screenshot=take_screenshot, generate_markdown=generate_markdown,
+            include_cleaned_html=include_cleaned_html,
             wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
             auto_summarize=auto_summarize, use_undetected_browser=use_undetected_browser
         )
@@ -294,7 +299,11 @@ async def crawl_url(
             result_dict = result.dict()
         else:
             result_dict = result
-        
+
+        # Remove content field if include_cleaned_html is False
+        if not include_cleaned_html and 'content' in result_dict:
+            del result_dict['content']
+
         if result_dict.get("success", True) and result_dict.get("markdown", "").strip():
             # Apply token limit fallback before returning
             return _apply_token_limit_fallback(result_dict, max_tokens=20000)
@@ -303,10 +312,11 @@ async def crawl_url(
         fallback_result = await web_crawling.crawl_url_with_fallback(
             url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
             take_screenshot=take_screenshot, generate_markdown=generate_markdown,
+            include_cleaned_html=include_cleaned_html,
             wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
             auto_summarize=auto_summarize, use_undetected_browser=True
         )
-        
+
         # Convert fallback result to dict and mark that fallback was used
         if hasattr(fallback_result, 'model_dump'):
             fallback_dict = fallback_result.model_dump()
@@ -314,12 +324,16 @@ async def crawl_url(
             fallback_dict = fallback_result.dict()
         else:
             fallback_dict = fallback_result
-            
+
+        # Remove content field if include_cleaned_html is False
+        if not include_cleaned_html and 'content' in fallback_dict:
+            del fallback_dict['content']
+
         if fallback_dict.get("success", False):
             fallback_dict["fallback_used"] = True
             if use_undetected_browser:
                 fallback_dict["undetected_browser_used"] = True
-        
+
         # Apply token limit fallback before returning
         return _apply_token_limit_fallback(fallback_dict, max_tokens=20000)
         
@@ -329,10 +343,11 @@ async def crawl_url(
             fallback_result = await web_crawling.crawl_url_with_fallback(
                 url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
                 take_screenshot=take_screenshot, generate_markdown=generate_markdown,
+                include_cleaned_html=include_cleaned_html,
                 wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
                 auto_summarize=auto_summarize, use_undetected_browser=True
             )
-            
+
             # Convert fallback result to dict and mark that fallback was used
             if hasattr(fallback_result, 'model_dump'):
                 fallback_dict = fallback_result.model_dump()
@@ -340,12 +355,16 @@ async def crawl_url(
                 fallback_dict = fallback_result.dict()
             else:
                 fallback_dict = fallback_result
-                
+
+            # Remove content field if include_cleaned_html is False
+            if not include_cleaned_html and 'content' in fallback_dict:
+                del fallback_dict['content']
+
             if fallback_dict.get("success", False):
                 fallback_dict["fallback_used"] = True
                 fallback_dict["undetected_browser_used"] = True
                 fallback_dict["original_error"] = str(e)
-            
+
             # Apply token limit fallback before returning
             return _apply_token_limit_fallback(fallback_dict, max_tokens=20000)
             

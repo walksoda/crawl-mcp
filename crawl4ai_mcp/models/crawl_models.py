@@ -17,6 +17,7 @@ class CrawlRequest(BaseRequest):
     extract_media: bool = Field(False, description="Whether to extract media files")
     take_screenshot: bool = Field(False, description="Whether to take a screenshot")
     generate_markdown: bool = Field(True, description="Whether to generate markdown")
+    include_cleaned_html: bool = Field(False, description="Include cleaned HTML in content field (default: False, only markdown returned)")
     wait_for_selector: Optional[str] = Field(None, description="Wait for specific element")
     timeout: int = Field(60, description="Request timeout in seconds")
     

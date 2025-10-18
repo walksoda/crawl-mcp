@@ -185,6 +185,16 @@ async def summarize_web_content(
         }
 
 
+def _process_response_content(response: CrawlResponse, include_cleaned_html: bool) -> CrawlResponse:
+    """
+    Process CrawlResponse to remove content field if include_cleaned_html is False.
+    By default, only markdown is returned to reduce token usage and improve readability.
+    """
+    if not include_cleaned_html and hasattr(response, 'content'):
+        response.content = None
+    return response
+
+
 # Complete implementation of internal crawl URL function
 async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
     """
@@ -230,7 +240,8 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                             "metadata": youtube_result.get('metadata')
                         }
                     )
-                    return await _check_and_summarize_if_needed(response, request)
+                    response = await _check_and_summarize_if_needed(response, request)
+                    return _process_response_content(response, request.include_cleaned_html)
                 else:
                     # If YouTube transcript extraction fails, provide helpful error message
                     error_msg = youtube_result.get('error', 'Unknown error')
@@ -277,7 +288,8 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                             "processing_method": "markitdown"
                         }
                     )
-                    return await _check_and_summarize_if_needed(response, request)
+                    response = await _check_and_summarize_if_needed(response, request)
+                    return _process_response_content(response, request.include_cleaned_html)
                 else:
                     return CrawlResponse(
                         success=False,
@@ -484,7 +496,8 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     "processing_method": "deep_crawling"
                 }
             )
-            return await _check_and_summarize_if_needed(response, request)
+            response = await _check_and_summarize_if_needed(response, request)
+            return _process_response_content(response, request.include_cleaned_html)
         
         elif hasattr(result, 'success') and result.success:
             # For deep crawling, result might contain multiple pages
@@ -641,7 +654,8 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     screenshot=result.screenshot if request.take_screenshot else None,
                     extracted_data=extracted_data
                 )
-            return await _check_and_summarize_if_needed(response, request)
+            response = await _check_and_summarize_if_needed(response, request)
+            return _process_response_content(response, request.include_cleaned_html)
         else:
             # Handle case where result doesn't have success attribute or failed
             error_msg = "Failed to crawl URL"
@@ -1652,6 +1666,7 @@ async def crawl_url(
     extract_media: Annotated[bool, Field(description="Whether to extract media files (default: False)")] = False,
     take_screenshot: Annotated[bool, Field(description="Whether to take a screenshot (default: False)")] = False,
     generate_markdown: Annotated[bool, Field(description="Whether to generate markdown (default: True)")] = True,
+    include_cleaned_html: Annotated[bool, Field(description="Include cleaned HTML in content field (default: False)")] = False,
     wait_for_selector: Annotated[Optional[str], Field(description="Wait for specific element (default: None)")] = None,
     timeout: Annotated[int, Field(description="Request timeout in seconds (default: 60)")] = 60,
     max_depth: Annotated[Optional[int], Field(description="Maximum crawling depth, None for single page (default: None)")] = None,
@@ -1684,9 +1699,12 @@ async def crawl_url(
 ) -> CrawlResponse:
     """
     Extract content from web pages with JavaScript support. Auto-detects PDFs and documents.
-    
+
     Core web crawling tool with comprehensive configuration options.
     Essential for SPAs: set wait_for_js=true for JavaScript-heavy sites.
+
+    By default, returns markdown content only. Set include_cleaned_html=True to also
+    receive the cleaned HTML content field for scenarios requiring both formats.
     """
     # Create CrawlRequest object from individual parameters
     request = CrawlRequest(
@@ -1696,6 +1714,7 @@ async def crawl_url(
         extract_media=extract_media,
         take_screenshot=take_screenshot,
         generate_markdown=generate_markdown,
+        include_cleaned_html=include_cleaned_html,
         wait_for_selector=wait_for_selector,
         timeout=timeout,
         max_depth=max_depth,
@@ -1866,6 +1885,7 @@ async def crawl_url_with_fallback(
     extract_media: Annotated[bool, Field(description="Whether to extract media files")] = False,
     take_screenshot: Annotated[bool, Field(description="Whether to take a screenshot")] = False,
     generate_markdown: Annotated[bool, Field(description="Whether to generate markdown")] = True,
+    include_cleaned_html: Annotated[bool, Field(description="Include cleaned HTML in content field")] = False,
     wait_for_selector: Annotated[Optional[str], Field(description="Wait for specific element")] = None,
     timeout: Annotated[int, Field(description="Request timeout in seconds")] = 60,
     max_depth: Annotated[Optional[int], Field(description="Maximum crawling depth (None for single page)")] = None,
@@ -1898,9 +1918,12 @@ async def crawl_url_with_fallback(
 ) -> CrawlResponse:
     """
     Enhanced crawling with multiple fallback strategies for difficult sites.
-    
-    Uses multiple fallback strategies when normal crawling fails. Same parameters as crawl_url 
+
+    Uses multiple fallback strategies when normal crawling fails. Same parameters as crawl_url
     but with enhanced reliability for sites with aggressive anti-bot protection.
+
+    By default, returns markdown content only. Set include_cleaned_html=True to also
+    receive the cleaned HTML content field.
     """
     import asyncio
     import random
@@ -2013,6 +2036,7 @@ async def crawl_url_with_fallback(
                 "extract_media": extract_media,
                 "take_screenshot": take_screenshot,
                 "generate_markdown": generate_markdown,
+                "include_cleaned_html": include_cleaned_html,
                 "wait_for_selector": strategy["params"].get("wait_for_selector", wait_for_selector),
                 "timeout": strategy["params"].get("timeout", timeout),
                 "max_depth": None,  # Force single page to avoid deep crawling issues
