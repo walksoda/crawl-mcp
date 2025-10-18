@@ -66,11 +66,25 @@ def _apply_token_limit_fallback(result: dict, max_tokens: int = 20000) -> dict:
     if current_tokens <= max_tokens:
         return result_copy
     
-    # Add fallback indicators
+    # Add fallback indicators with clear warning
     result_copy["token_limit_applied"] = True
     result_copy["original_response_tokens"] = current_tokens
     result_copy["truncated_to_tokens"] = max_tokens
-    result_copy["fallback_note"] = "Response truncated to stay within MCP token limits"
+    result_copy["warning"] = f"Response truncated from {current_tokens} to ~{max_tokens} tokens due to size limits. Partial data returned below."
+    
+    # Add recommendations based on content type
+    recommendations = []
+    if "results" in result_copy and isinstance(result_copy["results"], list):
+        original_count = result_copy.get("results_truncated_from", len(result_copy["results"]))
+        recommendations.append(f"Consider reducing num_results parameter (current response had {original_count} results)")
+    if any(key in result_copy for key in ["content", "markdown", "text"]):
+        recommendations.append("Consider using auto_summarize=True for large content")
+        recommendations.append("Consider using css_selector or xpath to extract specific content sections")
+    if "search_query" in result_copy or "query" in result_copy:
+        recommendations.append("Consider narrowing your search query or using search_genre filtering")
+    
+    if recommendations:
+        result_copy["recommendations"] = recommendations
     
     # Priority order for content truncation
     content_fields = [
@@ -95,9 +109,11 @@ def _apply_token_limit_fallback(result: dict, max_tokens: int = 20000) -> dict:
             # Handle different field types
             if isinstance(field_content, list):
                 # For lists, truncate by limiting number of items
-                if len(field_content) > 10:
+                original_length = len(field_content)
+                if original_length > 10:
                     result_copy[field] = field_content[:10]
-                    result_copy[f"{field}_truncated_from"] = len(field_content)
+                    result_copy[f"{field}_truncated_from"] = original_length
+                    result_copy[f"{field}_truncated_info"] = f"Showing 10 of {original_length} items"
             elif isinstance(field_content, dict):
                 # For dicts, truncate string values
                 truncated_dict = {}
@@ -110,14 +126,15 @@ def _apply_token_limit_fallback(result: dict, max_tokens: int = 20000) -> dict:
             elif isinstance(field_content, str):
                 # For strings, truncate with ellipsis
                 max_chars = max_field_tokens * 4
-                if len(field_content) > max_chars:
-                    result_copy[field] = field_content[:max_chars] + f"... [TRUNCATED: {len(field_content)} -> {max_chars} chars]"
+                original_length = len(field_content)
+                if original_length > max_chars:
+                    result_copy[field] = field_content[:max_chars] + f"... [TRUNCATED: showing {max_chars} of {original_length} chars]"
     
     # Final size check and emergency truncation  
     current_tokens = _estimate_tokens(json.dumps(result_copy))
     if current_tokens > max_tokens:
         # Emergency truncation - keep only essential fields
-        essential_fields = ["success", "url", "error", "title", "file_type", "processing_method"]
+        essential_fields = ["success", "url", "error", "title", "file_type", "processing_method", "query", "search_query"]
         essential_result = {
             key: result_copy.get(key) for key in essential_fields if key in result_copy
         }
@@ -126,15 +143,27 @@ def _apply_token_limit_fallback(result: dict, max_tokens: int = 20000) -> dict:
             "token_limit_applied": True,
             "emergency_truncation": True,
             "original_response_tokens": result.get("original_response_tokens", current_tokens),
-            "emergency_note": f"Severe truncation applied due to {current_tokens} token response. Use more specific parameters to reduce content size.",
+            "warning": f"Severe truncation applied - response was {current_tokens} tokens. Only essential fields and preview shown.",
+            "recommendations": [
+                "Use more specific parameters to reduce content size",
+                "Enable auto_summarize for large content",
+                "Use filtering parameters (css_selector, xpath, search_genre)",
+                "Reduce num_results for search queries",
+                "Use max_content_per_page to limit page content size"
+            ],
             "available_fields_in_original": list(result.keys()),
         })
         
         # Add minimal content if available
         if result.get("content"):
-            essential_result["content_preview"] = str(result["content"])[:2000] + "... [EMERGENCY TRUNCATION - use auto_summarize or filtering]"
+            essential_result["content_preview"] = str(result["content"])[:2000] + "... [EMERGENCY TRUNCATION]"
         elif result.get("summary"):
             essential_result["summary_preview"] = str(result["summary"])[:1000] + "... [TRUNCATED]"
+        
+        # Keep partial results if available
+        if result.get("results") and isinstance(result["results"], list):
+            essential_result["results"] = result["results"][:3]
+            essential_result["results_truncated_info"] = f"Showing 3 of {len(result['results'])} results"
             
         return essential_result
     
@@ -1462,7 +1491,12 @@ async def search_google(
     
     try:
         result = await search.search_google(request)
-        return result
+        
+        # Apply token limit fallback to prevent MCP errors
+        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
+        
+        return result_with_fallback
+        
     except Exception as e:
         return {
             "success": False,
