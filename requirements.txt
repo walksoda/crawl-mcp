@@ -28,3 +28,6 @@ playwright==1.54.0
 
 # Date utilities for time parsing functionality
 python-dateutil>=2.9.0.post0
+
+# Token counting for accurate content size estimation
+tiktoken>=0.5.0

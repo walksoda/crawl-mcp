@@ -52,8 +52,27 @@ def _load_heavy_imports():
     _heavy_imports_loaded = True
 
 def _estimate_tokens(text: str) -> int:
-    """Estimate token count (rough approximation: 4 chars = 1 token)"""
-    return len(str(text)) // 4
+    """
+    Estimate token count using tiktoken (GPT-4 encoding as Claude approximation).
+    Falls back to character-based estimation if tiktoken is unavailable.
+    """
+    try:
+        import tiktoken
+        encoder = tiktoken.encoding_for_model("gpt-4")
+        return len(encoder.encode(str(text)))
+    except Exception:
+        # Fallback to character-based estimation
+        # English: ~4 chars/token, Japanese: ~2 chars/token
+        text_str = str(text)
+        japanese_chars = sum(1 for c in text_str if '\u3040' <= c <= '\u9fff')
+        total_chars = len(text_str)
+
+        if total_chars > 0 and japanese_chars / total_chars > 0.3:
+            # Japanese-heavy text: ~2 chars per token
+            return total_chars // 2
+        else:
+            # English-heavy text: ~4 chars per token
+            return total_chars // 4
 
 def _apply_token_limit_fallback(result: dict, max_tokens: int = 20000) -> dict:
     """Apply token limit fallback to MCP tool responses to prevent Claude Code errors"""
