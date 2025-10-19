@@ -37,7 +37,7 @@ sudo apt update && sudo apt install -y \
 # Install Playwright and browsers
 python3 -m venv venv
 source venv/bin/activate
-pip install playwright==1.54.0
+pip install playwright==1.55.0
 playwright install chromium
 sudo playwright install-deps
 ```
@@ -103,7 +103,7 @@ python -m crawl4ai_mcp.server
 ```bash
 # After system preparation above
 pip install -r requirements.txt  # Recommended: uses pinned versions
-# Alternative: pip install crawl4ai==0.7.2 playwright==1.54.0
+# Alternative: pip install crawl4ai==0.7.4 playwright==1.55.0
 python -m playwright install chromium
 python -m crawl4ai_mcp.server
 ```

@@ -21,15 +21,15 @@ classifiers = [
 ]
 
 dependencies = [
-    "crawl4ai==0.7.2",
-    "fastmcp==2.11.0",
+    "crawl4ai==0.7.4",
+    "fastmcp==2.12.5",
     "pydantic>=2.0.0",
     "asyncio",
     "typing-extensions",
     "python-dotenv>=1.0.0",
     "scikit-learn>=1.3.0",
     "numpy>=1.24.0",
-    "markitdown==0.1.2",
+    "markitdown==0.1.3",
     "pdfminer-six==20250506",
     "mammoth>=1.9.1",
     "openpyxl>=3.1.5",
@@ -38,8 +38,8 @@ dependencies = [
     "googlesearch-python==1.3.0",
     "aiohttp>=3.8.0",
     "beautifulsoup4>=4.12.0",
-    "youtube-transcript-api==1.2.1",
-    "playwright==1.54.0",
+    "youtube-transcript-api==1.2.3",
+    "playwright==1.55.0",
     "python-dateutil>=2.9.0.post0",
     "tiktoken>=0.5.0",
 ]

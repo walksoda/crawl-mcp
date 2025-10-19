@@ -32,7 +32,7 @@ sudo apt update && sudo apt install -y \
   fonts-noto-color-emoji fonts-unifont python3-venv python3-pip
 
 python3 -m venv venv && source venv/bin/activate
-pip install playwright==1.54.0 && playwright install chromium
+pip install playwright==1.55.0 && playwright install chromium
 sudo playwright install-deps
 ```
 
