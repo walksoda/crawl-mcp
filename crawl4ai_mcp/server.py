@@ -162,7 +162,7 @@ def _apply_token_limit_fallback(result: dict, max_tokens: int = 20000) -> dict:
             "token_limit_applied": True,
             "emergency_truncation": True,
             "original_response_tokens": result.get("original_response_tokens", current_tokens),
-            "warning": f"Severe truncation applied - response was {current_tokens} tokens. Only essential fields and preview shown.",
+            "warning": f"Response truncated from {current_tokens} to ~{max_tokens} tokens. Partial content returned.",
             "recommendations": [
                 "Use more specific parameters to reduce content size",
                 "Enable auto_summarize for large content",
@@ -173,11 +173,51 @@ def _apply_token_limit_fallback(result: dict, max_tokens: int = 20000) -> dict:
             "available_fields_in_original": list(result.keys()),
         })
         
-        # Add minimal content if available
-        if result.get("content"):
-            essential_result["content_preview"] = str(result["content"])[:2000] + "... [EMERGENCY TRUNCATION]"
-        elif result.get("summary"):
-            essential_result["summary_preview"] = str(result["summary"])[:1000] + "... [TRUNCATED]"
+        # Calculate available tokens for content after essential fields
+        essential_base_tokens = _estimate_tokens(json.dumps(essential_result))
+        available_content_tokens = max(max_tokens - essential_base_tokens - 500, 1000)  # Reserve 500 for safety margin
+        
+        # Try to fit as much content as possible within available token budget
+        content_added = False
+        
+        # Priority: markdown > content > summary
+        content_sources = [
+            ("markdown", result.get("markdown")),
+            ("content", result.get("content")),
+            ("summary", result.get("summary")),
+            ("text", result.get("text"))
+        ]
+        
+        for field_name, field_value in content_sources:
+            if field_value and not content_added:
+                content_str = str(field_value)
+                content_tokens = _estimate_tokens(content_str)
+                
+                if content_tokens <= available_content_tokens:
+                    # Content fits completely
+                    essential_result[field_name] = content_str
+                    essential_result[f"{field_name}_info"] = f"Complete {field_name} content ({content_tokens} tokens)"
+                    content_added = True
+                else:
+                    # Truncate content to fit available tokens
+                    # Estimate characters needed: available_tokens * chars_per_token
+                    chars_per_token = len(content_str) / content_tokens if content_tokens > 0 else 4
+                    estimated_chars = int(available_content_tokens * chars_per_token)
+                    
+                    truncated_content = content_str[:estimated_chars]
+                    actual_tokens = _estimate_tokens(truncated_content)
+                    
+                    # Adjust if estimation was off
+                    while actual_tokens > available_content_tokens and len(truncated_content) > 100:
+                        truncated_content = truncated_content[:int(len(truncated_content) * 0.9)]
+                        actual_tokens = _estimate_tokens(truncated_content)
+                    
+                    if truncated_content:
+                        percentage = int((len(truncated_content) / len(content_str)) * 100)
+                        essential_result[field_name] = truncated_content + "\n\n[TRUNCATED - Content continues beyond token limit]"
+                        essential_result[f"{field_name}_info"] = f"Partial {field_name} ({percentage}% of original, {actual_tokens}/{content_tokens} tokens)"
+                        content_added = True
+                    break
         
         # Keep partial results if available
         if result.get("results") and isinstance(result["results"], list):
@@ -190,15 +230,15 @@ def _apply_token_limit_fallback(result: dict, max_tokens: int = 20000) -> dict:
             transcript_entries = result["transcript"]
             total_entries = len(transcript_entries)
             
-            # Reserve tokens for other essential fields (approximately 2000 tokens)
-            available_tokens = max_tokens - 2000
+            # Use remaining available tokens if content wasn't added
+            transcript_available_tokens = available_content_tokens if not content_added else max(available_content_tokens // 2, 1000)
             
             # Binary search to find maximum number of entries that fit
             entries_to_include = []
             for i, entry in enumerate(transcript_entries):
                 test_entries = transcript_entries[:i+1]
                 test_size = _estimate_tokens(json.dumps(test_entries))
-                if test_size > available_tokens:
+                if test_size > transcript_available_tokens:
                     break
                 entries_to_include = test_entries
             
