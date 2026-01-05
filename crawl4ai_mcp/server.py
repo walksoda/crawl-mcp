@@ -305,7 +305,6 @@ def _ensure_browser_setup():
 
 # Tool definitions with immediate registration but lazy implementation
 
-@mcp.tool()
 def get_system_diagnostics() -> dict:
     """Get system diagnostics for troubleshooting browser and environment issues."""
     _load_heavy_imports()
@@ -584,7 +583,6 @@ async def get_youtube_video_info(
             "error": f"YouTube video info error: {str(e)}"
         }
 
-@mcp.tool()
 async def get_youtube_api_setup_guide() -> Dict[str, Any]:
     """Get youtube-transcript-api setup info. No API key required."""
     _load_tool_modules()
@@ -669,7 +667,6 @@ async def process_file(
             "error": f"File processing error: {str(e)}"
         }
 
-@mcp.tool()
 async def get_supported_file_formats() -> dict:
     """Get supported file formats (PDF, Office, ZIP) and their capabilities."""
     _load_tool_modules()
@@ -688,7 +685,6 @@ async def get_supported_file_formats() -> dict:
             "error": f"Get supported formats error: {str(e)}"
         }
 
-@mcp.tool()
 async def enhanced_process_large_content(
     url: Annotated[str, Field(description="URL to process")],
     chunking_strategy: Annotated[str, Field(description="'topic'|'sentence'|'overlap'|'regex'")] = "sentence",
@@ -969,7 +965,6 @@ async def crawl_url_with_fallback(
             "error": f"Fallback crawl error: {str(e)}"
         }
 
-@mcp.tool()
 async def intelligent_extract(
     url: Annotated[str, Field(description="Target URL")],
     extraction_goal: Annotated[str, Field(description="Data to extract")],
@@ -1069,7 +1064,6 @@ async def intelligent_extract(
             "error": f"Intelligent extraction error: {str(e)}"
         }
 
-@mcp.tool()
 async def extract_entities(
     url: Annotated[str, Field(description="Target URL")],
     entity_types: Annotated[List[str], Field(description="Types: email, phone, url, date, ip, price")],
@@ -1673,7 +1667,6 @@ async def search_and_crawl(
             "error": f"Search and crawl error: {str(e)}"
         }
 
-@mcp.tool()
 async def get_search_genres() -> Dict[str, Any]:
     """Get available search genres for targeted searching."""
     _load_tool_modules()
@@ -1692,7 +1685,6 @@ async def get_search_genres() -> Dict[str, Any]:
             "error": f"Get search genres error: {str(e)}"
         }
 
-@mcp.tool()
 async def get_llm_config_info() -> Dict[str, Any]:
     """Get current LLM configuration and available providers."""
     _load_tool_modules()
@@ -2040,7 +2032,6 @@ async def multi_url_crawl(
             "error": f"Multi-URL configuration error: {str(e)}"
         }]
 
-@mcp.tool()
 def get_tool_selection_guide() -> dict:
     """Get tool-to-use-case mapping guide for all available tools."""
     return {
