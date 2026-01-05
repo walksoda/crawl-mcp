@@ -1749,22 +1749,17 @@ async def crawl_url(
 
 
 async def deep_crawl_site(
-    url: Annotated[str, Field(description="Starting URL for multi-page crawling")],
-    max_depth: Annotated[int, Field(description="Link levels to follow from start URL (default: 2)")] = 2,
-    max_pages: Annotated[int, Field(description="Maximum pages to crawl (default: 5)")] = 5,
-    crawl_strategy: Annotated[str, Field(description="Crawling approach: 'bfs', 'dfs', 'best_first' (default: 'bfs')")] = "bfs",
-    include_external: Annotated[bool, Field(description="Follow external domain links (default: False)")] = False,
-    url_pattern: Annotated[Optional[str], Field(description="Wildcard filter like '*docs*' or '*api*' (default: None)")] = None,
-    score_threshold: Annotated[float, Field(description="Minimum relevance score 0.0-1.0 (default: 0.0)")] = 0.0,
-    extract_media: Annotated[bool, Field(description="Include images/videos (default: False)")] = False,
-    base_timeout: Annotated[int, Field(description="Timeout per page in seconds (default: 60)")] = 60
+    url: Annotated[str, Field(description="Starting URL")],
+    max_depth: Annotated[int, Field(description="Link depth to follow")] = 2,
+    max_pages: Annotated[int, Field(description="Max pages (max: 10)")] = 5,
+    crawl_strategy: Annotated[str, Field(description="'bfs'|'dfs'|'best_first'")] = "bfs",
+    include_external: Annotated[bool, Field(description="Follow external links")] = False,
+    url_pattern: Annotated[Optional[str], Field(description="URL wildcard filter")] = None,
+    score_threshold: Annotated[float, Field(description="Min relevance 0-1")] = 0.0,
+    extract_media: Annotated[bool, Field(description="Extract media")] = False,
+    base_timeout: Annotated[int, Field(description="Timeout per page (sec)")] = 60
 ) -> Dict[str, Any]:
-    """
-    Crawl multiple related pages from a website (maximum 5 pages for stability).
-    
-    Multi-page crawling with configurable depth and filtering options.
-    Perfect for documentation sites and content discovery.
-    """
+    """Crawl multiple pages from a site with configurable depth."""
     # Use crawl_url with deep crawling enabled
     request = CrawlRequest(
         url=url,
@@ -1796,22 +1791,17 @@ async def deep_crawl_site(
 
 
 async def intelligent_extract(
-    url: Annotated[str, Field(description="Target webpage URL")],
-    extraction_goal: Annotated[str, Field(description="Specific data to extract, be precise")],
-    content_filter: Annotated[str, Field(description="Pre-filter content - 'bm25', 'pruning', 'llm' (default: 'bm25')")] = "bm25",
-    filter_query: Annotated[Optional[str], Field(description="Keywords for BM25 filtering to improve accuracy (default: None)")] = None,
-    chunk_content: Annotated[bool, Field(description="Split large content for better processing (default: False)")] = False,
-    use_llm: Annotated[bool, Field(description="Enable LLM processing (default: True)")] = True,
-    llm_provider: Annotated[Optional[str], Field(description="LLM provider (default: auto-detected)")] = None,
-    llm_model: Annotated[Optional[str], Field(description="Specific model name (default: auto-detected)")] = None,
-    custom_instructions: Annotated[Optional[str], Field(description="Additional guidance for LLM (default: None)")] = None
+    url: Annotated[str, Field(description="URL to extract from")],
+    extraction_goal: Annotated[str, Field(description="What data to extract")],
+    content_filter: Annotated[str, Field(description="'bm25'|'pruning'|'llm'")] = "bm25",
+    filter_query: Annotated[Optional[str], Field(description="BM25 keywords")] = None,
+    chunk_content: Annotated[bool, Field(description="Split large content")] = False,
+    use_llm: Annotated[bool, Field(description="Use LLM")] = True,
+    llm_provider: Annotated[Optional[str], Field(description="LLM provider")] = None,
+    llm_model: Annotated[Optional[str], Field(description="LLM model")] = None,
+    custom_instructions: Annotated[Optional[str], Field(description="Extra LLM guidance")] = None
 ) -> Dict[str, Any]:
-    """
-    AI-powered extraction of specific data from web pages using LLM semantic understanding.
-    
-    Uses LLM to extract specific information based on your extraction goal.
-    Pre-filtering improves accuracy and reduces processing time.
-    """
+    """Extract specific data from web pages using LLM."""
     return await _internal_intelligent_extract(
         url=url,
         extraction_goal=extraction_goal,
@@ -1826,24 +1816,16 @@ async def intelligent_extract(
 
 
 async def extract_entities(
-    url: Annotated[str, Field(description="Target webpage URL")],
-    entity_types: Annotated[List[str], Field(description="List of entity types to extract")],
-    custom_patterns: Annotated[Optional[Dict[str, str]], Field(description="Custom regex patterns for specialized extraction (default: None)")] = None,
-    include_context: Annotated[bool, Field(description="Include surrounding text context (default: True)")] = True,
-    deduplicate: Annotated[bool, Field(description="Remove duplicate entities (default: True)")] = True,
-    use_llm: Annotated[bool, Field(description="Use AI for named entity recognition (default: False)")] = False,
-    llm_provider: Annotated[Optional[str], Field(description="LLM provider for NER (default: auto-detected)")] = None,
-    llm_model: Annotated[Optional[str], Field(description="Specific model name (default: auto-detected)")] = None
+    url: Annotated[str, Field(description="URL to extract from")],
+    entity_types: Annotated[List[str], Field(description="Types: emails|phones|urls|dates|ips|prices|social_media")],
+    custom_patterns: Annotated[Optional[Dict[str, str]], Field(description="Custom regex patterns")] = None,
+    include_context: Annotated[bool, Field(description="Include surrounding text")] = True,
+    deduplicate: Annotated[bool, Field(description="Remove duplicates")] = True,
+    use_llm: Annotated[bool, Field(description="Use LLM for NER")] = False,
+    llm_provider: Annotated[Optional[str], Field(description="LLM provider")] = None,
+    llm_model: Annotated[Optional[str], Field(description="LLM model")] = None
 ) -> Dict[str, Any]:
-    """
-    Extract specific entity types from web pages using regex patterns or LLM.
-    
-    Built-in support for: emails, phones, urls, dates, ips, social_media, prices, credit_cards, coordinates
-    LLM mode adds: people names, organizations, locations, and custom entities
-    Automatically applies fallback crawling if initial content retrieval fails.
-    
-    Perfect for contact information extraction, data mining, and content analysis.
-    """
+    """Extract entities (emails, phones, etc.) from web pages."""
     if use_llm:
         # Use LLM-based extraction for all entity types when requested
         return await _internal_llm_extract_entities(
@@ -1867,64 +1849,51 @@ async def extract_entities(
 
 
 async def extract_structured_data(
-    request: Annotated[StructuredExtractionRequest, Field(description="StructuredExtractionRequest with URL, schema, and extraction parameters")]
+    request: Annotated[StructuredExtractionRequest, Field(description="Extraction request with URL and schema")]
 ) -> CrawlResponse:
-    """
-    Extract structured data from a URL using CSS selectors or LLM-based extraction.
-    
-    Extract data matching a predefined schema using CSS selectors or LLM processing.
-    Useful for consistent data extraction from similar page structures.
-    """
+    """Extract structured data using CSS selectors or LLM."""
     return await _internal_extract_structured_data(request)
 
 
 async def crawl_url_with_fallback(
-    url: Annotated[str, Field(description="Target URL to crawl")],
-    css_selector: Annotated[Optional[str], Field(description="CSS selector for content extraction")] = None,
-    xpath: Annotated[Optional[str], Field(description="XPath selector for content extraction")] = None,
-    extract_media: Annotated[bool, Field(description="Whether to extract media files")] = False,
-    take_screenshot: Annotated[bool, Field(description="Whether to take a screenshot")] = False,
-    generate_markdown: Annotated[bool, Field(description="Whether to generate markdown")] = True,
-    include_cleaned_html: Annotated[bool, Field(description="Include cleaned HTML in content field")] = False,
-    wait_for_selector: Annotated[Optional[str], Field(description="Wait for specific element")] = None,
-    timeout: Annotated[int, Field(description="Request timeout in seconds")] = 60,
-    max_depth: Annotated[Optional[int], Field(description="Maximum crawling depth (None for single page)")] = None,
-    max_pages: Annotated[Optional[int], Field(description="Maximum number of pages to crawl")] = 10,
-    include_external: Annotated[bool, Field(description="Whether to follow external domain links")] = False,
-    crawl_strategy: Annotated[str, Field(description="Crawling strategy: 'bfs', 'dfs', or 'best_first'")] = "bfs",
-    url_pattern: Annotated[Optional[str], Field(description="URL pattern filter (e.g., '*docs*')")] = None,
-    score_threshold: Annotated[float, Field(description="Minimum score for URLs to be crawled")] = 0.3,
-    content_filter: Annotated[Optional[str], Field(description="Content filter type: 'bm25', 'pruning', 'llm'")] = None,
-    filter_query: Annotated[Optional[str], Field(description="Query for BM25 content filtering")] = None,
-    chunk_content: Annotated[bool, Field(description="Whether to chunk large content")] = False,
-    chunk_strategy: Annotated[str, Field(description="Chunking strategy: 'topic', 'regex', 'sentence'")] = "topic",
-    chunk_size: Annotated[int, Field(description="Maximum chunk size in tokens")] = 1000,
-    overlap_rate: Annotated[float, Field(description="Overlap rate between chunks (0.0-1.0)")] = 0.1,
-    user_agent: Annotated[Optional[str], Field(description="Custom user agent string")] = None,
-    headers: Annotated[Optional[Dict[str, str]], Field(description="Custom HTTP headers")] = None,
-    enable_caching: Annotated[bool, Field(description="Whether to enable caching")] = True,
-    cache_mode: Annotated[str, Field(description="Cache mode: 'enabled', 'disabled', 'bypass'")] = "enabled",
-    execute_js: Annotated[Optional[str], Field(description="JavaScript code to execute")] = None,
-    wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to complete")] = False,
-    simulate_user: Annotated[bool, Field(description="Simulate human-like browsing behavior")] = False,
-    use_undetected_browser: Annotated[bool, Field(description="Use undetected browser mode to bypass bot detection")] = False,
-    auth_token: Annotated[Optional[str], Field(description="Authentication token")] = None,
-    cookies: Annotated[Optional[Dict[str, str]], Field(description="Custom cookies")] = None,
-    auto_summarize: Annotated[bool, Field(description="Automatically summarize large content using LLM")] = False,
-    max_content_tokens: Annotated[int, Field(description="Maximum tokens before triggering auto-summarization")] = 15000,
-    summary_length: Annotated[str, Field(description="Summary length: 'short', 'medium', 'long'")] = "medium",
-    llm_provider: Annotated[Optional[str], Field(description="LLM provider for summarization (auto-detected if not specified)")] = None,
-    llm_model: Annotated[Optional[str], Field(description="Specific LLM model for summarization (auto-detected if not specified)")] = None
+    url: Annotated[str, Field(description="URL to crawl")],
+    css_selector: Annotated[Optional[str], Field(description="CSS selector")] = None,
+    xpath: Annotated[Optional[str], Field(description="XPath selector")] = None,
+    extract_media: Annotated[bool, Field(description="Extract media")] = False,
+    take_screenshot: Annotated[bool, Field(description="Take screenshot")] = False,
+    generate_markdown: Annotated[bool, Field(description="Generate markdown")] = True,
+    include_cleaned_html: Annotated[bool, Field(description="Include HTML")] = False,
+    wait_for_selector: Annotated[Optional[str], Field(description="Wait for element")] = None,
+    timeout: Annotated[int, Field(description="Timeout (sec)")] = 60,
+    max_depth: Annotated[Optional[int], Field(description="Crawl depth")] = None,
+    max_pages: Annotated[Optional[int], Field(description="Max pages")] = 10,
+    include_external: Annotated[bool, Field(description="Follow external")] = False,
+    crawl_strategy: Annotated[str, Field(description="'bfs'|'dfs'|'best_first'")] = "bfs",
+    url_pattern: Annotated[Optional[str], Field(description="URL filter")] = None,
+    score_threshold: Annotated[float, Field(description="Min score")] = 0.3,
+    content_filter: Annotated[Optional[str], Field(description="'bm25'|'pruning'|'llm'")] = None,
+    filter_query: Annotated[Optional[str], Field(description="Filter keywords")] = None,
+    chunk_content: Annotated[bool, Field(description="Chunk content")] = False,
+    chunk_strategy: Annotated[str, Field(description="Chunk strategy")] = "topic",
+    chunk_size: Annotated[int, Field(description="Chunk tokens")] = 1000,
+    overlap_rate: Annotated[float, Field(description="Chunk overlap")] = 0.1,
+    user_agent: Annotated[Optional[str], Field(description="User agent")] = None,
+    headers: Annotated[Optional[Dict[str, str]], Field(description="HTTP headers")] = None,
+    enable_caching: Annotated[bool, Field(description="Enable cache")] = True,
+    cache_mode: Annotated[str, Field(description="Cache mode")] = "enabled",
+    execute_js: Annotated[Optional[str], Field(description="JS to execute")] = None,
+    wait_for_js: Annotated[bool, Field(description="Wait for JS")] = False,
+    simulate_user: Annotated[bool, Field(description="Simulate user")] = False,
+    use_undetected_browser: Annotated[bool, Field(description="Bypass bot detection")] = False,
+    auth_token: Annotated[Optional[str], Field(description="Auth token")] = None,
+    cookies: Annotated[Optional[Dict[str, str]], Field(description="Cookies")] = None,
+    auto_summarize: Annotated[bool, Field(description="Auto summarize")] = False,
+    max_content_tokens: Annotated[int, Field(description="Max tokens")] = 15000,
+    summary_length: Annotated[str, Field(description="Summary length")] = "medium",
+    llm_provider: Annotated[Optional[str], Field(description="LLM provider")] = None,
+    llm_model: Annotated[Optional[str], Field(description="LLM model")] = None
 ) -> CrawlResponse:
-    """
-    Enhanced crawling with multiple fallback strategies for difficult sites.
-
-    Uses multiple fallback strategies when normal crawling fails. Same parameters as crawl_url
-    but with enhanced reliability for sites with aggressive anti-bot protection.
-
-    By default, returns markdown content only. Set include_cleaned_html=True to also
-    receive the cleaned HTML content field.
-    """
+    """Crawl with multiple fallback strategies for anti-bot sites."""
     import asyncio
     import random
     from urllib.parse import urlparse

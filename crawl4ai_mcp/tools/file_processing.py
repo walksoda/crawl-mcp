@@ -592,24 +592,19 @@ async def get_supported_file_formats() -> Dict[str, Any]:
 
 
 async def enhanced_process_large_content(
-    url: Annotated[str, Field(description="Target URL to process")],
-    chunking_strategy: Annotated[str, Field(description="Chunking strategy: 'topic', 'sentence', 'overlap', 'regex' (default: 'topic')")] = "topic",
-    filtering_strategy: Annotated[str, Field(description="Filtering strategy: 'bm25', 'pruning', 'llm' (default: 'bm25')")] = "bm25", 
-    filter_query: Annotated[Optional[str], Field(description="Query for BM25 filtering, keywords related to desired content (default: None)")] = None,
-    max_chunk_tokens: Annotated[int, Field(description="Maximum tokens per chunk (default: 8000)")] = 8000,
-    chunk_overlap: Annotated[int, Field(description="Token overlap between chunks (default: 500)")] = 500,
-    similarity_threshold: Annotated[float, Field(description="Minimum similarity threshold for relevant chunks (default: 0.7)")] = 0.7,
-    extract_top_chunks: Annotated[int, Field(description="Number of top relevant chunks to extract (default: 10)")] = 10,
-    summarize_chunks: Annotated[bool, Field(description="Whether to summarize individual chunks (default: True)")] = True,
-    merge_strategy: Annotated[str, Field(description="Strategy for merging chunk summaries: 'hierarchical', 'linear' (default: 'hierarchical')")] = "hierarchical",
-    final_summary_length: Annotated[str, Field(description="Final summary length: 'short', 'medium', 'long' (default: 'medium')")] = "medium"
+    url: Annotated[str, Field(description="URL to process")],
+    chunking_strategy: Annotated[str, Field(description="'topic'|'sentence'|'overlap'|'regex'")] = "sentence",
+    filtering_strategy: Annotated[str, Field(description="'bm25'|'pruning'|'llm'")] = "bm25", 
+    filter_query: Annotated[Optional[str], Field(description="Keywords for BM25 filtering")] = None,
+    max_chunk_tokens: Annotated[int, Field(description="Max tokens per chunk")] = 2000,
+    chunk_overlap: Annotated[int, Field(description="Overlap tokens")] = 200,
+    similarity_threshold: Annotated[float, Field(description="Min similarity 0-1")] = 0.5,
+    extract_top_chunks: Annotated[int, Field(description="Top chunks to extract")] = 5,
+    summarize_chunks: Annotated[bool, Field(description="Summarize chunks")] = False,
+    merge_strategy: Annotated[str, Field(description="'hierarchical'|'linear'")] = "linear",
+    final_summary_length: Annotated[str, Field(description="'short'|'medium'|'long'")] = "short"
 ) -> LargeContentResponse:
-    """
-    Enhanced processing for large content using advanced chunking and filtering.
-    
-    Uses BM25 filtering and intelligent chunking to reduce token usage while preserving semantic boundaries.
-    Supports hierarchical summarization for progressive content refinement.
-    """
+    """Process large content with chunking and BM25 filtering."""
     start_time = time.time()
     
     try:
