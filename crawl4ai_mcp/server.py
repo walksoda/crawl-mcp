@@ -506,12 +506,20 @@ async def extract_youtube_transcript(
 
         # Apply token limit fallback to prevent MCP errors
         result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
-        
-        # If token limit was applied and auto_summarize was False, provide helpful suggestion
-        if result_with_fallback.get("token_limit_applied") and not auto_summarize:
-            if not result_with_fallback.get("emergency_truncation"):
-                result_with_fallback["suggestion"] = "Transcript was truncated due to MCP token limits. Consider setting auto_summarize=True for long transcripts."
-                
+
+        # Add YouTube-specific recommendations when truncation occurs
+        if result_with_fallback.get("token_limit_applied") or result_with_fallback.get("emergency_truncation"):
+            youtube_recommendations = [
+                "For long YouTube videos, use crawl_url directly for higher token limit (25,000 vs 20,000)",
+                f"Example: crawl_url(url='{url}', wait_for_js=true)",
+            ]
+            existing_recs = result_with_fallback.get("recommendations", [])
+            result_with_fallback["recommendations"] = youtube_recommendations + existing_recs
+
+            # If auto_summarize was False, add additional suggestion
+            if not auto_summarize:
+                result_with_fallback["suggestion"] = "Transcript was truncated due to MCP token limits. Consider using crawl_url for more content, or set auto_summarize=True (requires OPENAI_API_KEY)."
+
         return result_with_fallback
         
     except Exception as e:
