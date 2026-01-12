@@ -5,6 +5,8 @@ Contains complete YouTube transcript extraction and video information tools.
 """
 
 import asyncio
+import re
+import os
 from typing import Any, Dict, List, Optional, Annotated
 from pydantic import Field
 
@@ -22,6 +24,339 @@ from ..youtube_processor import YouTubeProcessor
 youtube_processor = YouTubeProcessor()
 
 
+# =============================================================================
+# Helper functions for YouTube page crawling fallback
+# =============================================================================
+
+def _extract_youtube_metadata_from_html(
+    markdown_content: str,
+    html_content: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Parse YouTube page content to extract metadata.
+
+    Uses both markdown and raw HTML to extract video metadata including
+    title, description, channel name, view count, upload date, etc.
+
+    Note: crawl4ai's cleaned_html removes meta tags, so we extract from
+    the title tag and markdown content primarily.
+
+    Args:
+        markdown_content: Markdown content from page crawl
+        html_content: Optional raw HTML content for extraction
+
+    Returns:
+        Dict with extracted metadata fields
+    """
+    metadata = {
+        'title': None,
+        'description': None,
+        'channel_name': None,
+        'view_count': None,
+        'upload_date': None,
+        'duration': None,
+        'like_count': None,
+        'extraction_source': 'page_crawl'
+    }
+
+    # Extract from HTML title tag (this is preserved in crawl4ai cleaned_html)
+    if html_content:
+        # Title from <title> tag, strip " - YouTube" suffix
+        title_tag_match = re.search(r'<title>([^<]+)</title>', html_content, re.IGNORECASE)
+        if title_tag_match:
+            title = title_tag_match.group(1).strip()
+            # Remove " - YouTube" suffix if present
+            if title.endswith(' - YouTube'):
+                title = title[:-10].strip()
+            metadata['title'] = title
+
+    # Extract from markdown (fallback for title, primary for other data)
+    lines = markdown_content.split('\n')
+
+    # Title from first heading if not found in HTML
+    if not metadata['title']:
+        for line in lines[:20]:
+            if line.startswith('# '):
+                metadata['title'] = line[2:].strip()
+                break
+
+    # Try to find description - look for substantial text blocks
+    # Skip navigation elements and look for video-related content
+    content_lines = []
+    for line in lines:
+        line = line.strip()
+        # Skip short lines, navigation elements, and UI text
+        if len(line) > 50 and not any(skip in line.lower() for skip in [
+            'subscribe', 'sign in', 'search', 'home', 'shorts', 'library',
+            'history', 'trending', 'music', 'gaming', 'news', 'sports'
+        ]):
+            content_lines.append(line)
+
+    if content_lines:
+        # Use the first substantial content line as description
+        metadata['description'] = content_lines[0][:1000]
+
+    # Try to extract view count from markdown (pattern like "1,234,567 views")
+    view_patterns = [
+        r'([\d,]+)\s*(?:views?|回視聴)',
+        r'視聴回数\s*([\d,]+)',
+    ]
+    for pattern in view_patterns:
+        match = re.search(pattern, markdown_content, re.IGNORECASE)
+        if match:
+            view_str = match.group(1).replace(',', '')
+            try:
+                metadata['view_count'] = int(view_str)
+            except ValueError:
+                pass
+            break
+
+    # Try to extract channel name from markdown
+    # Look for patterns commonly found in YouTube page content
+    # The channel name is often followed by subscriber count or other info
+    channel_patterns = [
+        r'(?:by|from|チャンネル[：:])\s*([^\n]{3,50})',
+    ]
+    for pattern in channel_patterns:
+        match = re.search(pattern, markdown_content, re.IGNORECASE)
+        if match:
+            channel = match.group(1).strip()
+            # Clean up channel name - stop at common delimiters
+            for delimiter in ['.', '•', '|', 'Subscribe', 'subscrib', '\n', '📚', '🎵']:
+                if delimiter in channel:
+                    channel = channel.split(delimiter)[0].strip()
+            # Clean up channel name
+            if channel and 3 < len(channel) < 50:
+                metadata['channel_name'] = channel
+            break
+
+    # Try to extract date from markdown (various formats)
+    date_patterns = [
+        r'(\d{4}[/-]\d{1,2}[/-]\d{1,2})',  # 2024-01-15 or 2024/01/15
+        r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s*\d{4})',  # Jan 15, 2024
+        r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})',  # 15 Jan 2024
+    ]
+    for pattern in date_patterns:
+        match = re.search(pattern, markdown_content, re.IGNORECASE)
+        if match:
+            metadata['upload_date'] = match.group(1)
+            break
+
+    return metadata
+
+
+def _filter_relevant_content(markdown_content: str) -> str:
+    """
+    Filter markdown content to keep only relevant video information.
+
+    Removes common YouTube navigation/UI elements and noise.
+
+    Args:
+        markdown_content: Raw markdown content from page crawl
+
+    Returns:
+        Filtered markdown content
+    """
+    # Remove common YouTube navigation/UI text
+    noise_patterns = [
+        r'Subscribe\s*\d*[KMB]?',
+        r'Share\s*Save',
+        r'Sign in',
+        r'Search',
+        r'Subscribed',
+        r'\d+:\d+\s*/\s*\d+:\d+',  # Video timestamp UI
+        r'Skip navigation',
+        r'Home\s*Shorts',
+        r'Trending',
+        r'Library',
+        r'History',
+    ]
+
+    content = markdown_content
+    for pattern in noise_patterns:
+        content = re.sub(pattern, '', content, flags=re.IGNORECASE)
+
+    # Remove excessive whitespace
+    content = re.sub(r'\n{3,}', '\n\n', content)
+
+    return content.strip()
+
+
+def _build_fallback_transcript(
+    title: str,
+    description: str,
+    markdown_content: str
+) -> str:
+    """
+    Build a fallback transcript-like text from page content.
+
+    When actual transcript is unavailable, constructs useful content
+    from video title, description, and page content.
+
+    Args:
+        title: Video title
+        description: Video description
+        markdown_content: Page markdown content
+
+    Returns:
+        Formatted fallback text content
+    """
+    parts = []
+
+    if title:
+        parts.append(f"# {title}\n")
+
+    parts.append("---")
+    parts.append("Note: Transcript was unavailable via API. The following is extracted page content.\n")
+
+    if description:
+        parts.append("## Video Description")
+        parts.append(description)
+        parts.append("")
+
+    # Include relevant portion of markdown content
+    relevant_content = _filter_relevant_content(markdown_content)
+    if relevant_content and len(relevant_content) > 100:
+        parts.append("## Page Content")
+        parts.append(relevant_content[:5000])  # Limit length
+
+    return '\n'.join(parts)
+
+
+async def _crawl_youtube_page_fallback(
+    url: str,
+    video_id: str,
+    wait_for_js: bool = True,
+    timeout: int = 60
+) -> Dict[str, Any]:
+    """
+    Fallback method to extract YouTube content using web crawling.
+
+    Uses the crawler directly (bypassing YouTube URL detection) to extract
+    video metadata from the page HTML when the transcript API fails.
+
+    Args:
+        url: YouTube video URL
+        video_id: Extracted video ID
+        wait_for_js: Whether to wait for JavaScript rendering
+        timeout: Request timeout in seconds
+
+    Returns:
+        Dict with 'success', 'transcript', 'metadata', 'error' keys
+    """
+    try:
+        # Import crawler components
+        from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode
+
+        # Configure crawler for YouTube page
+        config = CrawlerRunConfig(
+            wait_for="#content, ytd-watch-flexy, #primary",
+            page_timeout=timeout * 1000,
+            verbose=False,
+            log_console=False,
+            cache_mode=CacheMode.BYPASS  # Always fetch fresh content
+        )
+
+        browser_config = {
+            "headless": True,
+            "verbose": False,
+            "browser_type": "chromium"  # Chromium works better with YouTube
+        }
+
+        # Suppress output to avoid JSON parsing errors
+        import contextlib
+        import sys
+        from io import StringIO
+
+        @contextlib.contextmanager
+        def suppress_output():
+            old_stdout = sys.stdout
+            old_stderr = sys.stderr
+            sys.stdout = StringIO()
+            sys.stderr = StringIO()
+            try:
+                yield
+            finally:
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
+
+        with suppress_output():
+            async with AsyncWebCrawler(**browser_config) as crawler:
+                result = await asyncio.wait_for(
+                    crawler.arun(url=url, config=config),
+                    timeout=timeout
+                )
+
+        if not result or not hasattr(result, 'success') or not result.success:
+            error_msg = "Crawl failed"
+            if hasattr(result, 'error_message'):
+                error_msg = f"Crawl failed: {result.error_message}"
+            return {
+                'success': False,
+                'error': error_msg
+            }
+
+        # Extract content
+        markdown_content = result.markdown if hasattr(result, 'markdown') else ''
+        html_content = result.cleaned_html if hasattr(result, 'cleaned_html') else ''
+
+        if not markdown_content and not html_content:
+            return {
+                'success': False,
+                'error': 'No content extracted from page'
+            }
+
+        # Extract metadata from crawled content
+        metadata = _extract_youtube_metadata_from_html(
+            markdown_content=markdown_content,
+            html_content=html_content
+        )
+
+        # Add video_id to metadata
+        metadata['video_id'] = video_id
+
+        # Build transcript-like structure from available content
+        fallback_text = _build_fallback_transcript(
+            title=metadata.get('title', ''),
+            description=metadata.get('description', ''),
+            markdown_content=markdown_content
+        )
+
+        transcript_data = {
+            'full_text': fallback_text,
+            'clean_text': metadata.get('description', '') or fallback_text[:1000],
+            'segments': [],  # No timestamps available from crawl
+            'segment_count': 0,
+            'word_count': len(fallback_text.split()),
+            'source': 'page_crawl',
+            'note': 'Transcript unavailable via API. Page content extracted as fallback.'
+        }
+
+        return {
+            'success': True,
+            'transcript': transcript_data,
+            'metadata': metadata,
+            'crawl_method': 'crawl_url_fallback',
+            'js_rendered': wait_for_js
+        }
+
+    except asyncio.TimeoutError:
+        return {
+            'success': False,
+            'error': f'Fallback crawl timeout after {timeout}s'
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f'Fallback crawl exception: {str(e)}'
+        }
+
+
+# =============================================================================
+# Main YouTube tools
+# =============================================================================
+
+
 async def extract_youtube_transcript(
     url: Annotated[str, Field(description="YouTube video URL")],
     languages: Annotated[Optional[List[str]], Field(description="Preferred languages in order of preference (default: ['ja', 'en'])")] = ["ja", "en"],
@@ -33,14 +368,23 @@ async def extract_youtube_transcript(
     max_content_tokens: Annotated[int, Field(description="Maximum tokens before triggering auto-summarization (default: 15000)")] = 15000,
     summary_length: Annotated[str, Field(description="Summary length: 'short', 'medium', 'long' (default: 'medium')")] = "medium",
     llm_provider: Annotated[Optional[str], Field(description="LLM provider for summarization, auto-detected if not specified (default: None)")] = None,
-    llm_model: Annotated[Optional[str], Field(description="Specific LLM model for summarization, auto-detected if not specified (default: None)")] = None
+    llm_model: Annotated[Optional[str], Field(description="Specific LLM model for summarization, auto-detected if not specified (default: None)")] = None,
+    # Fallback parameters
+    enable_crawl_fallback: Annotated[bool, Field(description="Enable crawl_url fallback when API fails (default: True)")] = True,
+    fallback_timeout: Annotated[int, Field(description="Timeout for fallback crawl in seconds (default: 60)")] = 60,
+    enrich_metadata: Annotated[bool, Field(description="Enrich metadata using crawl_url even on API success (default: True)")] = True
 ) -> YouTubeTranscriptResponse:
     """
     Extract YouTube video transcripts with timestamps and optional AI summarization.
-    
+
     Works with public videos that have captions. No authentication required.
     Auto-detects available languages and falls back appropriately.
-    
+
+    Features:
+    - Automatic fallback to page crawling when transcript API fails
+    - Optional metadata enrichment (upload_date, view_count, etc.) via page crawling
+    - AI summarization for long transcripts
+
     Note: Automatic transcription may contain errors.
     """
     try:
@@ -74,26 +418,79 @@ async def extract_youtube_transcript(
         )
         
         if not result['success']:
-            # Enhanced error messaging for different environments
-            import os
+            # Store API error for potential inclusion in fallback response
             import sys
             is_uvx_env = 'UV_PROJECT_ENVIRONMENT' in os.environ or 'UVX' in str(sys.executable)
-            
-            base_error = result.get('error', 'Unknown error during transcript extraction')
-            
-            # Add UVX-specific guidance if applicable
+            api_error = result.get('error', 'Unknown error during transcript extraction')
+
+            # Attempt fallback using crawl_url if enabled
+            if enable_crawl_fallback:
+                fallback_result = await _crawl_youtube_page_fallback(
+                    url=url,
+                    video_id=video_id,
+                    wait_for_js=True,
+                    timeout=fallback_timeout
+                )
+
+                if fallback_result['success']:
+                    # Fallback succeeded - return response with crawled content
+                    fallback_metadata = fallback_result.get('metadata', {})
+                    fallback_metadata.update({
+                        'fallback_used': True,
+                        'original_api_error': api_error,
+                        'extraction_source': 'page_crawl',
+                        'processing_note': 'Transcript API failed, content extracted from page crawl'
+                    })
+
+                    response = YouTubeTranscriptResponse(
+                        success=True,
+                        url=url,
+                        video_id=video_id,
+                        transcript=fallback_result.get('transcript'),
+                        metadata=fallback_metadata,
+                        processing_method="crawl_url_fallback"
+                    )
+                    return response.model_dump()
+                else:
+                    # Both methods failed - return comprehensive error
+                    fallback_error = fallback_result.get('error', 'Unknown fallback error')
+
+                    response = YouTubeTranscriptResponse(
+                        success=False,
+                        url=url,
+                        video_id=video_id,
+                        error=f"Both extraction methods failed.\n\n"
+                              f"API Error: {api_error}\n\n"
+                              f"Fallback Error: {fallback_error}",
+                        metadata={
+                            'api_attempted': True,
+                            'api_error': api_error,
+                            'fallback_attempted': True,
+                            'fallback_error': fallback_error,
+                            'uvx_environment': is_uvx_env,
+                            'recommendations': [
+                                'Video may not have any available captions',
+                                'Try a different video with known subtitles',
+                                'Check if video is publicly accessible'
+                            ]
+                        }
+                    )
+                    return response.model_dump()
+
+            # Fallback disabled - return original error with enhanced messaging
             if is_uvx_env:
-                enhanced_error = f"{base_error}\n\nUVX Environment Detected:\n" \
+                enhanced_error = f"{api_error}\n\nUVX Environment Detected:\n" \
                     f"- If this worked in STDIO local setup, the issue may be UVX environment isolation\n" \
                     f"- YouTube API may behave differently in UVX vs local environments\n" \
                     f"- Try running system diagnostics: get_system_diagnostics()\n" \
                     f"- Consider switching to STDIO local setup for YouTube functionality"
             else:
-                enhanced_error = f"{base_error}\n\nTroubleshooting:\n" \
+                enhanced_error = f"{api_error}\n\nTroubleshooting:\n" \
                     f"- Correct method name: 'extract_youtube_transcript' (not 'get_transcript')\n" \
                     f"- Alternative methods: get_youtube_video_info, batch_extract_youtube_transcripts\n" \
-                    f"- Check if video has available captions"
-            
+                    f"- Check if video has available captions\n" \
+                    f"- Try enabling enable_crawl_fallback=True for page content extraction"
+
             response = YouTubeTranscriptResponse(
                 success=False,
                 url=url,
@@ -103,7 +500,8 @@ async def extract_youtube_transcript(
                     'uvx_environment': is_uvx_env,
                     'correct_method_name': 'extract_youtube_transcript',
                     'alternative_methods': ['get_youtube_video_info', 'batch_extract_youtube_transcripts'],
-                    'diagnostic_tool': 'get_system_diagnostics'
+                    'diagnostic_tool': 'get_system_diagnostics',
+                    'fallback_disabled': True
                 }
             )
             return response.model_dump()
@@ -112,7 +510,36 @@ async def extract_youtube_transcript(
         transcript_data = result['transcript']
         language_info = result.get('language_info', {})
         metadata = result.get('metadata', {})
-        
+
+        # Enrich metadata using crawl_url if requested
+        if enrich_metadata:
+            try:
+                enrichment_result = await _crawl_youtube_page_fallback(
+                    url=url,
+                    video_id=video_id,
+                    wait_for_js=True,
+                    timeout=fallback_timeout
+                )
+
+                if enrichment_result['success']:
+                    enriched_metadata = enrichment_result.get('metadata', {})
+                    # Add enriched fields that are not already present
+                    enrichment_fields = ['upload_date', 'view_count', 'duration', 'like_count', 'channel_name']
+                    for field in enrichment_fields:
+                        if enriched_metadata.get(field) and not metadata.get(field):
+                            metadata[field] = enriched_metadata[field]
+
+                    metadata['metadata_enriched'] = True
+                    metadata['enrichment_source'] = 'page_crawl'
+                else:
+                    # Enrichment failed but transcript succeeded - continue with original metadata
+                    metadata['metadata_enrichment_attempted'] = True
+                    metadata['metadata_enrichment_error'] = enrichment_result.get('error', 'Unknown error')
+            except Exception as e:
+                # Enrichment failed but transcript succeeded - continue with original metadata
+                metadata['metadata_enrichment_attempted'] = True
+                metadata['metadata_enrichment_error'] = f'Exception: {str(e)}'
+
         # Apply auto-summarization if requested and content exceeds token limit
         if auto_summarize and transcript_data.get('full_text'):
             # Rough token estimation: 1 token ≈ 4 characters
@@ -188,6 +615,11 @@ async def extract_youtube_transcript(
                     'reason': f'Content ({estimated_tokens} tokens) is below threshold ({max_content_tokens} tokens)'
                 })
         
+        # Determine processing method based on enrichment
+        processing_method = "youtube_transcript_api"
+        if metadata.get('metadata_enriched'):
+            processing_method = "youtube_transcript_api_enriched"
+
         response = YouTubeTranscriptResponse(
             success=True,
             url=url,
@@ -195,7 +627,7 @@ async def extract_youtube_transcript(
             transcript=transcript_data,
             language_info=language_info,
             metadata=metadata,
-            processing_method="youtube_transcript_api"
+            processing_method=processing_method
         )
         return response.model_dump()
                 

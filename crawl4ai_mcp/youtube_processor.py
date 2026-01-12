@@ -209,15 +209,23 @@ class YouTubeProcessor:
                 }
             
             # Process transcript data
+            # Note: youtube-transcript-api v1.2.x returns FetchedTranscriptSnippet objects
+            # with text, start, duration as attributes (not dict keys)
             full_text = ""
             segments = []
-            
+
             for entry in transcript_data:
                 try:
-                    text = entry.get('text', '')
-                    start_time = entry.get('start', 0)
-                    duration = entry.get('duration', 0)
-                    
+                    # Support both dict (old API) and object (new API v1.2.x) formats
+                    if hasattr(entry, 'text'):
+                        text = entry.text
+                        start_time = entry.start
+                        duration = entry.duration
+                    else:
+                        text = entry.get('text', '')
+                        start_time = entry.get('start', 0)
+                        duration = entry.get('duration', 0)
+
                     if include_timestamps:
                         timestamp = self._format_timestamp(start_time)
                         if preserve_formatting:
@@ -226,7 +234,7 @@ class YouTubeProcessor:
                             full_text += f"{text} "
                     else:
                         full_text += f"{text} "
-                    
+
                     segments.append({
                         'text': text,
                         'start': start_time,
@@ -236,13 +244,19 @@ class YouTubeProcessor:
                 except Exception as e:
                     # Skip malformed entries but continue processing
                     continue
-            
+
             # Get clean text without timestamps
             try:
                 clean_text = self.formatter.format_transcript(transcript_data)
             except Exception as e:
-                # Fallback: create clean text manually
-                clean_text = " ".join([entry.get('text', '') for entry in transcript_data if entry.get('text')])
+                # Fallback: create clean text manually - support both object and dict formats
+                clean_texts = []
+                for entry in transcript_data:
+                    if hasattr(entry, 'text'):
+                        clean_texts.append(entry.text)
+                    elif hasattr(entry, 'get') and entry.get('text'):
+                        clean_texts.append(entry.get('text'))
+                clean_text = " ".join(clean_texts)
             
             # Calculate statistics
             total_duration = max([seg['end'] for seg in segments]) if segments else 0

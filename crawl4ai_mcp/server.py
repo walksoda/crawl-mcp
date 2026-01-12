@@ -450,16 +450,19 @@ async def extract_youtube_transcript(
     url: Annotated[str, Field(description="YouTube video URL")],
     languages: Annotated[Optional[Union[List[str], str]], Field(description="Language codes in preference order")] = ["ja", "en"],
     translate_to: Annotated[Optional[str], Field(description="Target language for translation")] = None,
-    include_timestamps: Annotated[bool, Field(description="Include timestamps")] = True,
+    include_timestamps: Annotated[bool, Field(description="Include timestamps")] = False,
     preserve_formatting: Annotated[bool, Field(description="Preserve formatting")] = True,
     include_metadata: Annotated[bool, Field(description="Include video metadata")] = True,
     auto_summarize: Annotated[bool, Field(description="Summarize long transcripts")] = False,
     max_content_tokens: Annotated[int, Field(description="Max tokens before summarization")] = 15000,
     summary_length: Annotated[str, Field(description="'short'|'medium'|'long'")] = "medium",
     llm_provider: Annotated[Optional[str], Field(description="LLM provider")] = None,
-    llm_model: Annotated[Optional[str], Field(description="LLM model")] = None
+    llm_model: Annotated[Optional[str], Field(description="LLM model")] = None,
+    enable_crawl_fallback: Annotated[bool, Field(description="Enable page crawl fallback when API fails")] = True,
+    fallback_timeout: Annotated[int, Field(description="Fallback crawl timeout in seconds")] = 60,
+    enrich_metadata: Annotated[bool, Field(description="Enrich metadata (upload_date, view_count) via page crawl")] = True
 ) -> dict:
-    """Extract YouTube transcripts with timestamps. Works with public captioned videos."""
+    """Extract YouTube transcripts with timestamps. Works with public captioned videos. Supports fallback to page crawl."""
     _load_tool_modules()
     if not _tools_imported:
         return {
@@ -482,13 +485,25 @@ async def extract_youtube_transcript(
     
     try:
         result = await youtube.extract_youtube_transcript(
-            url=url, languages=languages, translate_to=translate_to, 
+            url=url, languages=languages, translate_to=translate_to,
             include_timestamps=include_timestamps, preserve_formatting=preserve_formatting,
-            include_metadata=include_metadata, auto_summarize=auto_summarize, 
+            include_metadata=include_metadata, auto_summarize=auto_summarize,
             max_content_tokens=max_content_tokens, summary_length=summary_length,
-            llm_provider=llm_provider, llm_model=llm_model
+            llm_provider=llm_provider, llm_model=llm_model,
+            enable_crawl_fallback=enable_crawl_fallback, fallback_timeout=fallback_timeout,
+            enrich_metadata=enrich_metadata
         )
-        
+
+        # Strip segments to reduce response size when timestamps not needed
+        if not include_timestamps and result.get('transcript'):
+            transcript = result['transcript']
+            if 'segments' in transcript:
+                # Keep segment count for reference but remove the actual data
+                segment_count = len(transcript.get('segments', []))
+                transcript['segments'] = []
+                transcript['segments_stripped'] = True
+                transcript['original_segment_count'] = segment_count
+
         # Apply token limit fallback to prevent MCP errors
         result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
         
