@@ -290,8 +290,48 @@ File Information:
                 )
                 
                 extracted_content = response.choices[0].message.content
+
+            elif provider == 'anthropic':
+                import anthropic
+                import os
+
+                api_key = llm_config.api_token or os.environ.get('ANTHROPIC_API_KEY')
+                if not api_key:
+                    raise ValueError("Anthropic API key not found")
+
+                client = anthropic.AsyncAnthropic(api_key=api_key)
+                response = await client.messages.create(
+                    model=model,
+                    max_tokens=min(4000, config['target_tokens'] * 2),
+                    temperature=0.7,
+                    messages=[{"role": "user", "content": full_prompt}]
+                )
+                extracted_content = response.content[0].text
+
+            elif provider == 'ollama':
+                import aiohttp
+
+                base_url = llm_config.base_url or 'http://localhost:11434'
+
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{base_url}/api/generate",
+                        json={
+                            "model": model,
+                            "prompt": full_prompt,
+                            "stream": False,
+                            "options": {"temperature": 0.7}
+                        },
+                        timeout=aiohttp.ClientTimeout(total=120)
+                    ) as response:
+                        if response.status == 200:
+                            result = await response.json()
+                            extracted_content = result.get('response', '')
+                        else:
+                            error_text = await response.text()
+                            raise ValueError(f"Ollama API request failed: {response.status} - {error_text}")
             else:
-                raise ValueError(f"Provider {provider} not supported in direct mode")
+                raise ValueError(f"Provider {provider} not supported. Supported: openai, anthropic, ollama")
         else:
             raise ValueError("Invalid LLM config format")
         

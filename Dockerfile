@@ -5,13 +5,13 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies for headless browsers and crawl4ai
+# Note: Package names updated for Debian bookworm/trixie compatibility
 RUN apt-get update && apt-get install -y \
     # Basic tools
     wget \
     curl \
     gnupg \
     ca-certificates \
-    software-properties-common \
     # Chrome/Chromium dependencies
     libnss3 \
     libnspr4 \
@@ -26,7 +26,6 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     # Additional browser dependencies
     fonts-liberation \
-    libappindicator3-1 \
     libatk1.0-0 \
     libatspi2.0-0 \
     libcups2 \
@@ -37,13 +36,9 @@ RUN apt-get update && apt-get install -y \
     libxfixes3 \
     libxtst6 \
     xdg-utils \
-    # Video and audio codecs for rich content
-    libavcodec58 \
-    libavformat58 \
     # Webkit specific dependencies
     libgtk-4-1 \
     libxslt1.1 \
-    libevent-2.1-7 \
     libwebpdemux2 \
     libenchant-2-2 \
     libsecret-1-0 \

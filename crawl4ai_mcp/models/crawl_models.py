@@ -67,7 +67,7 @@ class CrawlResponse(BaseResponse):
     title: Optional[str] = None
     content: Optional[str] = None
     markdown: Optional[str] = None
-    media: Optional[List[Dict[str, str]]] = None
+    media: Optional[List[Dict[str, Any]]] = None
     screenshot: Optional[str] = None
     extracted_data: Optional[Dict[str, Any]] = None
 

@@ -505,23 +505,19 @@ async def extract_youtube_transcript(
             "error": f"YouTube transcript error: {str(e)}"
         }
 
+@mcp.tool()
 async def batch_extract_youtube_transcripts(
-    request: Annotated[Dict[str, Any], Field(description="YouTubeBatchRequest dictionary containing: urls (required list of YouTube URLs), languages (default: ['ja', 'en']), max_concurrent (default: 3, max: 5), include_timestamps, translate_to, preserve_formatting, include_metadata (all optional booleans)")]
+    request: Annotated[Dict[str, Any], Field(description="Dict with: urls (max 3), languages, include_timestamps")]
 ) -> Dict[str, Any]:
-    """
-    Extract transcripts from multiple YouTube videos using youtube-transcript-api.
-    
-    Efficiently processes multiple YouTube videos with rate limiting and error handling.
-    Auto-detects available languages with fallback support for each video.
-    
-    Note: Automatic transcription may contain errors.
-    """
+    """Extract transcripts from multiple YouTube videos. Max 3 URLs per call."""
+    # URL limit check (MCP best practice: bounded toolsets)
+    urls = request.get('urls', [])
+    if len(urls) > 3:
+        return {"success": False, "error": "Maximum 3 YouTube URLs allowed per batch. Split into multiple calls."}
+
     _load_tool_modules()
     if not _tools_imported:
-        return {
-            "success": False,
-            "error": "Tool modules not available"
-        }
+        return {"success": False, "error": "Tool modules not available"}
     
     try:
         result = await youtube.batch_extract_youtube_transcripts(request)
@@ -1498,26 +1494,19 @@ async def search_google(
             "error": f"Google search error: {str(e)}"
         }
 
+@mcp.tool()
 async def batch_search_google(
-    request: Annotated[Dict[str, Any], Field(description="GoogleBatchSearchRequest dictionary containing: queries (required list), num_results_per_query (default: 10), search_genre (optional), max_concurrent (default: 3), recent_days (optional), auto_summarize (default: False), summary_length (default: 'medium'), llm_provider (optional), llm_model (optional)")]
+    request: Annotated[Dict[str, Any], Field(description="Dict with: queries (max 3), num_results_per_query, search_genre, recent_days")]
 ) -> Dict[str, Any]:
-    """
-    Perform multiple Google searches efficiently with analysis and comparison.
-    
-    Execute multiple search queries with intelligent rate limiting and result analysis.
-    Provides comparative insights across different search topics.
-    
-    Date filtering: Use recent_days in request to filter to recent results (e.g., 7 for last week).
-    AI summarization: Disabled by default, enable with auto_summarize=True in request.
-    
-    Perfect for research, competitive analysis, and comprehensive topic exploration.
-    """
+    """Perform multiple Google searches. Max 3 queries per call."""
+    # Query limit check (MCP best practice: bounded toolsets)
+    queries = request.get('queries', [])
+    if len(queries) > 3:
+        return {"success": False, "error": "Maximum 3 queries allowed per batch. Split into multiple calls."}
+
     _load_tool_modules()
     if not _tools_imported:
-        return {
-            "success": False,
-            "error": "Tool modules not available"
-        }
+        return {"success": False, "error": "Tool modules not available"}
     
     try:
         result = await search.batch_search_google(request)
@@ -1703,31 +1692,23 @@ async def get_llm_config_info() -> Dict[str, Any]:
             "error": f"LLM config info error: {str(e)}"
         }
 
+@mcp.tool()
 async def batch_crawl(
-    urls: Annotated[List[str], Field(description="List of URLs to crawl. Examples: ['https://site1.com', 'https://site2.com/page', 'https://docs.example.com']")],
-    base_timeout: Annotated[int, Field(description="Base timeout in seconds, auto-adjusted based on URL count (default: 30)")] = 30,
-    generate_markdown: Annotated[bool, Field(description="Generate markdown content for each page (default: True)")] = True,
-    extract_media: Annotated[bool, Field(description="Extract media links from pages (default: False)")] = False,
-    wait_for_js: Annotated[bool, Field(description="Wait for JavaScript to load (default: False)")] = False,
-    max_concurrent: Annotated[int, Field(description="Maximum concurrent crawls (default: 3)")] = 3,
-    use_undetected_browser: Annotated[bool, Field(description="Use undetected browser for all URLs to bypass bot detection (default: False)")] = False
+    urls: Annotated[List[str], Field(description="URLs to crawl (max 5)")],
+    base_timeout: Annotated[int, Field(description="Timeout per URL (default: 30)")] = 30,
+    generate_markdown: Annotated[bool, Field(description="Generate markdown (default: True)")] = True,
+    extract_media: Annotated[bool, Field(description="Extract media (default: False)")] = False,
+    wait_for_js: Annotated[bool, Field(description="Wait for JS (default: False)")] = False,
+    max_concurrent: Annotated[int, Field(description="Max concurrent (default: 3)")] = 3
 ) -> List[Dict[str, Any]]:
-    """
-    Crawl multiple URLs in batch with intelligent rate limiting and error handling.
-    
-    Process multiple URLs concurrently for maximum efficiency while respecting server limits.
-    Timeout automatically scales based on the number of URLs to crawl.
-    NEW v0.7.4: Supports undetected browser mode for enhanced bot detection bypass.
-    Automatically applies fallback strategies for failed individual crawls.
-    
-    Perfect for bulk content extraction, site auditing, and comparative analysis.
-    """
+    """Crawl multiple URLs with fallback. Max 5 URLs per call."""
+    # URL limit check (MCP best practice: bounded toolsets)
+    if len(urls) > 5:
+        return [{"success": False, "error": "Maximum 5 URLs allowed per batch. Split into multiple calls."}]
+
     _load_tool_modules()
     if not _tools_imported:
-        return [{
-            "success": False,
-            "error": "Tool modules not available"
-        }]
+        return [{"success": False, "error": "Tool modules not available"}]
     
     try:
         # Build config from individual parameters
@@ -1736,7 +1717,7 @@ async def batch_crawl(
             "extract_media": extract_media,
             "wait_for_js": wait_for_js,
             "max_concurrent": max_concurrent,
-            "use_undetected_browser": use_undetected_browser
+            "use_undetected_browser": False  # Default to False for batch
         }
         
         # Add timeout handling - optimized for faster response
@@ -1879,26 +1860,19 @@ async def batch_crawl(
                 "error": f"Batch crawl error: {str(e)}"
             }]
 
+@mcp.tool()
 async def multi_url_crawl(
-    url_configurations: Annotated[Dict[str, Dict], Field(description="URL pattern to configuration mapping. Example: {'*news*': {'wait_for_js': True}, '*api*': {'timeout': 120}}")],
-    pattern_matching: Annotated[str, Field(description="Pattern matching method: 'wildcard' (*.com), 'regex' (advanced patterns) (default: 'wildcard')")] = "wildcard",
-    default_config: Annotated[Optional[Dict], Field(description="Default configuration for URLs not matching any pattern (default: None)")] = None,
-    base_timeout: Annotated[int, Field(description="Base timeout per URL in seconds (default: 30)")] = 30,
-    max_concurrent: Annotated[int, Field(description="Maximum concurrent crawls (default: 3)")] = 3
+    url_configurations: Annotated[Dict[str, Dict], Field(description="URL-config mapping (max 5 URLs). Example: {'https://site1.com': {'wait_for_js': true}}")],
+    pattern_matching: Annotated[str, Field(description="Pattern: 'wildcard' or 'regex' (default: wildcard)")] = "wildcard",
+    default_config: Annotated[Optional[Dict], Field(description="Default config")] = None,
+    base_timeout: Annotated[int, Field(description="Timeout per URL (default: 30)")] = 30,
+    max_concurrent: Annotated[int, Field(description="Max concurrent (default: 3)")] = 3
 ) -> List[Dict[str, Any]]:
-    """
-    NEW v0.7.3: Multi-URL Configuration - Different strategies for different URL patterns in one batch.
-    
-    Advanced batch crawling with pattern-based configuration matching.
-    Each URL is processed with settings that match its pattern, allowing for optimized
-    crawling strategies per site type (e.g., news sites vs APIs vs documentation).
-    
-    Pattern Examples:
-    - Wildcard: '*news*', '*api*', '*.pdf', 'https://docs.*'
-    - Regex: r'.*\/(api|v\d+)\/', r'https:\/\/[^\/]+\.com\/news'
-    
-    Perfect for mixed-domain crawling with site-specific optimizations.
-    """
+    """Multi-URL crawl with pattern-based config. Max 5 URL patterns per call."""
+    # URL limit check (MCP best practice: bounded toolsets)
+    if len(url_configurations) > 5:
+        return [{"success": False, "error": "Maximum 5 URL configurations allowed per batch. Split into multiple calls."}]
+
     _load_tool_modules()
     if not _tools_imported:
         return [{

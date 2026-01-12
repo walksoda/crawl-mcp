@@ -48,6 +48,36 @@ file_processor = FileProcessor()
 youtube_processor = YouTubeProcessor()
 
 
+def _convert_media_to_list(media: Any) -> List[Dict[str, Any]]:
+    """
+    Convert crawl4ai's media dict format to flat list format.
+
+    crawl4ai returns media as: {'images': [...], 'videos': [...], 'audios': [...]}
+    CrawlResponse expects: List[Dict[str, Any]]
+    """
+    if not media:
+        return []
+
+    # If already a list, return as-is
+    if isinstance(media, list):
+        return media
+
+    # If it's a dict with media type keys, flatten it
+    if isinstance(media, dict):
+        result = []
+        for media_type in ['images', 'videos', 'audios', 'tables']:
+            items = media.get(media_type, [])
+            if items:
+                for item in items:
+                    if isinstance(item, dict):
+                        item_copy = dict(item)
+                        item_copy['media_type'] = media_type.rstrip('s')  # 'images' -> 'image'
+                        result.append(item_copy)
+        return result
+
+    return []
+
+
 # Placeholder for summarize_web_content function
 # Response size limit for MCP protocol (approximately 100k tokens)
 # This prevents issues with oversized responses in Claude Desktop
@@ -139,9 +169,32 @@ async def summarize_web_content(
                 messages=[{"role": "user", "content": prompt}]
             )
             summary_text = response.content[0].text
+
+        elif provider == 'ollama':
+            import aiohttp
+
+            base_url = llm_config.base_url or 'http://localhost:11434'
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{base_url}/api/generate",
+                    json={
+                        "model": model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {"temperature": 0.3}
+                    },
+                    timeout=aiohttp.ClientTimeout(total=120)
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        summary_text = result.get('response', '')
+                    else:
+                        error_text = await response.text()
+                        raise ValueError(f"Ollama API request failed: {response.status} - {error_text}")
         else:
             # Fallback for unsupported providers
-            raise ValueError(f"LLM provider '{provider}' not supported for summarization")
+            raise ValueError(f"LLM provider '{provider}' not supported for summarization. Supported: openai, anthropic, ollama")
         
         if summary_text:
             # Calculate compression ratio
@@ -481,7 +534,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     if hasattr(page_result, 'markdown') and page_result.markdown:
                         all_markdown.append(f"=== {page_result.url} ===\n{page_result.markdown}")
                     if hasattr(page_result, 'media') and page_result.media and request.extract_media:
-                        all_media.extend(page_result.media)
+                        all_media.extend(_convert_media_to_list(page_result.media))
             
             response = CrawlResponse(
                 success=True,
@@ -513,7 +566,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     if page.markdown:
                         all_markdown.append(f"=== {page.url} ===\n{page.markdown}")
                     if page.media and request.extract_media:
-                        all_media.extend(page.media)
+                        all_media.extend(_convert_media_to_list(page.media))
                 
                 # Prepare content for potential summarization
                 combined_content = "\n\n".join(all_content) if all_content else result.cleaned_html
@@ -650,7 +703,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     title=title_to_use,
                     content=content_to_use,
                     markdown=markdown_to_use,
-                    media=result.media if request.extract_media else None,
+                    media=_convert_media_to_list(result.media) if request.extract_media else None,
                     screenshot=result.screenshot if request.take_screenshot else None,
                     extracted_data=extracted_data
                 )
@@ -673,12 +726,11 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
             )
                 
     except Exception as e:
+        import sys  # Import here to ensure availability in error response
         error_message = f"Crawling error: {str(e)}"
-        
+
         # Enhanced error handling for browser and UVX issues
         if "playwright" in str(e).lower() or "browser" in str(e).lower() or "executable doesn't exist" in str(e).lower():
-            import os
-            import sys
             is_uvx_env = 'UV_PROJECT_ENVIRONMENT' in os.environ or 'UVX' in str(sys.executable)
             
             if is_uvx_env:
