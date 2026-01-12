@@ -201,7 +201,7 @@ search_and_crawl: 上位5結果 → 包括的分析生成
 **3. 分析フェーズ:**
 ```bash
 # 構造化洞察を抽出
-intelligent_extract: "手法、発見、含意"
+extract_structured_data: "手法、発見、含意"
 ```
 
 **4. 統合フェーズ:**
@@ -386,9 +386,9 @@ batch_crawl: 関連URL → 自動要約 → 比較分析
 **包括サイト分析:**
 ```bash
 1. deep_crawl_site → 構造マッピング
-2. intelligent_extract → コンテンツカテゴリ化
-3. extract_entities → 連絡先/メタデータ抽出
-4. batch_process → 比較分析
+2. extract_structured_data → コンテンツカテゴリ化
+3. batch_crawl → 複数ページ抽出
+4. multi_url_crawl → 比較分析
 5. generate_report → 構造化出力
 ```
 

@@ -12,11 +12,10 @@ Complete reference for all MCP tools available in the Crawl4AI MCP Server.
 | Multiple pages (up to 5) | `deep_crawl_site` | Site mapping, link following |
 | Search + Crawling | `search_and_crawl` | Google search + auto-crawl |
 | Difficult sites | `crawl_url_with_fallback` | Multiple retry strategies |
-| Extract specific data | `intelligent_extract` | AI-powered extraction |
-| Find patterns | `extract_entities` | Emails, phones, URLs, etc. |
 | Structured data | `extract_structured_data` | CSS/XPath/LLM schemas |
 | File processing | `process_file` | PDF, Office, ZIP conversion |
 | YouTube content | `extract_youtube_transcript` | Subtitle extraction |
+| Video metadata | `get_youtube_video_info` | Title, description, etc. |
 
 ### ⚡ **Performance Guidelines**
 
@@ -35,11 +34,9 @@ Complete reference for all MCP tools available in the Crawl4AI MCP Server.
 - Use `wait_for_selector` for specific elements
 
 **For AI Features:**
-- Configure LLM settings with `get_llm_config_info`
-- Use auto-summarization for large documents with `auto_summarize: true`
-- Fallback to non-AI tools if LLM unavailable
-- Use `intelligent_extract` for semantic understanding
-- Customize summary length based on needs ('short' for quick overviews, 'long' for detailed analysis)
+- Use `extract_structured_data` with LLM mode for semantic extraction
+- Fallback to CSS/XPath extraction if LLM unavailable
+- Customize extraction schemas based on needs
 
 ## 🔧 Web Crawling Tools
 
@@ -85,34 +82,7 @@ Dedicated tool for comprehensive site mapping and recursive crawling.
 
 Robust crawling with multiple fallback strategies for maximum reliability.
 
-## 🧠 AI-Powered Extraction Tools
-
-### `intelligent_extract`
-
-AI-powered content extraction with advanced filtering and analysis.
-
-**Parameters:**
-- `url`: Target URL
-- `extraction_goal`: Description of extraction target
-- `content_filter`: Filter type for content quality
-- `use_llm`: Enable LLM-based intelligent extraction
-- `llm_provider`: LLM provider (openai, claude, etc.)
-- `custom_instructions`: Detailed extraction instructions
-
-### `extract_entities`
-
-High-speed entity extraction using regex patterns.
-
-**Built-in Entity Types:**
-- `emails`: Email addresses
-- `phones`: Phone numbers
-- `urls`: URLs and links
-- `dates`: Date formats
-- `ips`: IP addresses
-- `social_media`: Social media handles (@username, #hashtag)
-- `prices`: Price information
-- `credit_cards`: Credit card numbers
-- `coordinates`: Geographic coordinates
+## 🧠 Data Extraction Tools
 
 ### `extract_structured_data`
 
@@ -136,10 +106,6 @@ Traditional structured data extraction using CSS/XPath selectors or LLM schemas.
 - **Archives**: .zip
 - **Web/Text**: .html, .htm, .txt, .md, .csv, .rtf
 - **eBooks**: .epub
-
-### `get_supported_file_formats`
-
-**📋 Format Information**: Get comprehensive list of supported file formats and their capabilities.
 
 ## 📺 YouTube Processing Tools
 
@@ -206,15 +172,6 @@ Traditional structured data extraction using CSS/XPath selectors or LLM schemas.
 - Success rates and processing statistics
 - Integrated analysis of search and crawl results
 
-### `get_search_genres`
-
-**📋 Search Genres**: Get comprehensive list of available search genres and their descriptions.
-
-**Returns:**
-- 7 optimized search genres with descriptions
-- Categorized genre lists (File Types, Time-based, Language & Region)
-- Usage examples for each genre type
-
 ## 📚 MCP Resources
 
 ### Available Resources
@@ -232,15 +189,15 @@ Traditional structured data extraction using CSS/XPath selectors or LLM schemas.
 ## 📊 Tool Categories
 
 ### By Complexity
-- **Simple**: `crawl_url`, `extract_entities`, `process_file`
+- **Simple**: `crawl_url`, `process_file`, `get_youtube_video_info`
 - **Moderate**: `deep_crawl_site`, `search_google`, `extract_youtube_transcript`
-- **Advanced**: `intelligent_extract`, `search_and_crawl`
+- **Advanced**: `extract_structured_data`, `search_and_crawl`, `batch_crawl`
 
 ### By Use Case
 - **Content Discovery**: `search_google`, `search_and_crawl`
-- **Data Extraction**: `crawl_url`, `intelligent_extract`, `extract_entities`
+- **Data Extraction**: `crawl_url`, `extract_structured_data`
 - **Media Processing**: `extract_youtube_transcript`, `process_file`
-- **Site Analysis**: `deep_crawl_site`, `crawl_url_with_fallback`
+- **Site Analysis**: `deep_crawl_site`, `crawl_url_with_fallback`, `batch_crawl`
 
 ## 🔧 Integration Examples
 

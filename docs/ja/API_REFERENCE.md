@@ -12,11 +12,10 @@ Crawl4AI MCPサーバーで利用可能なすべてのMCPツールの完全リ�
 | 複数ページ (最大5) | `deep_crawl_site` | サイトマッピング、リンクフォロー |
 | 検索+クローリング | `search_and_crawl` | Google検索+自動クロール |
 | 困難サイト | `crawl_url_with_fallback` | 複数リトライ戦略 |
-| 特定データ抽出 | `intelligent_extract` | AI搭載抽出 |
-| パターン検索 | `extract_entities` | メール、電話、URL等 |
 | 構造化データ | `extract_structured_data` | CSS/XPath/LLMスキーマ |
 | ファイル処理 | `process_file` | PDF、Office、ZIP変換 |
 | YouTube処理 | `extract_youtube_transcript` | 字幕抽出 |
+| 動画メタデータ | `get_youtube_video_info` | タイトル、説明等 |
 
 ### ⚡ **パフォーマンス指針**
 
@@ -35,11 +34,9 @@ Crawl4AI MCPサーバーで利用可能なすべてのMCPツールの完全リ�
 - 特定要素には `wait_for_selector` を使用
 
 **AI機能使用時:**
-- `get_llm_config_info` でLLM設定確認
-- 大容量ドキュメントには `auto_summarize: true` で自動要約使用
-- LLM利用不可時は非AI機能にフォールバック
-- 意味的理解には `intelligent_extract` を使用
-- 用途に応じて要約の長さをカスタマイズ（'short'は概要用、'long'は詳細分析用）
+- 意味的抽出には `extract_structured_data` のLLMモードを使用
+- LLM利用不可時はCSS/XPath抽出にフォールバック
+- 用途に応じて抽出スキーマをカスタマイズ
 
 ## 🔧 Webクローリングツール
 
@@ -85,34 +82,7 @@ Crawl4AI MCPサーバーで利用可能なすべてのMCPツールの完全リ�
 
 最大信頼性のための複数フォールバック戦略を持つ堅牢なクローリング。
 
-## 🧠 AI搭載抽出ツール
-
-### `intelligent_extract`
-
-高度フィルタリングと分析機能付きのAI搭載コンテンツ抽出。
-
-**パラメータ:**
-- `url`: 対象URL
-- `extraction_goal`: 抽出対象の説明
-- `content_filter`: コンテンツ品質のフィルタタイプ
-- `use_llm`: LLMベースのインテリジェント抽出有効化
-- `llm_provider`: LLMプロバイダー（openai, claude等）
-- `custom_instructions`: 詳細抽出指示
-
-### `extract_entities`
-
-正規表現パターンを使用した高速エンティティ抽出。
-
-**内蔵エンティティタイプ:**
-- `emails`: メールアドレス
-- `phones`: 電話番号
-- `urls`: URLとリンク
-- `dates`: 日付形式
-- `ips`: IPアドレス
-- `social_media`: ソーシャルメディアハンドル（@username, #hashtag）
-- `prices`: 価格情報
-- `credit_cards`: クレジットカード番号
-- `coordinates`: 地理座標
+## 🧠 データ抽出ツール
 
 ### `extract_structured_data`
 
@@ -136,10 +106,6 @@ CSS/XPathセレクターまたはLLMスキーマを使用した従来型構造�
 - **アーカイブ**: .zip
 - **Web/テキスト**: .html, .htm, .txt, .md, .csv, .rtf
 - **電子書籍**: .epub
-
-### `get_supported_file_formats`
-
-**📋 形式情報**: 対応ファイル形式と機能の包括的リストを取得。
 
 ## 📺 YouTube処理ツール
 
@@ -206,15 +172,6 @@ CSS/XPathセレクターまたはLLMスキーマを使用した従来型構造�
 - 成功率と処理統計
 - 検索・クロール結果の統合分析
 
-### `get_search_genres`
-
-**📋 検索ジャンル**: 利用可能検索ジャンルと説明の包括的リストを取得。
-
-**戻り値:**
-- 説明付き7つの最適化された検索ジャンル
-- 分類されたジャンルリスト（ファイル形式、時間基準、言語・地域）
-- 各ジャンルタイプの使用例
-
 ## 📚 MCPリソース
 
 ### 利用可能リソース
@@ -232,15 +189,15 @@ CSS/XPathセレクターまたはLLMスキーマを使用した従来型構造�
 ## 📊 ツール分類
 
 ### 複雑さ別
-- **簡単**: `crawl_url`, `extract_entities`, `process_file`
+- **簡単**: `crawl_url`, `process_file`, `get_youtube_video_info`
 - **中程度**: `deep_crawl_site`, `search_google`, `extract_youtube_transcript`
-- **高度**: `intelligent_extract`, `search_and_crawl`
+- **高度**: `extract_structured_data`, `search_and_crawl`, `batch_crawl`
 
 ### 用途別
 - **コンテンツ発見**: `search_google`, `search_and_crawl`
-- **データ抽出**: `crawl_url`, `intelligent_extract`, `extract_entities`
+- **データ抽出**: `crawl_url`, `extract_structured_data`
 - **メディア処理**: `extract_youtube_transcript`, `process_file`
-- **サイト分析**: `deep_crawl_site`, `crawl_url_with_fallback`
+- **サイト分析**: `deep_crawl_site`, `crawl_url_with_fallback`, `batch_crawl`
 
 ## 🔧 統合例
 

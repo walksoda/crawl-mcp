@@ -12,7 +12,7 @@ A comprehensive Model Context Protocol (MCP) server that wraps the powerful craw
 - **🌐 Universal Content Extraction**: Web pages, PDFs, Word docs, Excel, PowerPoint, ZIP archives
 - **🤖 AI-Powered Summarization**: Smart token reduction (up to 88.5%) while preserving essential information
 - **🎬 YouTube Integration**: Extract video transcripts and summaries without API keys  
-- **⚡ Production Ready**: 17 specialized tools with comprehensive error handling
+- **⚡ Production Ready**: 13 specialized tools with comprehensive error handling
 
 ## 🚀 Quick Start
 
@@ -143,56 +143,56 @@ Add to your `claude_desktop_config.json`:
 - `crawl_url` - Single page crawling with JavaScript support
 - `deep_crawl_site` - Multi-page site mapping and exploration
 - `crawl_url_with_fallback` - Robust crawling with retry strategies
-- `batch_crawl` - Process multiple URLs simultaneously
-
-### AI-Powered Analysis
-- `intelligent_extract` - Semantic content extraction with custom instructions
-- `auto_summarize` - LLM-based summarization for large content
-- `extract_entities` - Pattern-based entity extraction (emails, phones, URLs, etc.)
-
-### Media Processing
-- `process_file` - Convert PDFs, Office docs, ZIP archives to markdown
-- `extract_youtube_transcript` - Multi-language transcript extraction
-- `batch_extract_youtube_transcripts` - Process multiple videos
+- `batch_crawl` - Process multiple URLs (max 5)
+- `multi_url_crawl` - Advanced multi-URL configuration
 
 ### Search Integration
-- `search_google` - Genre-filtered Google search with metadata
+- `search_google` - Genre-filtered Google search
 - `search_and_crawl` - Combined search and content extraction
-- `batch_search_google` - Multiple search queries with analysis
+- `batch_search_google` - Multiple search queries (max 3)
+
+### Data Extraction
+- `extract_structured_data` - CSS/XPath/LLM-based structured extraction
+
+### Media Processing
+- `process_file` - PDF, Office, ZIP to markdown conversion
+- `extract_youtube_transcript` - Video transcript extraction
+- `batch_extract_youtube_transcripts` - Multiple videos (max 3)
+- `get_youtube_video_info` - Video metadata retrieval
 
 ## 🎯 Common Use Cases
 
 **Content Research:**
 ```bash
-search_and_crawl → intelligent_extract → structured analysis
+search_and_crawl → extract_structured_data → analysis
 ```
 
 **Documentation Mining:**
 ```bash
-deep_crawl_site → batch processing → comprehensive extraction
+deep_crawl_site → batch processing → extraction
 ```
 
 **Media Analysis:**
 ```bash
-extract_youtube_transcript → auto_summarize → insight generation
+extract_youtube_transcript → summarization workflow
 ```
 
-**Competitive Intelligence:**
+**Site Mapping:**
 ```bash
-batch_crawl → extract_entities → comparative analysis
+batch_crawl → multi_url_crawl → comprehensive data
 ```
 
 ## 🚨 Quick Troubleshooting
 
 **Installation Issues:**
-1. Run system diagnostics: Use `get_system_diagnostics` tool
-2. Re-run setup scripts with proper privileges
-3. Try development installation method
+1. Re-run setup scripts with proper privileges
+2. Try development installation method
+3. Check browser dependencies are installed
 
 **Performance Issues:**
 - Use `wait_for_js: true` for JavaScript-heavy sites
 - Increase timeout for slow-loading pages
-- Enable `auto_summarize` for large content
+- Use `extract_structured_data` for targeted extraction
 
 **Configuration Issues:**
 - Check JSON syntax in `claude_desktop_config.json`

@@ -179,7 +179,7 @@ Once running, the HTTP API provides:
 - **Tool Endpoints**: `http://127.0.0.1:8000/tools/{tool_name}`
 - **Resource Endpoints**: `http://127.0.0.1:8000/resources/{resource_uri}`
 
-All MCP tools (crawl_url, intelligent_extract, process_file, etc.) are accessible via HTTP POST requests with JSON payloads matching the tool parameters.
+All MCP tools (crawl_url, extract_structured_data, process_file, etc.) are accessible via HTTP POST requests with JSON payloads matching the tool parameters.
 
 ## 🛠️ Tool Usage Examples
 

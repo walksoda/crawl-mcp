@@ -201,7 +201,7 @@ search_and_crawl: top 5 results → generate comprehensive analysis
 **3. Analysis Phase:**
 ```bash
 # Extract structured insights
-intelligent_extract: "methodology, findings, implications"
+extract_structured_data: "methodology, findings, implications"
 ```
 
 **4. Synthesis Phase:**
@@ -386,9 +386,9 @@ batch_crawl: related URLs → auto-summarize → comparative analysis
 **Comprehensive site analysis:**
 ```bash
 1. deep_crawl_site → structural mapping
-2. intelligent_extract → content categorization  
-3. extract_entities → contact/metadata extraction
-4. batch_process → comparative analysis
+2. extract_structured_data → content categorization
+3. batch_crawl → multi-page extraction
+4. multi_url_crawl → comparative analysis
 5. generate_report → structured output
 ```
 
