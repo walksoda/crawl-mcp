@@ -16,6 +16,23 @@ import base64
 from urllib.parse import urlparse, unquote
 import logging
 
+# Content-Type to file extension mapping for URLs without extension
+CONTENT_TYPE_TO_EXT = {
+    'application/pdf': '.pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+    'application/vnd.ms-excel': '.xls',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+    'application/zip': '.zip',
+    'application/x-zip-compressed': '.zip',
+    'text/html': '.html',
+    'text/plain': '.txt',
+    'text/markdown': '.md',
+    'text/csv': '.csv',
+    'application/rtf': '.rtf',
+    'application/epub+zip': '.epub',
+}
+
 class FileProcessor:
     """Process various file formats using MarkItDown"""
     
@@ -41,28 +58,55 @@ class FileProcessor:
             '.epub': 'EPUB eBook'
         }
     
-    def is_supported_file(self, file_path_or_url: str) -> bool:
-        """Check if file format is supported"""
+    def _is_valid_extension(self, ext: str) -> bool:
+        """Check if extension looks like a real file extension (not numeric ID like arXiv)"""
+        if not ext:
+            return False
+        # Extension without dot for checking
+        ext_part = ext[1:] if ext.startswith('.') else ext
+        # Numeric-only extensions (like .21796 from arXiv) are not valid file extensions
+        if ext_part.isdigit():
+            return False
+        return True
+
+    def is_supported_file(self, file_path_or_url: str, content_type: Optional[str] = None) -> bool:
+        """Check if file format is supported
+
+        For HTTP URLs without extension, this returns True to allow
+        Content-Type based detection after download.
+        """
         try:
-            # Extract file extension
             if file_path_or_url.startswith('http'):
                 parsed = urlparse(file_path_or_url)
                 path = unquote(parsed.path)
-            else:
-                path = file_path_or_url
-            
-            ext = Path(path).suffix.lower()
-            is_supported = ext in self.supported_extensions
-            
-            # If no extension found but it might be a known format, try to infer
-            if not is_supported and file_path_or_url.startswith('http'):
-                # Check for common patterns
+                ext = Path(path).suffix.lower()
+
+                # Check if this is a real extension (not numeric like arXiv IDs)
+                has_valid_ext = self._is_valid_extension(ext)
+
+                # If URL has supported extension, it's supported
+                if has_valid_ext and ext in self.supported_extensions:
+                    return True
+
+                # If Content-Type provided and maps to supported extension
+                if content_type and content_type in CONTENT_TYPE_TO_EXT:
+                    return CONTENT_TYPE_TO_EXT[content_type] in self.supported_extensions
+
+                # For HTTP URLs without valid extension, allow (will check Content-Type after download)
+                if not has_valid_ext:
+                    return True
+
+                # Check for common patterns (existing logic)
                 if '/html' in file_path_or_url or 'html' in file_path_or_url:
                     return True
-                elif 'README' in file_path_or_url.upper() and not ext:
+                elif 'README' in file_path_or_url.upper():
                     return True
-            
-            return is_supported
+
+                return False
+            else:
+                # Local file: check extension
+                ext = Path(file_path_or_url).suffix.lower()
+                return ext in self.supported_extensions
         except Exception:
             return False
     
@@ -89,32 +133,65 @@ class FileProcessor:
             return file_type
         except Exception:
             return None
-    
-    async def download_file(self, url: str, max_size_mb: int = 100) -> bytes:
-        """Download file from URL with size limit"""
+
+    def get_extension_for_url(self, url: str, content_type: Optional[str] = None) -> str:
+        """Determine file extension from URL or Content-Type
+
+        Priority:
+        1. URL path extension (if present, valid, and supported)
+        2. Content-Type header mapping
+        3. Empty string (fallback)
+        """
+        try:
+            # Try URL extension first
+            parsed = urlparse(url)
+            path = unquote(parsed.path)
+            ext = Path(path).suffix.lower()
+            # Only use extension if it's valid (not numeric like arXiv IDs)
+            if self._is_valid_extension(ext) and ext in self.supported_extensions:
+                return ext
+
+            # Fallback to Content-Type
+            if content_type:
+                return CONTENT_TYPE_TO_EXT.get(content_type, '')
+
+            return ''
+        except Exception:
+            return ''
+
+    async def download_file(self, url: str, max_size_mb: int = 100) -> tuple[bytes, Optional[str]]:
+        """Download file from URL with size limit
+
+        Returns:
+            tuple: (content_bytes, content_type or None)
+        """
         try:
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
-            
+
+            # Get Content-Type header
+            content_type_header = response.headers.get('content-type', '')
+            content_type = content_type_header.split(';')[0].strip().lower() if content_type_header else None
+
             # Check content length
             content_length = response.headers.get('content-length')
             if content_length:
                 size_mb = int(content_length) / (1024 * 1024)
                 if size_mb > max_size_mb:
                     raise ValueError(f"File too large: {size_mb:.1f}MB (max: {max_size_mb}MB)")
-            
+
             # Download with size limit
             content = b""
             max_bytes = max_size_mb * 1024 * 1024
-            
+
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     content += chunk
                     if len(content) > max_bytes:
                         raise ValueError(f"File too large: exceeds {max_size_mb}MB limit")
-            
-            return content
-            
+
+            return content, content_type
+
         except requests.RequestException as e:
             raise ValueError(f"Failed to download file: {str(e)}")
     
@@ -201,22 +278,26 @@ class FileProcessor:
     
     async def process_file_from_url(self, url: str, max_size_mb: int = 100) -> Dict[str, Any]:
         """Process file from URL"""
-        # Get file type early to avoid reference errors
-        file_type = self.get_file_type(url)
-        
-        if not self.is_supported_file(url):
-            return {
-                'success': False,
-                'error': f"Unsupported file format. Supported: {', '.join(self.supported_extensions.keys())}",
-                'file_type': file_type
-            }
-        
         try:
-            # Download file
-            file_data = await self.download_file(url, max_size_mb)
-            
+            # Download file and get Content-Type
+            file_data, content_type = await self.download_file(url, max_size_mb)
+
+            # Determine file extension from URL or Content-Type
+            ext = self.get_extension_for_url(url, content_type)
+
+            # Validate support after knowing actual type
+            if not ext or ext not in self.supported_extensions:
+                return {
+                    'success': False,
+                    'error': f"Unsupported file format. Content-Type: {content_type}. Supported: {', '.join(self.supported_extensions.keys())}",
+                    'file_type': content_type,
+                    'url': url
+                }
+
+            file_type = self.supported_extensions.get(ext, 'Unknown')
+
             # Handle ZIP files specially
-            if url.lower().endswith('.zip'):
+            if ext == '.zip':
                 zip_contents = self.extract_zip_contents(file_data)
                 return {
                     'success': True,
@@ -227,9 +308,9 @@ class FileProcessor:
                     'content': None,
                     'archive_contents': zip_contents
                 }
-            
-            # Process single file
-            with tempfile.NamedTemporaryFile(suffix=Path(url).suffix, delete=False) as temp_file:
+
+            # Process single file with correct extension
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as temp_file:
                 temp_file.write(file_data)
                 temp_file.flush()
                 
@@ -257,9 +338,9 @@ class FileProcessor:
                 'success': False,
                 'error': str(e),
                 'url': url,
-                'file_type': file_type
+                'file_type': None
             }
-    
+
     async def process_file_from_data(self, file_data: bytes, filename: str) -> Dict[str, Any]:
         """Process file from binary data"""
         # Get file type early to avoid reference errors
