@@ -31,3 +31,6 @@ python-dateutil>=2.9.0.post0
 
 # Token counting for accurate content size estimation
 tiktoken>=0.5.0
+
+# Anthropic SDK for LLM-based content processing
+anthropic>=0.40.0

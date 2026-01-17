@@ -1820,17 +1820,17 @@ async def get_llm_config_info() -> Dict[str, Any]:
 
 @mcp.tool()
 async def batch_crawl(
-    urls: Annotated[List[str], Field(description="URLs to crawl (max 5)")],
+    urls: Annotated[List[str], Field(description="URLs to crawl (max 3)")],
     base_timeout: Annotated[int, Field(description="Timeout per URL (default: 30)")] = 30,
     generate_markdown: Annotated[bool, Field(description="Generate markdown (default: True)")] = True,
     extract_media: Annotated[bool, Field(description="Extract media (default: False)")] = False,
     wait_for_js: Annotated[bool, Field(description="Wait for JS (default: False)")] = False,
     max_concurrent: Annotated[int, Field(description="Max concurrent (default: 3)")] = 3
 ) -> List[Dict[str, Any]]:
-    """Crawl multiple URLs with fallback. Max 5 URLs per call."""
+    """Crawl multiple URLs with fallback. Max 3 URLs per call."""
     # URL limit check (MCP best practice: bounded toolsets)
-    if len(urls) > 5:
-        return [{"success": False, "error": "Maximum 5 URLs allowed per batch. Split into multiple calls."}]
+    if len(urls) > 3:
+        return [{"success": False, "error": "Maximum 3 URLs allowed per batch. Split into multiple calls."}]
 
     _load_tool_modules()
     if not _tools_imported:
@@ -2143,13 +2143,13 @@ def get_tool_selection_guide() -> dict:
         "config": ["get_llm_config_info", "get_tool_selection_guide"],
         "diagnostics": ["get_system_diagnostics"],
         "new_v074_features": {
-            "undetected_browser": "Enhanced crawl_url and batch_crawl with use_undetected_browser parameter",
+            "undetected_browser": "Enhanced crawl_url with use_undetected_browser parameter",
             "llm_table_extraction": "Revolutionary table extraction in extract_structured_data with use_llm_table_extraction",
             "multi_url_config": "Pattern-based configuration matching in multi_url_crawl tool",
             "intelligent_chunking": "Massive table support with adaptive chunking strategies"
         },
         "best_practices": {
-            "bot_detection": "Use undetected browser mode for difficult sites",
+            "bot_detection": "Use crawl_url with undetected browser mode for difficult sites",
             "table_data": "Enable LLM table extraction for complex table structures",
             "mixed_domains": "Use multi_url_crawl for site-specific optimization",
             "fallback_reliability": "All tools now include automatic fallback mechanisms"
