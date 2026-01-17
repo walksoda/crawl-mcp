@@ -330,6 +330,100 @@ def get_system_diagnostics() -> dict:
         ]
     }
 
+def _validate_crawl_url_params(url: str, timeout: int) -> Optional[dict]:
+    """Validate crawl_url parameters and return error dict if invalid, None if valid."""
+    # URL validation
+    if not url or not url.strip():
+        return {
+            "success": False,
+            "error": "URL is required and cannot be empty",
+            "error_code": "invalid_url"
+        }
+
+    url_stripped = url.strip()
+    if not url_stripped.startswith(('http://', 'https://')):
+        return {
+            "success": False,
+            "error": f"Invalid URL scheme. URL must start with http:// or https://. Got: {url_stripped[:50]}",
+            "error_code": "invalid_url_scheme"
+        }
+
+    # Timeout validation
+    if timeout <= 0:
+        return {
+            "success": False,
+            "error": f"Timeout must be a positive integer. Got: {timeout}",
+            "error_code": "invalid_timeout"
+        }
+
+    if timeout > 300:
+        return {
+            "success": False,
+            "error": f"Timeout exceeds maximum allowed value of 300 seconds. Got: {timeout}",
+            "error_code": "timeout_too_large"
+        }
+
+    return None
+
+
+def _convert_result_to_dict(result) -> dict:
+    """Convert CrawlResponse or similar object to dict."""
+    if hasattr(result, 'model_dump'):
+        return result.model_dump()
+    elif hasattr(result, 'dict'):
+        return result.dict()
+    return result
+
+
+def _process_content_fields(result_dict: dict, include_cleaned_html: bool, generate_markdown: bool) -> dict:
+    """Process content fields based on flags and add warnings if needed."""
+    # Preserve existing warnings from crawler
+    warnings = result_dict.get("warnings", [])
+    if not isinstance(warnings, list):
+        warnings = [warnings] if warnings else []
+
+    # Handle content field based on include_cleaned_html flag
+    if not include_cleaned_html and 'content' in result_dict:
+        # Only remove if markdown is available or generate_markdown is True
+        if generate_markdown and result_dict.get("markdown", "").strip():
+            del result_dict['content']
+            warnings.append("HTML content removed to save tokens. Use include_cleaned_html=true to include it.")
+        elif not generate_markdown:
+            # Keep content when markdown generation is disabled
+            warnings.append("HTML content preserved because generate_markdown=false.")
+
+    if warnings:
+        result_dict["warnings"] = warnings
+
+    return result_dict
+
+
+def _should_trigger_fallback(result_dict: dict, generate_markdown: bool) -> tuple[bool, str]:
+    """Determine if fallback should be triggered and return reason."""
+    # Check explicit failure
+    if not result_dict.get("success", True):
+        error_msg = result_dict.get("error", "Unknown error")
+        return True, f"Initial crawl failed: {error_msg}"
+
+    # Check for meaningful content based on what was requested
+    has_markdown = bool(result_dict.get("markdown", "").strip())
+    has_content = bool(result_dict.get("content", "").strip())
+    has_raw_content = bool(result_dict.get("raw_content", "").strip())
+
+    # If markdown was requested but is empty, and no other content exists
+    if generate_markdown and not has_markdown:
+        if has_content or has_raw_content:
+            # Has some content, don't fallback - might be intentional (PDF, etc.)
+            return False, ""
+        return True, "Empty markdown and no alternative content available"
+
+    # If markdown was not requested, check for any content
+    if not generate_markdown and not has_content and not has_raw_content:
+        return True, "No content available in response"
+
+    return False, ""
+
+
 @mcp.tool()
 async def crawl_url(
     url: Annotated[str, Field(description="URL to crawl")],
@@ -346,13 +440,19 @@ async def crawl_url(
     use_undetected_browser: Annotated[bool, Field(description="Bypass bot detection")] = False
 ) -> dict:
     """Extract web page content with JavaScript support. Use wait_for_js=true for SPAs."""
+    # Input validation
+    validation_error = _validate_crawl_url_params(url, timeout)
+    if validation_error:
+        return validation_error
+
     _load_tool_modules()
     if not _tools_imported:
         return {
             "success": False,
-            "error": "Tool modules not available"
+            "error": "Tool modules not available",
+            "error_code": "modules_unavailable"
         }
-    
+
     try:
         result = await web_crawling.crawl_url(
             url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
@@ -361,89 +461,92 @@ async def crawl_url(
             wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
             auto_summarize=auto_summarize, use_undetected_browser=use_undetected_browser
         )
-        
-        # Convert CrawlResponse to dict
-        if hasattr(result, 'model_dump'):
-            result_dict = result.model_dump()
-        elif hasattr(result, 'dict'):
-            result_dict = result.dict()
-        else:
-            result_dict = result
 
-        # Remove content field if include_cleaned_html is False
-        if not include_cleaned_html and 'content' in result_dict:
-            del result_dict['content']
+        result_dict = _convert_result_to_dict(result)
+        result_dict = _process_content_fields(result_dict, include_cleaned_html, generate_markdown)
 
-        if result_dict.get("success", True) and result_dict.get("markdown", "").strip():
-            # Apply token limit fallback before returning
+        # Record if undetected browser was used in initial request
+        if use_undetected_browser:
+            result_dict["undetected_browser_used"] = True
+
+        # Check if fallback is needed
+        should_fallback, fallback_reason = _should_trigger_fallback(result_dict, generate_markdown)
+
+        if not should_fallback:
             return _apply_token_limit_fallback(result_dict, max_tokens=25000)
-        
-        # If initial crawling failed or returned empty content, try fallback with undetected browser
-        fallback_result = await web_crawling.crawl_url_with_fallback(
+
+        # Try fallback with undetected browser
+        fallback_dict = await _execute_fallback(
             url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
             take_screenshot=take_screenshot, generate_markdown=generate_markdown,
-            include_cleaned_html=include_cleaned_html,
-            wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
-            auto_summarize=auto_summarize, use_undetected_browser=True
+            include_cleaned_html=include_cleaned_html, wait_for_selector=wait_for_selector,
+            timeout=timeout, wait_for_js=wait_for_js, auto_summarize=auto_summarize,
+            fallback_reason=fallback_reason, original_error=None
         )
 
-        # Convert fallback result to dict and mark that fallback was used
-        if hasattr(fallback_result, 'model_dump'):
-            fallback_dict = fallback_result.model_dump()
-        elif hasattr(fallback_result, 'dict'):
-            fallback_dict = fallback_result.dict()
-        else:
-            fallback_dict = fallback_result
-
-        # Remove content field if include_cleaned_html is False
-        if not include_cleaned_html and 'content' in fallback_dict:
-            del fallback_dict['content']
-
-        if fallback_dict.get("success", False):
-            fallback_dict["fallback_used"] = True
-            if use_undetected_browser:
-                fallback_dict["undetected_browser_used"] = True
-
-        # Apply token limit fallback before returning
         return _apply_token_limit_fallback(fallback_dict, max_tokens=25000)
-        
+
     except Exception as e:
-        # If initial crawling throws an exception, try fallback with undetected browser
+        # Determine error type for better diagnostics
+        error_type = type(e).__name__
+        error_message = str(e)
+
         try:
-            fallback_result = await web_crawling.crawl_url_with_fallback(
+            fallback_dict = await _execute_fallback(
                 url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
                 take_screenshot=take_screenshot, generate_markdown=generate_markdown,
-                include_cleaned_html=include_cleaned_html,
-                wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
-                auto_summarize=auto_summarize, use_undetected_browser=True
+                include_cleaned_html=include_cleaned_html, wait_for_selector=wait_for_selector,
+                timeout=timeout, wait_for_js=wait_for_js, auto_summarize=auto_summarize,
+                fallback_reason=f"Exception during initial crawl: {error_type}",
+                original_error=error_message
             )
 
-            # Convert fallback result to dict and mark that fallback was used
-            if hasattr(fallback_result, 'model_dump'):
-                fallback_dict = fallback_result.model_dump()
-            elif hasattr(fallback_result, 'dict'):
-                fallback_dict = fallback_result.dict()
-            else:
-                fallback_dict = fallback_result
-
-            # Remove content field if include_cleaned_html is False
-            if not include_cleaned_html and 'content' in fallback_dict:
-                del fallback_dict['content']
-
-            if fallback_dict.get("success", False):
-                fallback_dict["fallback_used"] = True
-                fallback_dict["undetected_browser_used"] = True
-                fallback_dict["original_error"] = str(e)
-
-            # Apply token limit fallback before returning
             return _apply_token_limit_fallback(fallback_dict, max_tokens=25000)
-            
+
         except Exception as fallback_error:
             return {
                 "success": False,
                 "url": url,
-                "error": f"Both crawling methods failed. Original: {str(e)}, Fallback: {str(fallback_error)}"
+                "error": f"Both crawling methods failed",
+                "error_code": "both_methods_failed",
+                "diagnostics": {
+                    "original_error": error_message,
+                    "original_error_type": error_type,
+                    "fallback_error": str(fallback_error),
+                    "fallback_error_type": type(fallback_error).__name__
+                },
+                "retryable": "timeout" in error_message.lower() or "timeout" in str(fallback_error).lower(),
+                "suggested_fix": "Try increasing timeout or using wait_for_js=true for JavaScript-heavy pages"
             }
+
+
+async def _execute_fallback(
+    url: str, css_selector: Optional[str], xpath: Optional[str], extract_media: bool,
+    take_screenshot: bool, generate_markdown: bool, include_cleaned_html: bool,
+    wait_for_selector: Optional[str], timeout: int, wait_for_js: bool, auto_summarize: bool,
+    fallback_reason: str, original_error: Optional[str]
+) -> dict:
+    """Execute fallback crawl with undetected browser and add diagnostics."""
+    fallback_result = await web_crawling.crawl_url_with_fallback(
+        url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
+        take_screenshot=take_screenshot, generate_markdown=generate_markdown,
+        include_cleaned_html=include_cleaned_html,
+        wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
+        auto_summarize=auto_summarize, use_undetected_browser=True
+    )
+
+    fallback_dict = _convert_result_to_dict(fallback_result)
+    fallback_dict = _process_content_fields(fallback_dict, include_cleaned_html, generate_markdown)
+
+    # Always add fallback diagnostics
+    fallback_dict["fallback_used"] = True
+    fallback_dict["undetected_browser_used"] = True
+    fallback_dict["fallback_reason"] = fallback_reason
+
+    if original_error:
+        fallback_dict["original_error"] = original_error
+
+    return fallback_dict
 
 @mcp.tool()
 async def extract_youtube_transcript(

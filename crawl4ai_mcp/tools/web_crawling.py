@@ -78,6 +78,1629 @@ def _convert_media_to_list(media: Any) -> List[Dict[str, Any]]:
     return []
 
 
+def _has_meaningful_content(result, min_length: int = 100) -> tuple[bool, str]:
+    """
+    Check if crawl result has meaningful content.
+
+    Checks markdown, content, and raw_content fields.
+    Returns (True, content_source) if any field contains content exceeding min_length.
+    Returns (False, "") if no meaningful content found.
+
+    Args:
+        result: CrawlResponse object or dict with crawl result
+        min_length: Minimum content length to consider meaningful
+
+    Returns:
+        Tuple of (has_content: bool, content_source: str)
+        content_source indicates which field had content: "markdown", "content", or "raw_content"
+    """
+    # Check markdown first (most common and useful for MCP clients)
+    markdown = getattr(result, 'markdown', None) if hasattr(result, 'markdown') else (result.get('markdown') if isinstance(result, dict) else None)
+    if markdown and len(str(markdown).strip()) > min_length:
+        return True, "markdown"
+
+    # Check content (cleaned HTML)
+    content = getattr(result, 'content', None) if hasattr(result, 'content') else (result.get('content') if isinstance(result, dict) else None)
+    if content and len(str(content).strip()) > min_length:
+        return True, "content"
+
+    # Check raw_content (original HTML)
+    raw_content = getattr(result, 'raw_content', None) if hasattr(result, 'raw_content') else (result.get('raw_content') if isinstance(result, dict) else None)
+    if raw_content and len(str(raw_content).strip()) > min_length:
+        return True, "raw_content"
+
+    return False, ""
+
+
+# Constants for fallback success validation
+FALLBACK_MIN_CONTENT_LENGTH = 200
+BLOCK_INDICATORS = [
+    "access denied", "403 forbidden", "captcha",
+    "please enable javascript", "bot detected",
+    "unusual traffic", "rate limit", "you have been blocked",
+    "security check", "verify you are human", "request blocked"
+]
+
+
+def _is_block_page(content: str) -> bool:
+    """
+    Check if content appears to be a block/error page.
+
+    Args:
+        content: Text content to check (should be lowercased or will be lowercased)
+
+    Returns:
+        True if block indicators are found, False otherwise
+    """
+    if not content:
+        return False
+    content_lower = content.lower() if not content.islower() else content
+    return any(indicator in content_lower for indicator in BLOCK_INDICATORS)
+
+
+def _normalize_cookies_to_playwright_format(
+    cookies: Dict[str, str],
+    url: str
+) -> List[Dict[str, Any]]:
+    """
+    Convert Dict[str, str] cookies to Playwright format.
+
+    Uses 'url' field for host-only cookies (recommended by Playwright).
+    This ensures cookies are only sent to the exact host, not subdomains,
+    and correctly handles IPv6 addresses and localhost.
+
+    Args:
+        cookies: Dictionary of cookie name-value pairs
+        url: URL for cookie scope
+
+    Returns:
+        List of cookie dictionaries in Playwright format
+    """
+    # Build cookies with url field for host-only behavior (Playwright recommended)
+    # Using 'url' instead of 'domain' ensures:
+    # - Cookies are host-only (not sent to subdomains)
+    # - IPv6 addresses work correctly
+    # - localhost and IP addresses are handled properly
+    result = []
+    for name, value in cookies.items():
+        cookie = {
+            "name": name,
+            "value": str(value),  # Ensure string type
+            "url": url,  # Host-only cookie scope
+            "path": "/",
+        }
+        result.append(cookie)
+
+    return result
+
+
+# Phase 3: Multi-stage fallback helper functions
+
+async def _static_fetch_content(url: str, headers: dict = None, timeout: int = 30) -> tuple[bool, str, str]:
+    """
+    Stage 1: Fast static HTTP fetch without browser overhead.
+
+    Uses httpx for direct HTTP requests with readability extraction.
+
+    Returns:
+        Tuple of (success: bool, content: str, error: str)
+    """
+    import httpx
+    from urllib.parse import urlparse
+
+    try:
+        default_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        if headers:
+            default_headers.update(headers)
+
+        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+            response = await client.get(url, headers=default_headers)
+            response.raise_for_status()
+
+            content_type = response.headers.get("content-type", "").lower()
+            if "text/html" not in content_type and "application/xhtml" not in content_type:
+                return False, "", f"Non-HTML content type: {content_type}"
+
+            html_content = response.text
+            if len(html_content.strip()) < 100:
+                return False, "", "Content too short"
+
+            return True, html_content, ""
+
+    except httpx.HTTPStatusError as e:
+        return False, "", f"HTTP error {e.response.status_code}"
+    except httpx.RequestError as e:
+        return False, "", f"Request error: {str(e)}"
+    except Exception as e:
+        return False, "", f"Static fetch error: {str(e)}"
+
+
+def _extract_spa_json_data(html_content: str) -> tuple[bool, dict, str]:
+    """
+    Stage 6: Extract JSON data from SPA frameworks.
+
+    Extracts data from:
+    - __NEXT_DATA__ (Next.js)
+    - window.__INITIAL_STATE__ (various frameworks)
+    - window.__NUXT__ (Nuxt.js)
+    - window.__APP_STATE__ (various frameworks)
+
+    Uses balanced brace matching to handle nested JSON correctly.
+
+    Returns:
+        Tuple of (success: bool, data: dict, source: str)
+    """
+    import re
+
+    def extract_balanced_json(text: str, start_pos: int) -> str:
+        """Extract JSON object with balanced braces starting from start_pos."""
+        if start_pos >= len(text) or text[start_pos] != '{':
+            return ""
+
+        depth = 0
+        in_string = False
+        escape_next = False
+        end_pos = start_pos
+
+        for i in range(start_pos, len(text)):
+            char = text[i]
+
+            if escape_next:
+                escape_next = False
+                continue
+
+            if char == '\\' and in_string:
+                escape_next = True
+                continue
+
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+
+            if not in_string:
+                if char == '{':
+                    depth += 1
+                elif char == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end_pos = i + 1
+                        break
+
+        if depth != 0:
+            return ""
+
+        return text[start_pos:end_pos]
+
+    # Extraction patterns: (regex to find start position, source name)
+    patterns = [
+        # Next.js - extract content from script tag
+        (r'<script[^>]*id="__NEXT_DATA__"[^>]*>', "next_data"),
+        # Nuxt.js
+        (r'window\.__NUXT__\s*=\s*', "nuxt_data"),
+        # Generic initial state patterns
+        (r'window\.__INITIAL_STATE__\s*=\s*', "initial_state"),
+        (r'window\.__APP_STATE__\s*=\s*', "app_state"),
+        (r'window\.__PRELOADED_STATE__\s*=\s*', "preloaded_state"),
+    ]
+
+    for pattern, source in patterns:
+        try:
+            match = re.search(pattern, html_content)
+            if match:
+                # Find the start of JSON object after the pattern
+                search_start = match.end()
+                # Skip any whitespace
+                while search_start < len(html_content) and html_content[search_start] in ' \t\n\r':
+                    search_start += 1
+
+                if search_start < len(html_content) and html_content[search_start] == '{':
+                    json_str = extract_balanced_json(html_content, search_start)
+                    if json_str:
+                        data = json.loads(json_str)
+                        return True, data, source
+        except (json.JSONDecodeError, AttributeError, IndexError):
+            continue
+
+    return False, {}, ""
+
+
+def _detect_spa_framework(html_content: str) -> tuple[str, str]:
+    """
+    Stage 4: Detect SPA framework for optimized crawling.
+
+    Returns:
+        Tuple of (framework_name: str, suggested_selector: str)
+    """
+    indicators = [
+        # Next.js
+        ("__NEXT_DATA__", "next.js", "#__next, [data-nextjs-page]"),
+        ("_next/static", "next.js", "#__next"),
+        # React
+        ("data-reactroot", "react", "[data-reactroot], #root, #app"),
+        ("__REACT_DEVTOOLS", "react", "#root, #app"),
+        # Vue.js
+        ("data-v-", "vue.js", "#app, [data-v-app]"),
+        ("__VUE__", "vue.js", "#app"),
+        # Angular
+        ("ng-version", "angular", "app-root, [ng-version]"),
+        ("_ngcontent", "angular", "app-root"),
+        # Nuxt.js
+        ("__NUXT__", "nuxt.js", "#__nuxt, #__layout"),
+        # Svelte
+        ("__sveltekit", "sveltekit", "#svelte, body > div"),
+    ]
+
+    for indicator, framework, selector in indicators:
+        if indicator in html_content:
+            return framework, selector
+
+    return "", ""
+
+
+def _build_amp_url(url: str) -> str:
+    """
+    Stage 6: Build AMP version URL.
+
+    Attempts to construct AMP URL for the given page.
+    Preserves query string and fragment from the original URL.
+    """
+    from urllib.parse import urlparse, urlunparse
+
+    parsed = urlparse(url)
+    path = parsed.path
+
+    # Common AMP URL patterns
+    if not path.endswith('/amp') and not path.endswith('/amp/'):
+        if path.endswith('/'):
+            amp_path = path + 'amp/'
+        else:
+            amp_path = path + '/amp'
+
+        # Preserve query string and fragment from original URL
+        return urlunparse((
+            parsed.scheme,
+            parsed.netloc,
+            amp_path,
+            parsed.params,  # URL parameters (rarely used but preserve)
+            parsed.query,   # Query string (?key=value)
+            parsed.fragment # Fragment (#section)
+        ))
+
+    return ""
+
+
+async def _try_fetch_rss_feed(url: str) -> tuple[bool, str, list]:
+    """
+    Stage 5: Try to find and fetch RSS/Atom feed for the page.
+
+    Returns:
+        Tuple of (success: bool, feed_url: str, items: list)
+    """
+    import httpx
+    import re
+    from urllib.parse import urljoin
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            # First fetch the page to find feed links
+            response = await client.get(url)
+            html = response.text
+
+            # Look for RSS/Atom feed links
+            feed_patterns = [
+                r'<link[^>]*type=["\']application/rss\+xml["\'][^>]*href=["\']([^"\']+)["\']',
+                r'<link[^>]*type=["\']application/atom\+xml["\'][^>]*href=["\']([^"\']+)["\']',
+                r'<link[^>]*href=["\']([^"\']+)["\'][^>]*type=["\']application/rss\+xml["\']',
+                r'<link[^>]*href=["\']([^"\']+)["\'][^>]*type=["\']application/atom\+xml["\']',
+            ]
+
+            feed_url = None
+            for pattern in feed_patterns:
+                match = re.search(pattern, html)
+                if match:
+                    feed_url = urljoin(url, match.group(1))
+                    break
+
+            if not feed_url:
+                # Try common feed URL patterns
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                common_feeds = [
+                    f"{parsed.scheme}://{parsed.netloc}/feed",
+                    f"{parsed.scheme}://{parsed.netloc}/rss",
+                    f"{parsed.scheme}://{parsed.netloc}/atom.xml",
+                    f"{parsed.scheme}://{parsed.netloc}/feed.xml",
+                    f"{parsed.scheme}://{parsed.netloc}/rss.xml",
+                ]
+
+                for potential_feed in common_feeds:
+                    try:
+                        feed_response = await client.get(potential_feed)
+                        if feed_response.status_code == 200:
+                            content_type = feed_response.headers.get("content-type", "").lower()
+                            if "xml" in content_type or "rss" in content_type or "atom" in content_type:
+                                feed_url = potential_feed
+                                break
+                    except:
+                        continue
+
+            if feed_url:
+                # Fetch and parse the feed
+                feed_response = await client.get(feed_url)
+                feed_content = feed_response.text
+
+                # Basic XML parsing for items
+                items = []
+                item_pattern = r'<item>(.*?)</item>|<entry>(.*?)</entry>'
+                for match in re.finditer(item_pattern, feed_content, re.DOTALL):
+                    item_xml = match.group(1) or match.group(2)
+                    title_match = re.search(r'<title[^>]*>([^<]+)</title>', item_xml)
+                    link_match = re.search(r'<link[^>]*>([^<]+)</link>|<link[^>]*href=["\']([^"\']+)["\']', item_xml)
+                    desc_match = re.search(r'<description[^>]*>([^<]+)</description>|<summary[^>]*>([^<]+)</summary>', item_xml, re.DOTALL)
+
+                    item = {}
+                    if title_match:
+                        item['title'] = title_match.group(1).strip()
+                    if link_match:
+                        item['link'] = (link_match.group(1) or link_match.group(2)).strip()
+                    if desc_match:
+                        item['description'] = (desc_match.group(1) or desc_match.group(2)).strip()
+
+                    if item:
+                        items.append(item)
+
+                return True, feed_url, items
+
+    except Exception as e:
+        pass
+
+    return False, "", []
+
+
+# ========================================
+# Phase 6: Session Management
+# ========================================
+
+class SessionManager:
+    """
+    Manages browser session persistence for web crawling.
+
+    Stores and retrieves session data (cookies, localStorage) per domain,
+    enabling authenticated crawling without re-login on each request.
+
+    Session data is stored in a JSON file (~/.crawl4ai_sessions.json) with
+    secure file permissions (0600).
+
+    Current Limitations:
+    - Only user-provided cookies are saved (crawl4ai doesn't expose response cookies)
+    - localStorage is stored but not applied (crawl_url doesn't support storage_state)
+    - Full Playwright storage_state integration requires architectural changes
+
+    Security Notes:
+    - Session file is protected with owner-only permissions
+    - URL credentials (user:pass@host) are stripped from domain keys
+    - Consider additional encryption for sensitive environments
+    """
+
+    def __init__(self, storage_path: str = None):
+        """
+        Initialize the session manager.
+
+        Args:
+            storage_path: Path to the session storage JSON file.
+                         If None, uses a default path in the user's home directory.
+        """
+        import os
+        from pathlib import Path
+
+        if storage_path is None:
+            # Default to ~/.crawl4ai_sessions.json
+            home = Path.home()
+            storage_path = str(home / ".crawl4ai_sessions.json")
+
+        self.storage_path = storage_path
+        self._sessions: Dict[str, dict] = {}
+        self._load_sessions()
+
+    def _load_sessions(self) -> None:
+        """Load sessions from the storage file with validation."""
+        import os
+
+        if os.path.exists(self.storage_path):
+            try:
+                with open(self.storage_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    # Validate data structure - must be a dict
+                    if not isinstance(data, dict):
+                        print(f"Warning: Invalid session data format, expected dict")
+                        self._sessions = {}
+                        return
+
+                    # Validate each domain entry
+                    validated = {}
+                    for domain, session in data.items():
+                        if not isinstance(domain, str) or not isinstance(session, dict):
+                            continue  # Skip invalid entries
+                        # Ensure required fields exist with valid types
+                        if 'storage_state' not in session:
+                            continue
+                        if not isinstance(session.get('storage_state'), dict):
+                            continue
+                        # Validate expires_at if present
+                        expires_at = session.get('expires_at')
+                        if expires_at is not None and not isinstance(expires_at, (int, float)):
+                            session['expires_at'] = None  # Remove invalid expiry
+                        validated[domain] = session
+
+                    self._sessions = validated
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"Warning: Could not load sessions from {self.storage_path}: {e}")
+                self._sessions = {}
+
+    def _save_sessions(self) -> None:
+        """Save sessions to the storage file with secure permissions."""
+        import os
+        import stat
+
+        temp_path = self.storage_path + ".tmp"
+        try:
+            # Remove temp file if it exists to prevent symlink attacks
+            # O_EXCL will fail if file exists, so we need clean state
+            try:
+                os.remove(temp_path)
+            except FileNotFoundError:
+                pass
+
+            # Create temp file with O_EXCL to prevent race conditions and symlink attacks
+            # O_EXCL ensures atomic creation - fails if file already exists
+            fd = os.open(
+                temp_path,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600
+            )
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(self._sessions, f, indent=2, ensure_ascii=False)
+            except Exception:
+                # fd is closed by fdopen even on error, but close explicitly if fdopen fails
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                raise
+
+            # Atomic rename
+            os.replace(temp_path, self.storage_path)
+
+        except (IOError, TypeError, ValueError, OSError) as e:
+            print(f"Warning: Could not save sessions to {self.storage_path}: {e}")
+            # Clean up temp file if it exists
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except OSError:
+                pass
+
+    def _get_domain_key(self, url: str) -> str:
+        """Extract domain from URL for session lookup, stripping credentials."""
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        # Strip user:pass@ from netloc for security
+        netloc = parsed.netloc.lower()
+        if '@' in netloc:
+            netloc = netloc.split('@')[-1]
+        return netloc
+
+    def get_session(self, url: str) -> Optional[dict]:
+        """
+        Get stored session data for a URL's domain.
+
+        Args:
+            url: The URL to get session data for.
+
+        Returns:
+            Session data dict with 'cookies' and 'origins' keys, or None.
+        """
+        domain = self._get_domain_key(url)
+        session = self._sessions.get(domain)
+
+        if session and isinstance(session, dict):
+            # Check if session has expired
+            import time
+            expires_at = session.get('expires_at')
+            if isinstance(expires_at, (int, float)) and expires_at < time.time():
+                # Session expired, remove it
+                del self._sessions[domain]
+                self._save_sessions()
+                return None
+
+            storage_state = session.get('storage_state')
+            if isinstance(storage_state, dict):
+                return storage_state
+
+        return None
+
+    def save_session(
+        self,
+        url: str,
+        cookies: List[dict] = None,
+        local_storage: Dict[str, str] = None,
+        ttl_hours: int = 24
+    ) -> None:
+        """
+        Save session data for a URL's domain.
+
+        Args:
+            url: The URL to save session data for.
+            cookies: List of cookie dicts with name, value, domain, etc.
+            local_storage: Dict of localStorage key-value pairs.
+            ttl_hours: Time-to-live in hours for the session (default 24, min 1).
+        """
+        import time
+        from urllib.parse import urlparse
+
+        # Validate TTL
+        if ttl_hours < 1:
+            ttl_hours = 1  # Minimum 1 hour
+
+        domain = self._get_domain_key(url)
+        parsed = urlparse(url)
+        # Strip credentials from origin for security
+        netloc = parsed.netloc
+        if '@' in netloc:
+            netloc = netloc.split('@')[-1]
+        origin = f"{parsed.scheme}://{netloc}"
+
+        # Build storage_state in Playwright format
+        storage_state = {
+            "cookies": cookies or [],
+            "origins": []
+        }
+
+        if local_storage:
+            storage_state["origins"].append({
+                "origin": origin,
+                "localStorage": [
+                    {"name": k, "value": v} for k, v in local_storage.items()
+                ]
+            })
+
+        self._sessions[domain] = {
+            "storage_state": storage_state,
+            "created_at": time.time(),
+            "expires_at": time.time() + (ttl_hours * 3600),
+            "domain": domain,
+            "origin": origin
+        }
+
+        self._save_sessions()
+
+    def save_storage_state(self, url: str, storage_state: dict, ttl_hours: int = 24) -> None:
+        """
+        Save a complete storage_state dict for a URL's domain.
+
+        Args:
+            url: The URL to save session data for.
+            storage_state: Complete storage_state dict from Playwright.
+            ttl_hours: Time-to-live in hours for the session (min 1).
+        """
+        import time
+
+        # Validate TTL - clamp to minimum of 1 hour (consistent with save_session)
+        if not isinstance(ttl_hours, (int, float)) or ttl_hours < 1:
+            ttl_hours = max(1, ttl_hours) if isinstance(ttl_hours, (int, float)) else 1
+
+        domain = self._get_domain_key(url)
+
+        self._sessions[domain] = {
+            "storage_state": storage_state,
+            "created_at": time.time(),
+            "expires_at": time.time() + (ttl_hours * 3600),
+            "domain": domain
+        }
+
+        self._save_sessions()
+
+    def clear_session(self, url: str) -> bool:
+        """
+        Clear session data for a URL's domain.
+
+        Args:
+            url: The URL to clear session data for.
+
+        Returns:
+            True if session was cleared, False if no session existed.
+        """
+        domain = self._get_domain_key(url)
+        if domain in self._sessions:
+            del self._sessions[domain]
+            self._save_sessions()
+            return True
+        return False
+
+    def clear_all_sessions(self) -> int:
+        """
+        Clear all stored sessions.
+
+        Returns:
+            Number of sessions cleared.
+        """
+        count = len(self._sessions)
+        self._sessions = {}
+        self._save_sessions()
+        return count
+
+    def list_sessions(self) -> List[dict]:
+        """
+        List all stored sessions with metadata.
+
+        Returns:
+            List of session info dicts with domain, created_at, expires_at.
+        """
+        import time
+        current_time = time.time()
+        result = []
+        for domain, data in self._sessions.items():
+            if not isinstance(data, dict):
+                continue  # Skip invalid entries
+
+            expires_at = data.get("expires_at")
+            is_expired = False
+            if isinstance(expires_at, (int, float)):
+                is_expired = expires_at < current_time
+
+            storage_state = data.get("storage_state", {})
+            cookie_count = 0
+            if isinstance(storage_state, dict):
+                cookies = storage_state.get("cookies", [])
+                if isinstance(cookies, list):
+                    cookie_count = len(cookies)
+
+            result.append({
+                "domain": domain,
+                "created_at": data.get("created_at"),
+                "expires_at": expires_at,
+                "is_expired": is_expired,
+                "cookie_count": cookie_count
+            })
+        return result
+
+    def get_browser_config_params(self, url: str) -> dict:
+        """
+        Get BrowserConfig parameters for session persistence.
+
+        Args:
+            url: The URL to get config for.
+
+        Returns:
+            Dict with storage_state and other browser config params.
+        """
+        session = self.get_session(url)
+        if session:
+            return {
+                "storage_state": session,
+                "use_persistent_context": True
+            }
+        return {}
+
+
+class StrategyCache:
+    """
+    Caches successful crawling strategies per domain.
+
+    Tracks which fallback stages work best for each domain,
+    allowing future crawls to start from the optimal strategy
+    instead of always starting from Stage 1.
+
+    Features:
+    - Records successful strategies with response times
+    - Tracks failure patterns to avoid repeated failures
+    - TTL-based expiration (default 7 days)
+    - Adaptive strategy selection based on failure history
+
+    Storage:
+    - JSON file at ~/.crawl4ai_strategy_cache.json
+    - Secure permissions (0600)
+
+    Strategy Entry Structure:
+    {
+        "domain": "example.com",
+        "best_stage": 3,
+        "best_strategy": "chromium_stealth",
+        "success_count": 5,
+        "last_success": 1234567890.0,
+        "avg_response_time": 2.5,
+        "failed_stages": [1, 2],  # Stages that consistently fail
+        "expires_at": 1234567890.0
+    }
+    """
+
+    # Strategy names mapping for stage numbers
+    STAGE_NAMES = {
+        1: "static_fast_path",
+        2: "normal_headless",
+        3: "chromium_stealth",
+        4: "user_behavior",
+        5: "mobile_agent",
+        6: "amp_rss",
+        7: "json_extraction"
+    }
+
+    def __init__(self, storage_path: str = None, default_ttl_days: int = 7):
+        """
+        Initialize the strategy cache.
+
+        Args:
+            storage_path: Path to store cache data. Defaults to ~/.crawl4ai_strategy_cache.json
+            default_ttl_days: Default TTL in days for cache entries (min 1).
+        """
+        import os
+        self.storage_path = storage_path or os.path.expanduser("~/.crawl4ai_strategy_cache.json")
+        self.default_ttl_days = max(1, default_ttl_days) if isinstance(default_ttl_days, (int, float)) else 7
+        self._cache: Dict[str, dict] = {}
+        self._load_cache()
+
+    def _load_cache(self) -> None:
+        """Load cache from storage file with validation."""
+        import os
+
+        if not os.path.exists(self.storage_path):
+            self._cache = {}
+            return
+
+        try:
+            with open(self.storage_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            if not isinstance(data, dict):
+                self._cache = {}
+                return
+
+            # Validate each entry
+            validated = {}
+            for domain, entry in data.items():
+                if not isinstance(domain, str) or not isinstance(entry, dict):
+                    continue
+                # Required fields
+                if "best_stage" not in entry or "best_strategy" not in entry:
+                    continue
+                # Type validation
+                if not isinstance(entry.get("best_stage"), int):
+                    continue
+                if not isinstance(entry.get("best_strategy"), str):
+                    continue
+                # Validate expires_at
+                expires_at = entry.get("expires_at")
+                if expires_at is not None and not isinstance(expires_at, (int, float)):
+                    entry["expires_at"] = None
+                # Validate and normalize failed_stages to List[int]
+                failed_stages = entry.get("failed_stages", [])
+                if not isinstance(failed_stages, list):
+                    entry["failed_stages"] = []
+                else:
+                    # Filter to valid integers only
+                    entry["failed_stages"] = [s for s in failed_stages if isinstance(s, int) and 1 <= s <= 7]
+                # Validate success_count
+                if not isinstance(entry.get("success_count"), int):
+                    entry["success_count"] = 0
+                # Validate avg_response_time
+                if not isinstance(entry.get("avg_response_time"), (int, float)):
+                    entry["avg_response_time"] = 0.0
+                validated[domain] = entry
+
+            self._cache = validated
+
+        except (json.JSONDecodeError, IOError, OSError):
+            self._cache = {}
+
+    def _save_cache(self) -> None:
+        """Save cache to storage file with secure permissions."""
+        import os
+
+        temp_path = self.storage_path + ".tmp"
+        try:
+            # Remove temp file if exists
+            try:
+                os.remove(temp_path)
+            except FileNotFoundError:
+                pass
+
+            # Create with O_EXCL for security
+            fd = os.open(
+                temp_path,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600
+            )
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(self._cache, f, indent=2, ensure_ascii=False)
+            except Exception:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                raise
+
+            os.replace(temp_path, self.storage_path)
+
+        except (IOError, TypeError, ValueError, OSError) as e:
+            print(f"Warning: Could not save strategy cache to {self.storage_path}: {e}")
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except OSError:
+                pass
+
+    def _get_domain_key(self, url: str) -> str:
+        """Extract domain key from URL, stripping credentials and path/query."""
+        from urllib.parse import urlparse
+        try:
+            # Add scheme if missing to ensure proper parsing
+            if not url.startswith(('http://', 'https://', '//')):
+                url = 'https://' + url
+            parsed = urlparse(url)
+            # Strip user:pass from netloc and extract hostname only
+            host = parsed.hostname
+            if not host:
+                # Fallback: split netloc manually
+                netloc = parsed.netloc or url.split('/')[0]
+                host = netloc.split('@')[-1].split(':')[0]
+            # Never return path, query, or fragment - only domain
+            return host.lower() if host else "unknown"
+        except Exception:
+            # Last resort: try to extract domain-like pattern
+            import re
+            match = re.search(r'(?:https?://)?(?:www\.)?([a-zA-Z0-9.-]+)', url)
+            return match.group(1).lower() if match else "unknown"
+
+    def get_best_strategy(self, url: str) -> Optional[dict]:
+        """
+        Get the best known strategy for a domain.
+
+        Args:
+            url: The URL to get strategy for.
+
+        Returns:
+            Dict with strategy info or None if no cached strategy.
+            {
+                "start_stage": int,  # Stage to start from
+                "strategy_name": str,
+                "skip_stages": list[int],  # Stages to skip (known failures)
+                "success_count": int,
+                "avg_response_time": float
+            }
+        """
+        import time
+
+        domain = self._get_domain_key(url)
+        entry = self._cache.get(domain)
+
+        if not entry:
+            return None
+
+        # Check TTL
+        expires_at = entry.get("expires_at")
+        if expires_at is not None and expires_at < time.time():
+            del self._cache[domain]
+            self._save_cache()
+            return None
+
+        return {
+            "start_stage": entry.get("best_stage", 1),
+            "strategy_name": entry.get("best_strategy", "unknown"),
+            "skip_stages": entry.get("failed_stages", []),
+            "success_count": entry.get("success_count", 0),
+            "avg_response_time": entry.get("avg_response_time", 0.0)
+        }
+
+    def record_success(
+        self,
+        url: str,
+        stage: int,
+        strategy_name: str,
+        response_time: float = None,
+        ttl_days: int = None
+    ) -> None:
+        """
+        Record a successful crawl strategy for a domain.
+
+        Args:
+            url: The URL that was crawled.
+            stage: The fallback stage number that succeeded (1-7).
+            strategy_name: Name of the successful strategy.
+            response_time: Time taken for the crawl in seconds.
+            ttl_days: TTL in days for this entry (min 1).
+        """
+        import time
+
+        domain = self._get_domain_key(url)
+
+        # Validate TTL
+        if ttl_days is None:
+            ttl_days = self.default_ttl_days
+        elif not isinstance(ttl_days, (int, float)) or ttl_days < 1:
+            ttl_days = max(1, ttl_days) if isinstance(ttl_days, (int, float)) else self.default_ttl_days
+
+        # Get existing entry or create new
+        entry = self._cache.get(domain, {
+            "domain": domain,
+            "best_stage": stage,
+            "best_strategy": strategy_name,
+            "success_count": 0,
+            "last_success": 0,
+            "avg_response_time": 0.0,
+            "failed_stages": [],
+            "expires_at": 0
+        })
+
+        # Update entry
+        old_count = entry.get("success_count", 0)
+        old_avg = entry.get("avg_response_time", 0.0)
+
+        entry["success_count"] = old_count + 1
+
+        # Update best stage if this one is better (lower = faster)
+        current_best = entry.get("best_stage", 7)
+        if stage <= current_best:
+            entry["best_stage"] = stage
+            entry["best_strategy"] = strategy_name
+
+        entry["last_success"] = time.time()
+        entry["expires_at"] = time.time() + (ttl_days * 86400)
+
+        # Update rolling average response time
+        if response_time is not None and response_time > 0:
+            if old_count > 0 and old_avg > 0:
+                entry["avg_response_time"] = (old_avg * old_count + response_time) / (old_count + 1)
+            else:
+                entry["avg_response_time"] = response_time
+
+        # Remove this stage from failed_stages if it was there
+        failed = entry.get("failed_stages", [])
+        if stage in failed:
+            failed.remove(stage)
+            entry["failed_stages"] = failed
+
+        self._cache[domain] = entry
+        self._save_cache()
+
+    def record_failure(
+        self,
+        url: str,
+        stage: int,
+        strategy_name: str,
+        error: str = None
+    ) -> None:
+        """
+        Record a failed strategy attempt for a domain.
+
+        Uses a failure count threshold to avoid marking stages as failed
+        due to temporary issues. Only after FAILURE_THRESHOLD consecutive
+        failures is a stage added to failed_stages.
+
+        Args:
+            url: The URL that failed.
+            stage: The fallback stage number that failed (1-7).
+            strategy_name: Name of the failed strategy.
+            error: Optional error message.
+        """
+        import time
+
+        FAILURE_THRESHOLD = 3  # Require 3 consecutive failures to mark as "failed"
+        DECAY_HOURS = 24  # Reset failure count after 24 hours
+
+        domain = self._get_domain_key(url)
+
+        # Get existing entry or create minimal one
+        entry = self._cache.get(domain, {
+            "domain": domain,
+            "best_stage": 7,  # Default to last resort
+            "best_strategy": "unknown",
+            "success_count": 0,
+            "failed_stages": [],
+            "failure_counts": {},  # Track per-stage failure counts
+            "last_failure_time": {},  # Track when failures occurred
+            "expires_at": time.time() + (self.default_ttl_days * 86400)
+        })
+
+        # Initialize failure tracking if not present
+        if "failure_counts" not in entry:
+            entry["failure_counts"] = {}
+        if "last_failure_time" not in entry:
+            entry["last_failure_time"] = {}
+
+        now = time.time()
+        stage_key = str(stage)  # Use string keys for JSON compatibility
+
+        # Check if previous failure has decayed
+        last_failure = entry["last_failure_time"].get(stage_key, 0)
+        if now - last_failure > DECAY_HOURS * 3600:
+            # Reset failure count after decay period
+            entry["failure_counts"][stage_key] = 0
+
+        # Increment failure count
+        current_count = entry["failure_counts"].get(stage_key, 0) + 1
+        entry["failure_counts"][stage_key] = current_count
+        entry["last_failure_time"][stage_key] = now
+
+        # Only add to failed_stages if threshold reached
+        failed = entry.get("failed_stages", [])
+        if not isinstance(failed, list):
+            failed = []
+
+        if current_count >= FAILURE_THRESHOLD and stage not in failed:
+            failed.append(stage)
+            failed.sort()
+            entry["failed_stages"] = failed
+            print(f"Strategy cache: Stage {stage} marked as failed for {domain} after {current_count} failures")
+
+        # Update best_stage if current best has failed
+        if entry.get("best_stage", 1) in failed:
+            # Find the lowest non-failed stage
+            for s in range(1, 8):
+                if s not in failed:
+                    entry["best_stage"] = s
+                    entry["best_strategy"] = self.STAGE_NAMES.get(s, f"stage_{s}")
+                    break
+
+        self._cache[domain] = entry
+        self._save_cache()
+
+    def get_recommended_stages(self, url: str) -> List[int]:
+        """
+        Get recommended stage order for a URL based on cache.
+
+        Returns stages in optimal order: best_stage first,
+        then remaining stages (excluding known failures at end).
+
+        Args:
+            url: The URL to get recommendations for.
+
+        Returns:
+            List of stage numbers in recommended order.
+        """
+        strategy = self.get_best_strategy(url)
+
+        if not strategy:
+            # No cache - use default order
+            return [1, 2, 3, 4, 5, 6, 7]
+
+        start_stage = strategy.get("start_stage", 1)
+        skip_stages = strategy.get("skip_stages", [])
+
+        # Build recommended order
+        recommended = []
+
+        # Start with best known stage
+        if start_stage not in skip_stages:
+            recommended.append(start_stage)
+
+        # Add remaining stages in order (except skipped)
+        for stage in range(1, 8):
+            if stage not in recommended and stage not in skip_stages:
+                recommended.append(stage)
+
+        # Add skipped stages at the end (as last resort)
+        for stage in skip_stages:
+            if stage not in recommended:
+                recommended.append(stage)
+
+        return recommended
+
+    def clear_cache(self, url: str = None) -> None:
+        """
+        Clear cache for a specific domain or all domains.
+
+        Args:
+            url: If provided, clear only this domain. Otherwise clear all.
+        """
+        if url:
+            domain = self._get_domain_key(url)
+            if domain in self._cache:
+                del self._cache[domain]
+        else:
+            self._cache = {}
+        self._save_cache()
+
+    def list_cached_domains(self) -> List[dict]:
+        """
+        List all cached domain strategies.
+
+        Returns:
+            List of dicts with domain strategy info.
+        """
+        import time
+        result = []
+        now = time.time()
+
+        for domain, entry in self._cache.items():
+            if not isinstance(entry, dict):
+                continue
+
+            expires_at = entry.get("expires_at")
+            is_expired = expires_at is not None and expires_at < now
+
+            result.append({
+                "domain": domain,
+                "best_stage": entry.get("best_stage"),
+                "best_strategy": entry.get("best_strategy"),
+                "success_count": entry.get("success_count", 0),
+                "failed_stages": entry.get("failed_stages", []),
+                "avg_response_time": entry.get("avg_response_time"),
+                "is_expired": is_expired
+            })
+
+        return result
+
+
+# Global strategy cache instance
+_strategy_cache: Optional[StrategyCache] = None
+
+
+def get_strategy_cache() -> StrategyCache:
+    """Get or create the global strategy cache instance."""
+    global _strategy_cache
+    if _strategy_cache is None:
+        _strategy_cache = StrategyCache()
+    return _strategy_cache
+
+
+# ========================================
+# Phase 8: Fingerprint Evasion
+# ========================================
+
+class FingerprintProfile:
+    """
+    Generates consistent browser fingerprint profiles for anti-detection.
+
+    Creates matching sets of:
+    - User-Agent strings
+    - HTTP headers (sec-ch-ua*, Accept-Language, etc.)
+    - JavaScript fingerprint evasion scripts
+    - Timezone and locale settings
+
+    The key is consistency: all components must match to avoid detection.
+    For example, a Chrome User-Agent must have matching sec-ch-ua headers.
+    """
+
+    # Pre-defined browser profiles with consistent configurations
+    BROWSER_PROFILES = {
+        "chrome_windows": {
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "platform": "Win32",
+            "vendor": "Google Inc.",
+            "app_version": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            "sec_ch_ua_mobile": "?0",
+            "sec_ch_ua_platform": '"Windows"',
+            "languages": ["en-US", "en"],
+            "timezone": "America/New_York",
+            "webgl_vendor": "Google Inc. (NVIDIA)",
+            "webgl_renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1080 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        },
+        "chrome_mac": {
+            "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "platform": "MacIntel",
+            "vendor": "Google Inc.",
+            "app_version": "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            "sec_ch_ua_mobile": "?0",
+            "sec_ch_ua_platform": '"macOS"',
+            "languages": ["en-US", "en"],
+            "timezone": "America/Los_Angeles",
+            "webgl_vendor": "Google Inc. (Apple)",
+            "webgl_renderer": "ANGLE (Apple, Apple M1 Pro, OpenGL 4.1)",
+        },
+        "firefox_windows": {
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+            "platform": "Win32",
+            "vendor": "",
+            "app_version": "5.0 (Windows)",
+            "sec_ch_ua": None,  # Firefox doesn't send sec-ch-ua
+            "sec_ch_ua_mobile": None,
+            "sec_ch_ua_platform": None,
+            "languages": ["en-US", "en"],
+            "timezone": "America/New_York",
+            "webgl_vendor": "Mozilla",
+            "webgl_renderer": "Mozilla",
+        },
+        "safari_mac": {
+            "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+            "platform": "MacIntel",
+            "vendor": "Apple Computer, Inc.",
+            "app_version": "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+            "sec_ch_ua": None,  # Safari doesn't send sec-ch-ua
+            "sec_ch_ua_mobile": None,
+            "sec_ch_ua_platform": None,
+            "languages": ["en-US", "en"],
+            "timezone": "America/Los_Angeles",
+            "webgl_vendor": "Apple Inc.",
+            "webgl_renderer": "Apple GPU",
+        },
+        "chrome_mobile": {
+            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.119 Mobile/15E148 Safari/604.1",
+            "platform": "iPhone",
+            "vendor": "Google Inc.",
+            "app_version": "5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.119 Mobile/15E148 Safari/604.1",
+            "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            "sec_ch_ua_mobile": "?1",
+            "sec_ch_ua_platform": '"iOS"',
+            "languages": ["en-US", "en"],
+            "timezone": "America/New_York",
+            "webgl_vendor": "Apple Inc.",
+            "webgl_renderer": "Apple GPU",
+        },
+        "safari_mobile": {
+            # iOS Safari - used for Stage 5 mobile agent
+            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            "platform": "iPhone",
+            "vendor": "Apple Computer, Inc.",
+            "app_version": "5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            "sec_ch_ua": None,  # Safari doesn't send sec-ch-ua
+            "sec_ch_ua_mobile": None,
+            "sec_ch_ua_platform": None,
+            "languages": ["en-US", "en"],
+            "timezone": "America/New_York",
+            "webgl_vendor": "Apple Inc.",
+            "webgl_renderer": "Apple GPU",
+        },
+    }
+
+    def __init__(self, profile_name: str = None):
+        """
+        Initialize with a specific profile or random selection.
+
+        Args:
+            profile_name: One of the BROWSER_PROFILES keys, or None for random.
+        """
+        import random
+        if profile_name and profile_name in self.BROWSER_PROFILES:
+            self.profile_name = profile_name
+        else:
+            self.profile_name = random.choice(list(self.BROWSER_PROFILES.keys()))
+        self.profile = self.BROWSER_PROFILES[self.profile_name]
+
+    def get_user_agent(self) -> str:
+        """Get the User-Agent string for this profile."""
+        return self.profile["user_agent"]
+
+    def get_headers(self) -> Dict[str, str]:
+        """
+        Get HTTP headers consistent with this profile.
+
+        Returns headers that match the User-Agent to avoid detection.
+        """
+        headers = {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "Accept-Language": ",".join(self.profile["languages"]) + ";q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
+        }
+
+        # Add sec-ch-ua headers only for Chrome-based browsers
+        if self.profile.get("sec_ch_ua"):
+            headers["Sec-CH-UA"] = self.profile["sec_ch_ua"]
+        if self.profile.get("sec_ch_ua_mobile"):
+            headers["Sec-CH-UA-Mobile"] = self.profile["sec_ch_ua_mobile"]
+        if self.profile.get("sec_ch_ua_platform"):
+            headers["Sec-CH-UA-Platform"] = self.profile["sec_ch_ua_platform"]
+
+        return headers
+
+    def get_stealth_js(self) -> str:
+        """
+        Generate JavaScript to evade fingerprint detection.
+
+        This script should be injected before page load to:
+        1. Remove navigator.webdriver flag
+        2. Spoof navigator properties
+        3. Spoof WebGL fingerprint
+        4. Spoof Canvas fingerprint
+        5. Spoof AudioContext fingerprint
+        """
+        profile = self.profile
+
+        return f'''
+// ========================================
+// Phase 8: Fingerprint Evasion Script
+// ========================================
+
+(function() {{
+    'use strict';
+
+    // 1. Remove webdriver flag
+    Object.defineProperty(navigator, 'webdriver', {{
+        get: () => undefined,
+        configurable: true
+    }});
+
+    // Delete webdriver from navigator prototype
+    delete Navigator.prototype.webdriver;
+
+    // 2. Spoof navigator properties
+    const navigatorProps = {{
+        platform: '{profile["platform"]}',
+        vendor: '{profile["vendor"]}',
+        appVersion: '{profile["app_version"]}',
+        languages: {json.dumps(profile["languages"])},
+        language: '{profile["languages"][0]}',
+        hardwareConcurrency: 8,
+        deviceMemory: 8,
+        maxTouchPoints: {'10' if 'mobile' in self.profile_name.lower() or 'iPhone' in profile["platform"] else '0'}
+    }};
+
+    for (const [prop, value] of Object.entries(navigatorProps)) {{
+        try {{
+            Object.defineProperty(navigator, prop, {{
+                get: () => value,
+                configurable: true
+            }});
+        }} catch (e) {{}}
+    }}
+
+    // 3. Spoof WebGL fingerprint
+    const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
+    WebGLRenderingContext.prototype.getParameter = function(parameter) {{
+        // UNMASKED_VENDOR_WEBGL
+        if (parameter === 37445) {{
+            return '{profile["webgl_vendor"]}';
+        }}
+        // UNMASKED_RENDERER_WEBGL
+        if (parameter === 37446) {{
+            return '{profile["webgl_renderer"]}';
+        }}
+        return originalGetParameter.call(this, parameter);
+    }};
+
+    // Also for WebGL2
+    if (typeof WebGL2RenderingContext !== 'undefined') {{
+        const originalGetParameter2 = WebGL2RenderingContext.prototype.getParameter;
+        WebGL2RenderingContext.prototype.getParameter = function(parameter) {{
+            if (parameter === 37445) {{
+                return '{profile["webgl_vendor"]}';
+            }}
+            if (parameter === 37446) {{
+                return '{profile["webgl_renderer"]}';
+            }}
+            return originalGetParameter2.call(this, parameter);
+        }};
+    }}
+
+    // 4. Spoof Canvas fingerprint (add consistent noise based on domain seed)
+    // Use seeded PRNG for consistent fingerprint - reset seed on each call
+    const canvasSeed = Array.from(window.location.hostname).reduce((a, c) => a + c.charCodeAt(0), 0);
+    function createSeededRng(seed) {{
+        let state = seed;
+        return function() {{
+            state = (state * 1103515245 + 12345) & 0x7fffffff;
+            return state / 0x7fffffff;
+        }};
+    }}
+    const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+    HTMLCanvasElement.prototype.toDataURL = function(type) {{
+        if (this.width > 0 && this.height > 0) {{
+            const ctx = this.getContext('2d');
+            if (ctx) {{
+                // Reset RNG seed on each call for consistent fingerprint
+                const seededRandom = createSeededRng(canvasSeed);
+                // Add invisible noise to canvas using seeded RNG for consistency
+                const imageData = ctx.getImageData(0, 0, Math.min(this.width, 10), Math.min(this.height, 10));
+                for (let i = 0; i < imageData.data.length; i += 4) {{
+                    // Subtle modification that doesn't affect visual appearance
+                    // Uses seeded RNG so same domain always gets same noise pattern
+                    imageData.data[i] = imageData.data[i] ^ (seededRandom() > 0.99 ? 1 : 0);
+                }}
+                ctx.putImageData(imageData, 0, 0);
+            }}
+        }}
+        return originalToDataURL.apply(this, arguments);
+    }};
+
+    // 5. Spoof AudioContext fingerprint
+    if (typeof AudioContext !== 'undefined') {{
+        const originalCreateOscillator = AudioContext.prototype.createOscillator;
+        AudioContext.prototype.createOscillator = function() {{
+            const oscillator = originalCreateOscillator.call(this);
+            // Add tiny frequency variation
+            const originalFrequency = oscillator.frequency;
+            Object.defineProperty(oscillator, 'frequency', {{
+                get: function() {{
+                    return originalFrequency;
+                }},
+                configurable: true
+            }});
+            return oscillator;
+        }};
+    }}
+
+    // 6. Spoof Permissions API
+    if (navigator.permissions) {{
+        const originalQuery = navigator.permissions.query;
+        navigator.permissions.query = function(parameters) {{
+            if (parameters.name === 'notifications') {{
+                return Promise.resolve({{ state: 'prompt', onchange: null }});
+            }}
+            return originalQuery.call(this, parameters);
+        }};
+    }}
+
+    // 7. Spoof Plugin array (Chrome typically has plugins)
+    Object.defineProperty(navigator, 'plugins', {{
+        get: () => {{
+            const plugins = {{
+                length: {'5' if 'chrome' in self.profile_name.lower() else '0'},
+                item: function(i) {{ return this[i] || null; }},
+                namedItem: function(name) {{ return null; }},
+                refresh: function() {{}}
+            }};
+            {'// Chrome plugins' if 'chrome' in self.profile_name.lower() else ''}
+            return plugins;
+        }},
+        configurable: true
+    }});
+
+    // 8. Spoof Timezone
+    const targetTimezone = '{profile["timezone"]}';
+    const originalDateTimeFormat = Intl.DateTimeFormat;
+    Intl.DateTimeFormat = function(locales, options) {{
+        options = options || {{}};
+        if (!options.timeZone) {{
+            options.timeZone = targetTimezone;
+        }}
+        return new originalDateTimeFormat(locales, options);
+    }};
+    Intl.DateTimeFormat.prototype = originalDateTimeFormat.prototype;
+    Intl.DateTimeFormat.supportedLocalesOf = originalDateTimeFormat.supportedLocalesOf;
+
+    // 9. Remove automation indicators
+    // Remove Playwright/Puppeteer traces
+    const automationProps = [
+        '__playwright',
+        '__puppeteer_evaluation_script__',
+        '__selenium_evaluate',
+        '__webdriver_evaluate',
+        '__driver_evaluate',
+        '__webdriver_script_fn',
+        '__webdriver_unwrapped',
+        '__lastWatirAlert',
+        '__lastWatirConfirm',
+        '__lastWatirPrompt',
+        '_Selenium_IDE_Recorder',
+        '_selenium',
+        'calledSelenium',
+        '$chrome_asyncScriptInfo',
+        '$cdc_asdjflasutopfhvcZLmcfl_',
+        '__cdc_asdjflasutopfhvcZLmcfl_'
+    ];
+
+    for (const prop of automationProps) {{
+        try {{
+            delete window[prop];
+            delete document[prop];
+        }} catch (e) {{}}
+    }}
+
+    // 10. Fix Chrome runtime
+    if (!window.chrome) {{
+        window.chrome = {{}};
+    }}
+    if (!window.chrome.runtime) {{
+        window.chrome.runtime = {{}};
+    }}
+
+    console.log('Fingerprint evasion script loaded');
+}})();
+'''
+
+    def get_timezone(self) -> str:
+        """Get the timezone for this profile."""
+        return self.profile["timezone"]
+
+    def get_locale(self) -> str:
+        """Get the primary locale for this profile."""
+        return self.profile["languages"][0]
+
+    @classmethod
+    def get_random_profile(cls) -> "FingerprintProfile":
+        """Get a random fingerprint profile."""
+        import random
+        profile_name = random.choice(list(cls.BROWSER_PROFILES.keys()))
+        return cls(profile_name)
+
+    @classmethod
+    def get_desktop_profile(cls) -> "FingerprintProfile":
+        """Get a random desktop browser profile."""
+        import random
+        desktop_profiles = [k for k in cls.BROWSER_PROFILES.keys() if "mobile" not in k.lower()]
+        return cls(random.choice(desktop_profiles))
+
+    @classmethod
+    def get_mobile_profile(cls) -> "FingerprintProfile":
+        """Get a mobile browser profile (iOS Safari)."""
+        return cls("safari_mobile")
+
+
+def get_fingerprint_config(profile_name: str = None) -> Dict[str, any]:
+    """
+    Get a complete fingerprint evasion configuration.
+
+    Args:
+        profile_name: Specific profile name or None for random desktop.
+
+    Returns:
+        Dict with user_agent, headers, stealth_js, timezone, locale
+    """
+    if profile_name:
+        fp = FingerprintProfile(profile_name)
+    else:
+        fp = FingerprintProfile.get_desktop_profile()
+
+    return {
+        "profile_name": fp.profile_name,
+        "user_agent": fp.get_user_agent(),
+        "headers": fp.get_headers(),
+        "stealth_js": fp.get_stealth_js(),
+        "timezone": fp.get_timezone(),
+        "locale": fp.get_locale()
+    }
+
+
+# Global session manager instance
+_session_manager: Optional[SessionManager] = None
+
+
+def get_session_manager(storage_path: str = None) -> SessionManager:
+    """
+    Get or create the global session manager instance.
+
+    Args:
+        storage_path: Optional custom storage path for sessions.
+
+    Returns:
+        The SessionManager instance.
+    """
+    global _session_manager
+    if _session_manager is None:
+        _session_manager = SessionManager(storage_path)
+    return _session_manager
+
+
+async def extract_cookies_from_result(result) -> List[dict]:
+    """
+    Extract cookies from a crawl result if available.
+
+    Note: This requires the crawler to expose cookies in the result,
+    which may not always be available depending on crawl4ai version.
+
+    Args:
+        result: CrawlResponse or similar result object.
+
+    Returns:
+        List of cookie dicts, or empty list if not available.
+    """
+    # Try to get cookies from various possible locations
+    cookies = []
+
+    # Check if result has cookies attribute
+    if hasattr(result, 'cookies'):
+        cookies = result.cookies or []
+    elif hasattr(result, 'extracted_data') and result.extracted_data:
+        cookies = result.extracted_data.get('cookies', [])
+
+    return cookies
+
+
 # Placeholder for summarize_web_content function
 # Response size limit for MCP protocol (approximately 100k tokens)
 # This prevents issues with oversized responses in Claude Desktop
@@ -434,18 +2057,79 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
             "verbose": False,
             "log_console": False,
             "deep_crawl_strategy": deep_crawl_strategy,
-            "cache_mode": cache_mode
+            "cache_mode": cache_mode,
+            # Phase 2: Add simulate_user support
+            "simulate_user": request.simulate_user,
         }
+
+        # Phase 2: Handle wait_for_js - use wait_until and delay for JS-heavy sites
+        # These parameters may not be supported in older crawl4ai versions
+        js_wait_params = {}
+        if request.wait_for_js:
+            js_wait_params["wait_until"] = "networkidle"  # Wait for network to be idle
+            js_wait_params["delay_before_return_html"] = 2.0  # Additional delay for JS rendering
+            if not request.wait_for_selector:
+                js_wait_params["scan_full_page"] = True  # Scan full page when no specific selector
         
         if chunking_strategy:
             config_params["chunking_strategy"] = chunking_strategy
-        
-        # Add content filter if supported by current crawl4ai version
+
+        # Build CrawlerRunConfig with backward compatibility
+        # Use inspect.signature to filter only supported parameters
+        import inspect
+        supported_params = None
+        accepts_kwargs = False
         try:
-            config = CrawlerRunConfig(**config_params, content_filter=content_filter_strategy)
-        except TypeError:
-            # Fallback for older versions without content_filter support
-            config = CrawlerRunConfig(**config_params)
+            sig = inspect.signature(CrawlerRunConfig)
+            supported_params = set(sig.parameters.keys())
+            # Check if CrawlerRunConfig accepts **kwargs (VAR_KEYWORD)
+            for param in sig.parameters.values():
+                if param.kind == inspect.Parameter.VAR_KEYWORD:
+                    accepts_kwargs = True
+                    break
+        except (ValueError, TypeError):
+            # Fallback if signature inspection fails
+            pass
+
+        # Prepare all desired parameters
+        all_params = {**config_params, **js_wait_params}
+        if content_filter_strategy:
+            all_params["content_filter"] = content_filter_strategy
+
+        # Track which params were filtered out for diagnostics
+        unsupported_params = []
+        config_fallback_used = False
+
+        # Only filter if signature inspection worked and no **kwargs
+        if supported_params is not None and not accepts_kwargs:
+            filtered_params = {}
+            for key, value in all_params.items():
+                if key in supported_params:
+                    filtered_params[key] = value
+                else:
+                    unsupported_params.append(key)
+            all_params = filtered_params
+
+        # Create config with filtered parameters
+        try:
+            config = CrawlerRunConfig(**all_params)
+        except TypeError as e:
+            # If signature filtering didn't work or missed something, try minimal config
+            config_fallback_used = True
+            try:
+                minimal_params = {
+                    "css_selector": request.css_selector,
+                    "screenshot": request.take_screenshot,
+                    "wait_for": request.wait_for_selector,
+                    "page_timeout": request.timeout * 1000,
+                    "verbose": False
+                }
+                config = CrawlerRunConfig(**minimal_params)
+                unsupported_params = [k for k in all_params.keys() if k not in minimal_params]
+            except TypeError:
+                # Absolute minimal fallback
+                config = CrawlerRunConfig(page_timeout=request.timeout * 1000)
+                unsupported_params = list(all_params.keys())
 
         # Setup browser configuration with lightweight WebKit preference
         browser_config = {
@@ -462,9 +2146,25 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
         
         if request.user_agent:
             browser_config["user_agent"] = request.user_agent
-        
-        if request.headers:
-            browser_config["headers"] = request.headers
+
+        # Build headers dict with auth_token if provided
+        # NOTE: browser_config["headers"] applies to ALL requests from the page,
+        # including third-party subresources. For sensitive tokens, consider using
+        # route-based header injection in Playwright to limit scope to same-origin.
+        headers = dict(request.headers) if request.headers else {}
+        if request.auth_token:
+            # Only add if not already set (preserve user-specified Authorization, case-insensitive)
+            has_auth = any(k.lower() == "authorization" for k in headers)
+            if not has_auth:
+                headers["Authorization"] = f"Bearer {request.auth_token}"
+        if headers:
+            browser_config["headers"] = headers
+
+        # Convert and add cookies in Playwright format
+        if request.cookies:
+            browser_config["cookies"] = _normalize_cookies_to_playwright_format(
+                request.cookies, request.url
+            )
 
         # Suppress output to avoid JSON parsing errors
         with suppress_stdout_stderr():
@@ -478,11 +2178,6 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     current_browser_config["browser_type"] = browser_type
                     
                     async with AsyncWebCrawler(**current_browser_config) as crawler:
-                        # Handle authentication
-                        if request.cookies:
-                            # Set cookies if provided
-                            await crawler.set_cookies(request.cookies)
-                        
                         # Execute custom JavaScript if provided
                         if request.execute_js:
                             config.js_code = request.execute_js
@@ -888,6 +2583,31 @@ async def _check_and_summarize_if_needed(
             })
     
     return response
+
+
+async def _finalize_fallback_response(
+    response: CrawlResponse,
+    request_url: str,
+    auto_summarize: bool = False,
+    max_content_tokens: int = 15000,
+    llm_provider: Optional[str] = None,
+    llm_model: Optional[str] = None
+) -> CrawlResponse:
+    """
+    Apply size limit and summarization to fallback responses.
+
+    This ensures all fallback return points go through the same
+    size checking and summarization as regular crawl responses.
+    """
+    # Create a dummy CrawlRequest with the necessary parameters
+    dummy_request = CrawlRequest(
+        url=request_url,
+        auto_summarize=auto_summarize,
+        max_content_tokens=max_content_tokens,
+        llm_provider=llm_provider,
+        llm_model=llm_model
+    )
+    return await _check_and_summarize_if_needed(response, dummy_request)
 
 
 # Other internal functions for specialized extraction
@@ -1943,30 +3663,191 @@ async def crawl_url_with_fallback(
     max_content_tokens: Annotated[int, Field(description="Max tokens")] = 15000,
     summary_length: Annotated[str, Field(description="Summary length")] = "medium",
     llm_provider: Annotated[Optional[str], Field(description="LLM provider")] = None,
-    llm_model: Annotated[Optional[str], Field(description="LLM model")] = None
+    llm_model: Annotated[Optional[str], Field(description="LLM model")] = None,
+    # Phase 6: Session management
+    use_session: Annotated[bool, Field(description="Use stored session")] = False,
+    save_session: Annotated[bool, Field(description="Save session on success")] = False,
+    session_ttl_hours: Annotated[int, Field(description="Session TTL in hours")] = 24,
+    # Phase 7: Strategy caching
+    use_strategy_cache: Annotated[bool, Field(description="Use cached strategy for domain")] = True,
+    save_strategy: Annotated[bool, Field(description="Save successful strategy")] = True,
+    strategy_ttl_days: Annotated[int, Field(description="Strategy cache TTL in days")] = 7,
+    # Phase 8: Fingerprint evasion
+    use_stealth_mode: Annotated[bool, Field(description="Enable fingerprint evasion")] = False,
+    fingerprint_profile: Annotated[Optional[str], Field(description="Browser profile: chrome_windows|chrome_mac|firefox_windows|safari_mac|chrome_mobile|safari_mobile")] = None
 ) -> CrawlResponse:
-    """Crawl with multiple fallback strategies for anti-bot sites."""
+    """Crawl with multiple fallback strategies for anti-bot sites.
+
+    Phase 3: Multi-stage fallback with 7 stages:
+    1. Static fast path - HTTP fetch without browser
+    2. Normal headless - Minimal browser overhead
+    3. Chromium + stealth - JS wait with realistic behavior
+    4. User behavior - Scroll, click simulation
+    5. Mobile agent - iOS Safari user agent
+    6. AMP/RSS - Alternative sources (AMP pages, RSS feeds)
+    7. JSON extraction - Extract from __NEXT_DATA__ etc.
+
+    Phase 6: Session persistence
+    - use_session: Load stored cookies/localStorage for the domain
+    - save_session: Save session data on successful crawl
+    - session_ttl_hours: Session expiration time (default 24 hours)
+
+    Phase 7: Strategy caching
+    - use_strategy_cache: Start from the best known strategy for domain
+    - save_strategy: Record successful strategy for future use
+    - strategy_ttl_days: Cache expiration time (default 7 days)
+
+    Phase 8: Fingerprint evasion
+    - use_stealth_mode: Enable browser fingerprint evasion scripts
+    - fingerprint_profile: Specific browser profile to emulate
+    - save_strategy: Record successful strategy for future use
+    - strategy_ttl_days: Cache expiration time (default 7 days)
+    """
     import asyncio
     import random
     from urllib.parse import urlparse
-    
-    # Detect HackerNews or similar problematic sites
+
+    # Detect site characteristics for optimized strategy selection
     domain = urlparse(url).netloc.lower()
     is_hn = 'ycombinator.com' in domain
     is_reddit = 'reddit.com' in domain
     is_social_media = any(site in domain for site in ['twitter.com', 'facebook.com', 'linkedin.com'])
-    
-    # Enhanced strategies for difficult sites
-    strategies = []
-    
-    # Strategy 1: Human-like browsing with realistic headers
+    is_news_site = any(site in domain for site in ['cnn.com', 'bbc.com', 'nytimes.com', 'theguardian.com'])
+
+    # ========================================
+    # Phase 6: Session Management
+    # ========================================
+    session_manager = get_session_manager() if (use_session or save_session) else None
+    stored_session = None
+    session_cookies = None
+
+    if use_session and session_manager:
+        stored_session = session_manager.get_session(url)
+        if stored_session:
+            print(f"Session loaded for domain: {domain}")
+            # Extract cookies from stored session
+            session_cookies = stored_session.get("cookies", [])
+            # Convert to dict format if needed for merging with user cookies
+            if session_cookies and not cookies:
+                # Use session cookies directly
+                cookies = {c["name"]: c["value"] for c in session_cookies if "name" in c and "value" in c}
+            elif session_cookies and cookies:
+                # Merge: user cookies take precedence
+                merged = {c["name"]: c["value"] for c in session_cookies if "name" in c and "value" in c}
+                merged.update(cookies)
+                cookies = merged
+
+    def _save_session_on_success(result: CrawlResponse) -> CrawlResponse:
+        """Save session data after successful crawl if save_session is enabled."""
+        if save_session and session_manager and result.success:
+            # Try to extract cookies from result or use provided cookies
+            cookies_to_save = []
+
+            # If we have user-provided cookies, convert to Playwright format
+            if cookies:
+                parsed = urlparse(url)
+                for name, value in cookies.items():
+                    cookies_to_save.append({
+                        "name": name,
+                        "value": value,
+                        "domain": parsed.netloc,
+                        "path": "/",
+                        "httpOnly": False,
+                        "secure": parsed.scheme == "https",
+                        "sameSite": "Lax"
+                    })
+
+            if cookies_to_save:
+                session_manager.save_session(
+                    url=url,
+                    cookies=cookies_to_save,
+                    ttl_hours=session_ttl_hours
+                )
+                print(f"Session saved for domain: {domain}")
+
+                # Add session info to extracted_data
+                if result.extracted_data is None:
+                    result.extracted_data = {}
+                result.extracted_data["session_saved"] = True
+                result.extracted_data["session_domain"] = domain
+
+        return result
+
+    # ========================================
+    # Phase 7: Strategy Caching
+    # ========================================
+    strategy_cache = get_strategy_cache() if (use_strategy_cache or save_strategy) else None
+    cached_strategy = None
+    recommended_stages = [1, 2, 3, 4, 5, 6, 7]  # Default order
+
+    if use_strategy_cache and strategy_cache:
+        cached_strategy = strategy_cache.get_best_strategy(url)
+        if cached_strategy:
+            recommended_stages = strategy_cache.get_recommended_stages(url)
+            print(f"Strategy cache hit for {domain}: best_stage={cached_strategy.get('start_stage')}, "
+                  f"skip={cached_strategy.get('skip_stages', [])}, "
+                  f"success_count={cached_strategy.get('success_count', 0)}")
+
+    def _record_strategy_success(stage: int, strategy_name: str, response_time: float = None):
+        """Record successful strategy to cache."""
+        if save_strategy and strategy_cache:
+            strategy_cache.record_success(
+                url=url,
+                stage=stage,
+                strategy_name=strategy_name,
+                response_time=response_time,
+                ttl_days=strategy_ttl_days
+            )
+            print(f"Strategy recorded: stage={stage}, strategy={strategy_name}")
+
+    def _record_strategy_failure(stage: int, strategy_name: str, error: str = None):
+        """Record failed strategy to cache."""
+        if save_strategy and strategy_cache:
+            strategy_cache.record_failure(
+                url=url,
+                stage=stage,
+                strategy_name=strategy_name,
+                error=error
+            )
+
+    # ========================================
+    # Phase 8: Fingerprint Evasion
+    # ========================================
+    stealth_config = None
+    stealth_js = None
+    stealth_user_agent = None
+    stealth_headers = None
+
+    if use_stealth_mode:
+        stealth_config = get_fingerprint_config(fingerprint_profile)
+        stealth_js = stealth_config["stealth_js"]
+        stealth_user_agent = stealth_config["user_agent"]
+        stealth_headers = stealth_config["headers"]
+        print(f"Stealth mode enabled: profile={stealth_config['profile_name']}")
+
+        # IMPORTANT: For consistency, stealth mode always uses profile's UA and headers
+        # User-provided values are ignored to maintain fingerprint integrity
+        # (UA, headers, and JS must all match the same profile)
+        if user_agent and user_agent != stealth_user_agent:
+            print(f"  Warning: user_agent ignored in stealth mode for consistency")
+        user_agent = stealth_user_agent
+
+        if headers:
+            # Only merge non-fingerprint headers (e.g., auth headers)
+            # Fingerprint-related headers from profile take precedence
+            user_non_fingerprint = {k: v for k, v in headers.items()
+                                    if not k.lower().startswith(('sec-ch-', 'accept', 'user-agent'))}
+            stealth_headers = {**stealth_headers, **user_non_fingerprint}
+        headers = stealth_headers
+
+    # Common user agents for different strategies
     realistic_user_agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15"
     ]
-    
+
     realistic_headers = {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
         "Accept-Language": "en-US,en;q=0.9,ja;q=0.8",
@@ -1979,76 +3860,247 @@ async def crawl_url_with_fallback(
         "Sec-Fetch-Site": "none",
         "Cache-Control": "max-age=0"
     }
-    
-    if is_hn:
-        # HackerNews specific selectors
-        hn_css_selectors = [
-            ".fatitem, .athing, .comment",  # Main content and comments
-            ".storylink, .titleline a",     # Story titles
-            ".comtr, .comment-tree",        # Comment threads
-            "table.comment-tree",           # Comment structure
-        ]
-        
-        # Try with HN-specific CSS selector if not provided
-        if not css_selector:
-            css_selector = ".fatitem, .athing, .comtr"
-    
-    # Strategy 1: Realistic browser simulation
+
+    # Site-specific CSS selector optimization
+    if is_hn and not css_selector:
+        css_selector = ".fatitem, .athing, .comtr"
+
+    # ========================================
+    # Stage 1: Static fast path (no browser)
+    # ========================================
+    # Inject auth_token into headers for static fetch (if provided)
+    # Only add if not already set (preserve user-specified Authorization, case-insensitive)
+    static_fetch_headers = dict(headers) if headers else {}
+    if auth_token:
+        has_auth = any(k.lower() == "authorization" for k in static_fetch_headers)
+        if not has_auth:
+            static_fetch_headers["Authorization"] = f"Bearer {auth_token}"
+
+    print(f"Stage 1/7: Attempting static HTTP fetch for {url}")
+    static_success, static_html, static_error = await _static_fetch_content(
+        url, headers=static_fetch_headers, timeout=min(timeout, 15)
+    )
+
+    if static_success and static_html:
+        # Step 1: Try JSON extraction FIRST (works for Next.js, Nuxt, etc. even in SPA mode)
+        json_success, json_data, json_source = _extract_spa_json_data(static_html)
+        if json_success and json_data:
+            # Check for block page indicators in the raw HTML
+            if _is_block_page(static_html):
+                print("  Block page detected in static HTML, skipping JSON extraction")
+            else:
+                # Record success for Phase 7
+                _record_strategy_success(1, "static_json_extraction")
+                # Return JSON extracted data with size limit check
+                json_response = CrawlResponse(
+                    success=True,
+                    url=url,
+                    markdown=f"# Extracted JSON Data ({json_source})\n\n```json\n{json.dumps(json_data, indent=2, ensure_ascii=False)[:50000]}\n```",
+                    content=json.dumps(json_data, ensure_ascii=False),
+                    extracted_data={
+                        "fallback_strategy_used": "static_json_extraction",
+                        "fallback_stage": 1,
+                        "json_source": json_source,
+                        "site_type_detected": "spa_with_json"
+                    }
+                )
+                json_response = await _finalize_fallback_response(
+                    json_response, url, auto_summarize, max_content_tokens, llm_provider, llm_model
+                )
+                return _save_session_on_success(json_response)
+
+        # Step 2: Check for SPA indicators
+        spa_framework, spa_selector = _detect_spa_framework(static_html)
+
+        if spa_framework:
+            # SPA detected - proceed to browser-based stages
+            print(f"  SPA detected ({spa_framework}), proceeding to browser-based stages")
+            if not wait_for_selector and spa_selector:
+                wait_for_selector = spa_selector
+        else:
+            # Step 3: Not SPA - try HTML extraction if content is substantial
+            if len(static_html) > 5000 and '<noscript>' not in static_html.lower():
+                # Use crawl4ai for HTML to markdown conversion only
+                try:
+                    result = await crawl_url(
+                        url=url,
+                        css_selector=css_selector,
+                        generate_markdown=generate_markdown,
+                        include_cleaned_html=include_cleaned_html,
+                        timeout=timeout,
+                        wait_for_js=False,
+                        cache_mode="enabled"
+                    )
+                    has_content, content_source = _has_meaningful_content(result, min_length=100)
+                    if has_content:
+                        # Check for block page indicators
+                        content_text = " ".join([
+                            result.markdown or "",
+                            result.content or "",
+                            getattr(result, 'raw_content', None) or ""
+                        ])
+                        if _is_block_page(content_text):
+                            print("  Block page detected in static fast path, skipping")
+                        else:
+                            # Record success for Phase 7
+                            _record_strategy_success(1, "static_fast_path")
+                            if result.extracted_data is None:
+                                result.extracted_data = {}
+                            result.extracted_data.update({
+                                "fallback_strategy_used": "static_fast_path",
+                                "fallback_stage": 1,
+                                "content_source": content_source
+                            })
+                            return _save_session_on_success(result)
+                except Exception:
+                    pass
+
+    # ========================================
+    # Build browser-based fallback strategies
+    # ========================================
+    strategies = []
+
+    # Stage 2: Normal headless (minimal browser overhead)
+    # Phase 8: In stealth mode, use profile UA/headers/JS for consistency
+    stage2_ua = user_agent if use_stealth_mode else (user_agent or realistic_user_agents[0])
+    stage2_headers = headers if use_stealth_mode else (headers or {})
+    stage2_execute_js = stealth_js if use_stealth_mode else None
     strategies.append({
-        "name": "realistic_browser",
+        "name": "normal_headless",
+        "stage": 2,
         "params": {
-            "user_agent": user_agent or random.choice(realistic_user_agents),
-            "headers": {**realistic_headers, **(headers or {})},
+            "user_agent": stage2_ua,
+            "headers": stage2_headers,
+            "wait_for_js": False,
+            "simulate_user": False,
+            "timeout": min(timeout, 20),
+            "css_selector": css_selector,
+            "wait_for_selector": None,
+            "cache_mode": "enabled",
+            "execute_js": stage2_execute_js
+        }
+    })
+
+    # Stage 3: Chromium + stealth (JS wait with realistic behavior)
+    # Phase 8: Add stealth JS if enabled and use consistent UA/headers
+    stage3_execute_js = stealth_js if use_stealth_mode else None
+    stage3_ua = user_agent if use_stealth_mode else (user_agent or random.choice(realistic_user_agents))
+    stage3_headers = headers if use_stealth_mode else {**realistic_headers, **(headers or {})}
+    strategies.append({
+        "name": "chromium_stealth",
+        "stage": 3,
+        "params": {
+            "user_agent": stage3_ua,
+            "headers": stage3_headers,
             "wait_for_js": True,
-            "simulate_user": True,
+            "simulate_user": False,
             "timeout": max(timeout, 30),
             "css_selector": css_selector,
             "wait_for_selector": wait_for_selector or (".fatitem" if is_hn else None),
-            "cache_mode": "bypass"  # Fresh request
+            "cache_mode": "bypass",
+            "execute_js": stage3_execute_js
         }
     })
-    
-    # Strategy 2: Delayed request with different user agent
+
+    # Stage 4: User behavior simulation (scroll, click)
+    # Phase 8: In stealth mode, keep same UA/headers as Stage 3 for consistency
+    stage4_behavior_js = """
+        // Simulate human-like interaction
+        window.scrollTo(0, document.body.scrollHeight / 3);
+        await new Promise(r => setTimeout(r, 500));
+        window.scrollTo(0, document.body.scrollHeight / 2);
+        await new Promise(r => setTimeout(r, 500));
+        window.scrollTo(0, 0);
+    """ if is_hn or is_social_media else (execute_js or "")
+    stage4_execute_js = (stealth_js + "\n" + stage4_behavior_js) if use_stealth_mode and stealth_js else stage4_behavior_js
+    # In stealth mode, use same UA as Stage 3; otherwise pick different UA
+    stage4_ua = user_agent if use_stealth_mode else random.choice([ua for ua in realistic_user_agents if ua != strategies[-1]["params"]["user_agent"]])
+    stage4_headers = headers if use_stealth_mode else {**realistic_headers, **(headers or {})}
     strategies.append({
-        "name": "delayed_request", 
+        "name": "user_behavior",
+        "stage": 4,
         "params": {
-            "user_agent": random.choice([ua for ua in realistic_user_agents if ua != strategies[0]["params"]["user_agent"]]),
-            "headers": realistic_headers,
-            "wait_for_js": wait_for_js,
+            "user_agent": stage4_ua,
+            "headers": stage4_headers,
+            "wait_for_js": True,
+            "simulate_user": True,
             "timeout": timeout + 30,
             "css_selector": css_selector,
-            "execute_js": "setTimeout(() => { window.scrollTo(0, document.body.scrollHeight/2); }, 2000);" if is_hn else execute_js,
+            "execute_js": stage4_execute_js if stage4_execute_js.strip() else None,
             "cache_mode": "disabled"
         }
     })
-    
-    # Strategy 3: Mobile user agent
+
+    # Stage 5: Mobile user agent
+    # Phase 8: Use safari_mobile profile for consistency (UA is iOS Safari)
+    mobile_stealth_js = None
+    mobile_ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+    mobile_headers = {**realistic_headers}
+    # Safari doesn't send Sec-CH-UA headers, so don't include them
+    if use_stealth_mode:
+        mobile_config = get_fingerprint_config("safari_mobile")  # Use matching Safari profile
+        mobile_stealth_js = mobile_config["stealth_js"]
+        mobile_ua = mobile_config["user_agent"]
+        mobile_headers = mobile_config["headers"]
     strategies.append({
         "name": "mobile_agent",
+        "stage": 5,
         "params": {
-            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            "headers": {
-                **realistic_headers,
-                "Sec-CH-UA-Mobile": "?1",
-                "Sec-CH-UA-Platform": '"iOS"'
-            },
+            "user_agent": mobile_ua,
+            "headers": mobile_headers,
             "wait_for_js": True,
+            "simulate_user": False,
             "timeout": timeout,
-            "css_selector": css_selector
+            "css_selector": css_selector,
+            "cache_mode": "bypass",
+            "execute_js": mobile_stealth_js
         }
     })
-    
+
     last_error = None
-    
+    total_stages = 7  # Stages: 1=static, 2-5=browser, 6=AMP/RSS, 7=JSON
+
+    # ========================================
+    # Phase 7: Apply strategy cache to execution order
+    # ========================================
+    if use_strategy_cache and cached_strategy:
+        skip_stages = set(cached_strategy.get("skip_stages", []))
+        start_stage = cached_strategy.get("start_stage", 1)
+
+        # Sort strategies based on recommended order
+        # Prioritize the cached best stage, skip known failed stages
+        def strategy_sort_key(s):
+            stage = s.get("stage", 99)
+            if stage in skip_stages:
+                return 1000 + stage  # Move failed stages to end
+            if stage == start_stage:
+                return 0  # Prioritize best known stage
+            # Maintain relative order for others based on recommended_stages
+            try:
+                return recommended_stages.index(stage)
+            except ValueError:
+                return 500 + stage
+
+        strategies.sort(key=strategy_sort_key)
+
+        # Log the adjusted order
+        adjusted_order = [s.get("stage") for s in strategies]
+        print(f"Strategy order adjusted by cache: {adjusted_order} (skip: {list(skip_stages)})")
+
     for i, strategy in enumerate(strategies):
         try:
             # Add random delay between attempts (1-5 seconds)
             if i > 0:
                 delay = random.uniform(1, 5)
                 await asyncio.sleep(delay)
-            
-            print(f"Attempting strategy {i+1}/{len(strategies)}: {strategy['name']}")
-            
+
+            stage_num = strategy.get("stage", i + 2)  # Stage 1 was static fetch
+            print(f"Stage {stage_num}/{total_stages}: Attempting {strategy['name']}")
+
+            # Start timing for response_time tracking
+            import time as time_module
+            stage_start_time = time_module.time()
+
             # Prepare strategy-specific parameters
             strategy_params = {
                 "url": url,
@@ -2091,43 +4143,208 @@ async def crawl_url_with_fallback(
             
             # Attempt crawl with current strategy
             result = await crawl_url(**strategy_params)
-            
-            # Check if we got meaningful content
-            if result.success and result.content and len(result.content.strip()) > 100:
+
+            # Check explicit failure first - preserve actual error message
+            if not result.success:
+                actual_error = getattr(result, 'error', None) or "Unknown error"
+                last_error = f"Strategy {strategy['name']}: {actual_error}"
+                # Record failure for Phase 7
+                _record_strategy_failure(stage_num, strategy["name"], actual_error)
+                continue
+
+            # Check if we got meaningful content (markdown, content, or raw_content)
+            has_content, content_source = _has_meaningful_content(
+                result, min_length=FALLBACK_MIN_CONTENT_LENGTH
+            )
+
+            # Additional check for block pages (check all fields, not just first non-empty)
+            if has_content:
+                raw_content = getattr(result, 'raw_content', None) or ""
+                # Concatenate all fields to ensure block indicators aren't missed
+                content_text = " ".join([
+                    result.markdown or "",
+                    result.content or "",
+                    raw_content
+                ]).lower()
+                if _is_block_page(content_text):
+                    has_content = False
+                    print(f"  Block page detected, skipping strategy {strategy['name']}")
+                    _record_strategy_failure(stage_num, strategy["name"], "block_page_detected")
+
+            if has_content:
+                # Calculate response time and record success for Phase 7
+                response_time = time_module.time() - stage_start_time
+                _record_strategy_success(stage_num, strategy["name"], response_time)
                 # Add strategy info to extracted_data
                 if result.extracted_data is None:
                     result.extracted_data = {}
                 result.extracted_data.update({
                     "fallback_strategy_used": strategy["name"],
-                    "fallback_attempt": i + 1,
-                    "total_strategies_tried": len(strategies),
-                    "site_type_detected": "hackernews" if is_hn else "reddit" if is_reddit else "social_media" if is_social_media else "general"
+                    "fallback_stage": strategy.get("stage", i + 2),
+                    "total_stages": total_stages,
+                    "site_type_detected": "hackernews" if is_hn else "reddit" if is_reddit else "social_media" if is_social_media else "news" if is_news_site else "general",
+                    "content_source": content_source
                 })
-                return result
-            
-            last_error = f"Strategy {strategy['name']}: Content too short or empty"
-            
+                return _save_session_on_success(result)
+
+            last_error = f"Strategy {strategy['name']}: No meaningful content in markdown/content/raw_content"
+            # Record failure for Phase 7 (no content)
+            _record_strategy_failure(stage_num, strategy["name"], "no_meaningful_content")
+
         except Exception as e:
             last_error = f"Strategy {strategy['name']}: {str(e)}"
             print(f"Strategy {strategy['name']} failed: {e}")
+            # Record failure for Phase 7
+            _record_strategy_failure(strategy.get("stage", i + 2), strategy["name"], str(e))
             continue
-    
+
+    # ========================================
+    # Stage 5 Alternative: AMP/RSS fallback
+    # ========================================
+    print(f"Stage 6/{total_stages}: Attempting AMP/RSS fallback")
+
+    # Try AMP version
+    amp_url = _build_amp_url(url)
+    if amp_url:
+        try:
+            amp_result = await crawl_url(
+                url=amp_url,
+                css_selector=css_selector,
+                generate_markdown=generate_markdown,
+                include_cleaned_html=include_cleaned_html,
+                timeout=min(timeout, 20),
+                wait_for_js=False
+            )
+            has_content, content_source = _has_meaningful_content(amp_result, min_length=100)
+            if has_content:
+                # Check for block page indicators
+                amp_content_text = " ".join([
+                    amp_result.markdown or "",
+                    amp_result.content or "",
+                    getattr(amp_result, 'raw_content', None) or ""
+                ])
+                if _is_block_page(amp_content_text):
+                    print("  Block page detected in AMP result, skipping")
+                else:
+                    # Record success for Phase 7
+                    _record_strategy_success(6, "amp_page")
+                    if amp_result.extracted_data is None:
+                        amp_result.extracted_data = {}
+                    amp_result.extracted_data.update({
+                        "fallback_strategy_used": "amp_page",
+                        "fallback_stage": 6,
+                        "original_url": url,
+                        "amp_url_used": amp_url,
+                        "content_source": content_source
+                    })
+                    return _save_session_on_success(amp_result)
+        except Exception as e:
+            print(f"AMP fallback failed: {e}")
+            _record_strategy_failure(6, "amp_page", str(e))
+
+    # Try RSS/Atom feed
+    try:
+        rss_success, feed_url, feed_items = await _try_fetch_rss_feed(url)
+        if rss_success and feed_items:
+            # Format RSS items as markdown
+            markdown_content = f"# RSS Feed Content\n\nFeed URL: {feed_url}\n\n"
+            for item in feed_items[:20]:  # Limit to 20 items
+                if item.get('title'):
+                    markdown_content += f"## {item['title']}\n"
+                if item.get('link'):
+                    markdown_content += f"[Link]({item['link']})\n\n"
+                if item.get('description'):
+                    markdown_content += f"{item['description']}\n\n"
+                markdown_content += "---\n\n"
+
+            # Check for block page indicators in RSS content
+            if _is_block_page(markdown_content):
+                print("  Block page detected in RSS content, skipping")
+            else:
+                # Record success for Phase 7
+                _record_strategy_success(6, "rss_feed")
+                rss_response = CrawlResponse(
+                    success=True,
+                    url=url,
+                    markdown=markdown_content,
+                    content=json.dumps(feed_items, ensure_ascii=False),
+                    extracted_data={
+                        "fallback_strategy_used": "rss_feed",
+                        "fallback_stage": 6,
+                        "feed_url": feed_url,
+                        "item_count": len(feed_items),
+                        "content_source": "rss"
+                    }
+                )
+                rss_response = await _finalize_fallback_response(
+                    rss_response, url, auto_summarize, max_content_tokens, llm_provider, llm_model
+                )
+                return _save_session_on_success(rss_response)
+    except Exception as e:
+        print(f"RSS fallback failed: {e}")
+        _record_strategy_failure(6, "rss_feed", str(e))
+
+    # ========================================
+    # Stage 7: JSON extraction from cached static HTML
+    # ========================================
+    print(f"Stage 7/{total_stages}: Attempting JSON extraction from static HTML")
+
+    if static_success and static_html:
+        json_success, json_data, json_source = _extract_spa_json_data(static_html)
+        if json_success and json_data:
+            # Try to extract useful content from JSON
+            content_text = ""
+            if isinstance(json_data, dict):
+                # Common patterns for content extraction
+                for key in ['props', 'pageProps', 'data', 'content', 'article', 'post']:
+                    if key in json_data:
+                        content_text = json.dumps(json_data[key], indent=2, ensure_ascii=False)
+                        break
+                if not content_text:
+                    content_text = json.dumps(json_data, indent=2, ensure_ascii=False)
+
+            # Record success for Phase 7
+            _record_strategy_success(7, "json_extraction")
+            stage7_response = CrawlResponse(
+                success=True,
+                url=url,
+                markdown=f"# Extracted JSON Data ({json_source})\n\n```json\n{content_text[:50000]}\n```",
+                content=content_text,
+                extracted_data={
+                    "fallback_strategy_used": "json_extraction",
+                    "fallback_stage": 7,
+                    "json_source": json_source,
+                    "site_type_detected": "spa_with_json"
+                }
+            )
+            stage7_response = await _finalize_fallback_response(
+                stage7_response, url, auto_summarize, max_content_tokens, llm_provider, llm_model
+            )
+            return _save_session_on_success(stage7_response)
+
+    # Record failure for Stage 7 if static HTML exists but JSON extraction failed
+    if static_success and static_html:
+        _record_strategy_failure(7, "json_extraction", "no_json_data")
+
     # All strategies failed, return error with details
+    all_strategies = ["static_fast_path"] + [s["name"] for s in strategies] + ["amp_page", "rss_feed", "json_extraction"]
     return CrawlResponse(
         success=False,
         url=url,
-        error=f"All fallback strategies failed. Last error: {last_error}. "
-               f"This site may have strong anti-bot protection. "
-               f"Strategies attempted: {', '.join([s['name'] for s in strategies])}",
+        error=f"All {total_stages} fallback stages failed. Last error: {last_error}. "
+              f"This site may have strong anti-bot protection. "
+              f"Stages attempted: {', '.join(all_strategies)}",
         extracted_data={
-            "fallback_strategies_attempted": [s["name"] for s in strategies],
-            "total_attempts": len(strategies),
-            "site_type_detected": "hackernews" if is_hn else "reddit" if is_reddit else "social_media" if is_social_media else "general",
+            "fallback_strategies_attempted": all_strategies,
+            "total_stages": total_stages,
+            "site_type_detected": "hackernews" if is_hn else "reddit" if is_reddit else "social_media" if is_social_media else "news" if is_news_site else "general",
+            "static_fetch_result": "success" if static_success else f"failed: {static_error}",
             "recommendations": [
                 "Try accessing the site manually to check if it's available",
                 "Consider using the site's API if available",
                 "Try accessing during off-peak hours",
-                "Use a VPN if the site is geo-blocked"
+                "Use a VPN if the site is geo-blocked",
+                "Check if the site has a mobile or AMP version"
             ]
         }
     )
