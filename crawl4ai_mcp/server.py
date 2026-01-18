@@ -28,400 +28,53 @@ from fastmcp import FastMCP
 from typing import Any, Dict, List, Optional, Union, Annotated
 from pydantic import Field, BaseModel
 
+# Import refactored modules
+from .utils import estimate_tokens, apply_token_limit
+from .server_helpers import (
+    _load_heavy_imports,
+    _load_tool_modules,
+    _ensure_browser_setup,
+    get_system_diagnostics,
+    _convert_result_to_dict,
+    _process_content_fields,
+    _should_trigger_fallback,
+    get_tool_modules,
+    is_heavy_imports_loaded,
+    is_tools_imported,
+    is_browser_setup_done,
+)
+from .validators import validate_crawl_url_params
+
 # Create MCP server with clean initialization
 mcp = FastMCP("Crawl4AI")
 
-# Global lazy loading state
-_heavy_imports_loaded = False
-_browser_setup_done = False
-_browser_setup_failed = False
+# Backward compatibility aliases
+_estimate_tokens = estimate_tokens
+_apply_token_limit_fallback = apply_token_limit
+_validate_crawl_url_params = validate_crawl_url_params
+
+# Global module references for lazy loading (populated by _load_tool_modules)
+web_crawling = None
+search = None
+youtube = None
+file_processing = None
+utilities = None
 _tools_imported = False
 
-def _load_heavy_imports():
-    """Load heavy imports only when tools are actually used"""
-    global _heavy_imports_loaded
-    if _heavy_imports_loaded:
-        return
-        
-    global asyncio, json, AsyncWebCrawler
-    
-    import asyncio
-    import json
-    from crawl4ai import AsyncWebCrawler
-    
-    _heavy_imports_loaded = True
 
-def _estimate_tokens(text: str) -> int:
-    """
-    Estimate token count using tiktoken (GPT-4 encoding as Claude approximation).
-    Falls back to character-based estimation if tiktoken is unavailable.
-    """
-    try:
-        import tiktoken
-        encoder = tiktoken.encoding_for_model("gpt-4")
-        return len(encoder.encode(str(text)))
-    except Exception:
-        # Fallback to character-based estimation
-        # English: ~4 chars/token, Japanese: ~2 chars/token
-        text_str = str(text)
-        japanese_chars = sum(1 for c in text_str if '\u3040' <= c <= '\u9fff')
-        total_chars = len(text_str)
-
-        if total_chars > 0 and japanese_chars / total_chars > 0.3:
-            # Japanese-heavy text: ~2 chars per token
-            return total_chars // 2
-        else:
-            # English-heavy text: ~4 chars per token
-            return total_chars // 4
-
-def _apply_token_limit_fallback(result: dict, max_tokens: int = 20000) -> dict:
-    """Apply token limit fallback to MCP tool responses to prevent Claude Code errors"""
-    import json
-    result_copy = result.copy()
-    
-    # Check current size
-    current_tokens = _estimate_tokens(json.dumps(result_copy))
-    
-    if current_tokens <= max_tokens:
-        return result_copy
-    
-    # Add fallback indicators with clear warning
-    result_copy["token_limit_applied"] = True
-    result_copy["original_response_tokens"] = current_tokens
-    result_copy["truncated_to_tokens"] = max_tokens
-    result_copy["warning"] = f"Response truncated from {current_tokens} to ~{max_tokens} tokens due to size limits. Partial data returned below."
-    
-    # Add recommendations based on content type
-    recommendations = []
-    if "results" in result_copy and isinstance(result_copy["results"], list):
-        original_count = result_copy.get("results_truncated_from", len(result_copy["results"]))
-        recommendations.append(f"Consider reducing num_results parameter (current response had {original_count} results)")
-    if any(key in result_copy for key in ["content", "markdown", "text"]):
-        recommendations.append("Consider using auto_summarize=True for large content")
-        recommendations.append("Consider using css_selector or xpath to extract specific content sections")
-    if "search_query" in result_copy or "query" in result_copy:
-        recommendations.append("Consider narrowing your search query or using search_genre filtering")
-    
-    if recommendations:
-        result_copy["recommendations"] = recommendations
-    
-    # Priority order for content truncation
-    content_fields = [
-        ("content", 8000),          # Main content - keep substantial portion
-        ("markdown", 6000),         # Markdown version  
-        ("raw_content", 2000),      # Raw text content
-        ("text", 2000),            # Extracted text
-        ("results", 4000),         # Search/crawl results
-        ("chunks", 2000),          # Content chunks
-        ("extracted_data", 1500),  # Structured data
-        ("summary", 1500),         # Summary content
-        ("final_summary", 1000),   # Final summary
-        ("metadata", 500),         # Metadata - keep small portion
-        ("entities", 1000),        # Extracted entities
-        ("table_data", 1500)       # Table data
-    ]
-    
-    for field, max_field_tokens in content_fields:
-        if field in result_copy and result_copy[field]:
-            field_content = result_copy[field]
-            
-            # Handle different field types
-            if isinstance(field_content, list):
-                # For lists, truncate by limiting number of items
-                original_length = len(field_content)
-                if original_length > 10:
-                    result_copy[field] = field_content[:10]
-                    result_copy[f"{field}_truncated_from"] = original_length
-                    result_copy[f"{field}_truncated_info"] = f"Showing 10 of {original_length} items"
-            elif isinstance(field_content, dict):
-                # For dicts, truncate string values
-                truncated_dict = {}
-                for k, v in field_content.items():
-                    if isinstance(v, str) and len(v) > 500:
-                        truncated_dict[k] = v[:500] + "... [TRUNCATED]"
-                    else:
-                        truncated_dict[k] = v
-                result_copy[field] = truncated_dict
-            elif isinstance(field_content, str):
-                # For strings, truncate with ellipsis
-                max_chars = max_field_tokens * 4
-                original_length = len(field_content)
-                if original_length > max_chars:
-                    result_copy[field] = field_content[:max_chars] + f"... [TRUNCATED: showing {max_chars} of {original_length} chars]"
-    
-    # Final size check and emergency truncation  
-    current_tokens = _estimate_tokens(json.dumps(result_copy))
-    if current_tokens > max_tokens:
-        # Emergency truncation - keep only essential fields
-        essential_fields = ["success", "url", "error", "title", "file_type", "processing_method", "query", "search_query", "video_id", "language_info"]
-        essential_result = {
-            key: result_copy.get(key) for key in essential_fields if key in result_copy
-        }
-        
-        essential_result.update({
-            "token_limit_applied": True,
-            "emergency_truncation": True,
-            "original_response_tokens": result.get("original_response_tokens", current_tokens),
-            "warning": f"Response truncated from {current_tokens} to ~{max_tokens} tokens. Partial content returned.",
-            "recommendations": [
-                "Use more specific parameters to reduce content size",
-                "Enable auto_summarize for large content",
-                "Use filtering parameters (css_selector, xpath, search_genre)",
-                "Reduce num_results for search queries",
-                "Use max_content_per_page to limit page content size"
-            ],
-            "available_fields_in_original": list(result.keys()),
-        })
-        
-        # Calculate available tokens for content after essential fields
-        essential_base_tokens = _estimate_tokens(json.dumps(essential_result))
-        available_content_tokens = max(max_tokens - essential_base_tokens - 500, 1000)  # Reserve 500 for safety margin
-        
-        # Try to fit as much content as possible within available token budget
-        content_added = False
-        
-        # Priority: markdown > content > summary
-        content_sources = [
-            ("markdown", result.get("markdown")),
-            ("content", result.get("content")),
-            ("summary", result.get("summary")),
-            ("text", result.get("text"))
-        ]
-        
-        for field_name, field_value in content_sources:
-            if field_value and not content_added:
-                content_str = str(field_value)
-                content_tokens = _estimate_tokens(content_str)
-                
-                if content_tokens <= available_content_tokens:
-                    # Content fits completely
-                    essential_result[field_name] = content_str
-                    essential_result[f"{field_name}_info"] = f"Complete {field_name} content ({content_tokens} tokens)"
-                    content_added = True
-                else:
-                    # Truncate content to fit available tokens
-                    # Estimate characters needed: available_tokens * chars_per_token
-                    chars_per_token = len(content_str) / content_tokens if content_tokens > 0 else 4
-                    estimated_chars = int(available_content_tokens * chars_per_token)
-                    
-                    truncated_content = content_str[:estimated_chars]
-                    actual_tokens = _estimate_tokens(truncated_content)
-                    
-                    # Adjust if estimation was off
-                    while actual_tokens > available_content_tokens and len(truncated_content) > 100:
-                        truncated_content = truncated_content[:int(len(truncated_content) * 0.9)]
-                        actual_tokens = _estimate_tokens(truncated_content)
-                    
-                    if truncated_content:
-                        percentage = int((len(truncated_content) / len(content_str)) * 100)
-                        essential_result[field_name] = truncated_content + "\n\n[TRUNCATED - Content continues beyond token limit]"
-                        essential_result[f"{field_name}_info"] = f"Partial {field_name} ({percentage}% of original, {actual_tokens}/{content_tokens} tokens)"
-                        content_added = True
-                    break
-        
-        # Keep partial results if available
-        if result.get("results") and isinstance(result["results"], list):
-            essential_result["results"] = result["results"][:3]
-            essential_result["results_truncated_info"] = f"Showing 3 of {len(result['results'])} results"
-        
-        # Special handling for YouTube transcript data
-        if result.get("transcript") and isinstance(result["transcript"], list):
-            # Try to fit as many transcript entries as possible within token budget
-            transcript_entries = result["transcript"]
-            total_entries = len(transcript_entries)
-            
-            # Use remaining available tokens if content wasn't added
-            transcript_available_tokens = available_content_tokens if not content_added else max(available_content_tokens // 2, 1000)
-            
-            # Binary search to find maximum number of entries that fit
-            entries_to_include = []
-            for i, entry in enumerate(transcript_entries):
-                test_entries = transcript_entries[:i+1]
-                test_size = _estimate_tokens(json.dumps(test_entries))
-                if test_size > transcript_available_tokens:
-                    break
-                entries_to_include = test_entries
-            
-            if entries_to_include:
-                essential_result["transcript"] = entries_to_include
-                included_count = len(entries_to_include)
-                percentage = int((included_count / total_entries) * 100)
-                essential_result["transcript_truncated_info"] = f"Showing {included_count} of {total_entries} entries ({percentage}%)"
-                essential_result["transcript_total_entries"] = total_entries
-                
-                # Calculate time coverage if timestamps are available
-                if entries_to_include and "start" in entries_to_include[-1]:
-                    last_timestamp = entries_to_include[-1].get("start", 0)
-                    essential_result["transcript_time_coverage_seconds"] = last_timestamp
-                    essential_result["transcript_time_coverage_formatted"] = f"{int(last_timestamp // 60)}:{int(last_timestamp % 60):02d}"
-            
-        return essential_result
-    
-    return result_copy
-
-def _load_tool_modules():
-    """Load tool modules only when needed"""
-    global _tools_imported
-    if _tools_imported:
-        return
-    
-    global web_crawling, search, youtube, file_processing, utilities
-    
-    try:
-        from .tools import web_crawling, search, youtube, file_processing, utilities
-        _tools_imported = True
-    except ImportError:
-        # Fallback for relative imports
-        try:
-            from crawl4ai_mcp.tools import web_crawling, search, youtube, file_processing, utilities
-            _tools_imported = True
-        except ImportError:
-            _tools_imported = False
-
-def _ensure_browser_setup():
-    """Browser setup with lazy loading"""
-    global _browser_setup_done, _browser_setup_failed
-    
-    if _browser_setup_done:
-        return True
-    if _browser_setup_failed:
-        return False
-        
-    try:
-        # Quick browser cache check
-        import glob
-        from pathlib import Path
-        
-        cache_pattern = str(Path.home() / ".cache" / "ms-playwright" / "chromium-*")
-        if glob.glob(cache_pattern):
-            _browser_setup_done = True
-            return True
-        else:
-            _browser_setup_failed = True
-            return False
-    except Exception:
-        _browser_setup_failed = True
-        return False
-
-# Tool definitions with immediate registration but lazy implementation
-
-def get_system_diagnostics() -> dict:
-    """Get system diagnostics for troubleshooting browser and environment issues."""
-    _load_heavy_imports()
-    
-    import platform
-    import glob
-    from pathlib import Path
-    
-    # Check browser cache
-    cache_pattern = str(Path.home() / ".cache" / "ms-playwright" / "chromium-*")
-    cache_dirs = glob.glob(cache_pattern)
-    
-    return {
-        "status": "FastMCP 2.0 Server - Clean STDIO communication",
-        "platform": platform.system(),
-        "python_version": platform.python_version(),
-        "fastmcp_version": "2.0.0",
-        "browser_cache_found": len(cache_dirs) > 0,
-        "cache_directories": cache_dirs,
-        "recommendations": [
-            "Install Playwright browsers: pip install playwright && playwright install webkit",
-            "For UVX: uvx --with playwright playwright install webkit"
-        ]
-    }
-
-def _validate_crawl_url_params(url: str, timeout: int) -> Optional[dict]:
-    """Validate crawl_url parameters and return error dict if invalid, None if valid."""
-    # URL validation
-    if not url or not url.strip():
-        return {
-            "success": False,
-            "error": "URL is required and cannot be empty",
-            "error_code": "invalid_url"
-        }
-
-    url_stripped = url.strip()
-    if not url_stripped.startswith(('http://', 'https://')):
-        return {
-            "success": False,
-            "error": f"Invalid URL scheme. URL must start with http:// or https://. Got: {url_stripped[:50]}",
-            "error_code": "invalid_url_scheme"
-        }
-
-    # Timeout validation
-    if timeout <= 0:
-        return {
-            "success": False,
-            "error": f"Timeout must be a positive integer. Got: {timeout}",
-            "error_code": "invalid_timeout"
-        }
-
-    if timeout > 300:
-        return {
-            "success": False,
-            "error": f"Timeout exceeds maximum allowed value of 300 seconds. Got: {timeout}",
-            "error_code": "timeout_too_large"
-        }
-
-    return None
-
-
-def _convert_result_to_dict(result) -> dict:
-    """Convert CrawlResponse or similar object to dict."""
-    if hasattr(result, 'model_dump'):
-        return result.model_dump()
-    elif hasattr(result, 'dict'):
-        return result.dict()
-    return result
-
-
-def _process_content_fields(result_dict: dict, include_cleaned_html: bool, generate_markdown: bool) -> dict:
-    """Process content fields based on flags and add warnings if needed."""
-    # Preserve existing warnings from crawler
-    warnings = result_dict.get("warnings", [])
-    if not isinstance(warnings, list):
-        warnings = [warnings] if warnings else []
-
-    # Handle content field based on include_cleaned_html flag
-    if not include_cleaned_html and 'content' in result_dict:
-        # Only remove if markdown is available or generate_markdown is True
-        if generate_markdown and result_dict.get("markdown", "").strip():
-            del result_dict['content']
-            warnings.append("HTML content removed to save tokens. Use include_cleaned_html=true to include it.")
-        elif not generate_markdown:
-            # Keep content when markdown generation is disabled
-            warnings.append("HTML content preserved because generate_markdown=false.")
-
-    if warnings:
-        result_dict["warnings"] = warnings
-
-    return result_dict
-
-
-def _should_trigger_fallback(result_dict: dict, generate_markdown: bool) -> tuple[bool, str]:
-    """Determine if fallback should be triggered and return reason."""
-    # Check explicit failure
-    if not result_dict.get("success", True):
-        error_msg = result_dict.get("error", "Unknown error")
-        return True, f"Initial crawl failed: {error_msg}"
-
-    # Check for meaningful content based on what was requested
-    has_markdown = bool(result_dict.get("markdown", "").strip())
-    has_content = bool(result_dict.get("content", "").strip())
-    has_raw_content = bool(result_dict.get("raw_content", "").strip())
-
-    # If markdown was requested but is empty, and no other content exists
-    if generate_markdown and not has_markdown:
-        if has_content or has_raw_content:
-            # Has some content, don't fallback - might be intentional (PDF, etc.)
-            return False, ""
-        return True, "Empty markdown and no alternative content available"
-
-    # If markdown was not requested, check for any content
-    if not generate_markdown and not has_content and not has_raw_content:
-        return True, "No content available in response"
-
-    return False, ""
+def _get_tool_modules():
+    """Get tool modules, loading them if needed."""
+    global web_crawling, search, youtube, file_processing, utilities, _tools_imported
+    if not _tools_imported:
+        _load_tool_modules()
+        wc, s, yt, fp, ut = get_tool_modules()
+        web_crawling = wc
+        search = s
+        youtube = yt
+        file_processing = fp
+        utilities = ut
+        _tools_imported = is_tools_imported()
+    return _tools_imported
 
 
 @mcp.tool()
@@ -445,8 +98,7 @@ async def crawl_url(
     if validation_error:
         return validation_error
 
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available",
@@ -566,8 +218,7 @@ async def extract_youtube_transcript(
     enrich_metadata: Annotated[bool, Field(description="Enrich metadata (upload_date, view_count) via page crawl")] = True
 ) -> dict:
     """Extract YouTube transcripts with timestamps. Works with public captioned videos. Supports fallback to page crawl."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -641,8 +292,7 @@ async def batch_extract_youtube_transcripts(
     if len(urls) > 3:
         return {"success": False, "error": "Maximum 3 YouTube URLs allowed per batch. Split into multiple calls."}
 
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {"success": False, "error": "Tool modules not available"}
     
     try:
@@ -675,8 +325,7 @@ async def get_youtube_video_info(
     include_timestamps: Annotated[bool, Field(description="Include timestamps")] = True
 ) -> Dict[str, Any]:
     """Get YouTube video metadata and transcript availability."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -707,8 +356,7 @@ async def get_youtube_video_info(
 
 async def get_youtube_api_setup_guide() -> Dict[str, Any]:
     """Get youtube-transcript-api setup info. No API key required."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -736,8 +384,7 @@ async def process_file(
     llm_model: Annotated[Optional[str], Field(description="LLM model")] = None
 ) -> dict:
     """Convert PDF, Word, Excel, PowerPoint, ZIP to markdown."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -791,8 +438,7 @@ async def process_file(
 
 async def get_supported_file_formats() -> dict:
     """Get supported file formats (PDF, Office, ZIP) and their capabilities."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -821,8 +467,7 @@ async def enhanced_process_large_content(
     final_summary_length: Annotated[str, Field(description="'short'|'medium'|'long'")] = "short"
 ) -> Dict[str, Any]:
     """Process large content with chunking and BM25 filtering."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available",
@@ -960,8 +605,7 @@ async def deep_crawl_site(
     base_timeout: Annotated[int, Field(description="Timeout per page")] = 60
 ) -> Dict[str, Any]:
     """Crawl multiple pages from a site with configurable depth."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -1066,8 +710,7 @@ async def crawl_url_with_fallback(
     auto_summarize: Annotated[bool, Field(description="Auto-summarize content")] = False
 ) -> dict:
     """Crawl with fallback strategies for anti-bot sites."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -1099,8 +742,7 @@ async def intelligent_extract(
     custom_instructions: Annotated[Optional[str], Field(description="LLM instructions")] = None
 ) -> Dict[str, Any]:
     """Extract specific data from web pages using LLM."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -1197,8 +839,7 @@ async def extract_entities(
     llm_model: Annotated[Optional[str], Field(description="LLM model")] = None
 ) -> Dict[str, Any]:
     """Extract entities (emails, phones, etc.) from web pages."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -1329,8 +970,7 @@ async def extract_structured_data(
     table_chunking_strategy: Annotated[str, Field(description="'intelligent'|'fixed'|'semantic'")] = "intelligent"
 ) -> Dict[str, Any]:
     """Extract structured data using CSS selectors or LLM."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -1599,8 +1239,7 @@ async def search_google(
     request: Annotated[Dict[str, Any], Field(description="Dict with: query (required), num_results, search_genre, language, region, recent_days")]
 ) -> Dict[str, Any]:
     """Search Google with genre filtering. Genres: academic, news, technical, commercial, social."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -1630,8 +1269,7 @@ async def batch_search_google(
     if len(queries) > 3:
         return {"success": False, "error": "Maximum 3 queries allowed per batch. Split into multiple calls."}
 
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {"success": False, "error": "Tool modules not available"}
     
     try:
@@ -1648,8 +1286,7 @@ async def search_and_crawl(
     request: Annotated[Dict[str, Any], Field(description="Dict with: search_query (required), crawl_top_results, search_genre, recent_days")]
 ) -> Dict[str, Any]:
     """Search Google and crawl top results. Combines search with full content extraction."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -1784,8 +1421,7 @@ async def search_and_crawl(
 
 async def get_search_genres() -> Dict[str, Any]:
     """Get available search genres for targeted searching."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -1802,8 +1438,7 @@ async def get_search_genres() -> Dict[str, Any]:
 
 async def get_llm_config_info() -> Dict[str, Any]:
     """Get current LLM configuration and available providers."""
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return {
             "success": False,
             "error": "Tool modules not available"
@@ -1832,8 +1467,7 @@ async def batch_crawl(
     if len(urls) > 3:
         return [{"success": False, "error": "Maximum 3 URLs allowed per batch. Split into multiple calls."}]
 
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return [{"success": False, "error": "Tool modules not available"}]
     
     try:
@@ -1999,8 +1633,7 @@ async def multi_url_crawl(
     if len(url_configurations) > 5:
         return [{"success": False, "error": "Maximum 5 URL configurations allowed per batch. Split into multiple calls."}]
 
-    _load_tool_modules()
-    if not _tools_imported:
+    if not _get_tool_modules():
         return [{
             "success": False,
             "error": "Tool modules not available"

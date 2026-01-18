@@ -167,37 +167,10 @@ async def summarize_content(
     content_type: str = "document",
     target_tokens: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Summarize content using LLM with enhanced metadata preservation"""
+    """Summarize content using LLMClient with enhanced metadata preservation"""
     try:
-        # Import config for LLM
-        try:
-            from ..config import get_llm_config
-        except ImportError:
-            return {
-                "success": False,
-                "error": "LLM configuration not available"
-            }
-        
-        # Define summary configurations with enhanced token targets
-        length_configs = {
-            "short": {
-                "target_length": "2-3 paragraphs",
-                "detail_level": "key points and main findings only",
-                "target_tokens": target_tokens or 400
-            },
-            "medium": {
-                "target_length": "4-6 paragraphs", 
-                "detail_level": "comprehensive overview with important details",
-                "target_tokens": target_tokens or 1000
-            },
-            "long": {
-                "target_length": "8-12 paragraphs",
-                "detail_level": "detailed analysis with examples and context",
-                "target_tokens": target_tokens or 2000
-            }
-        }
-        
-        config = length_configs.get(summary_length, length_configs["medium"])
+        # Import LLMClient
+        from ..utils.llm_client import LLMClient
         
         # Extract file information for context
         file_extension = ""
@@ -207,191 +180,54 @@ async def summarize_content(
                 import os
                 filename = os.path.basename(url)
                 file_extension = os.path.splitext(filename)[1]
-            except:
+            except Exception:
                 filename = url
         
-        # Create enhanced summarization prompt
-        file_context = f"""
-File Information:
-- Title: {title if title else 'Document'}
-- Filename: {filename}
-- File Type: {file_extension}
-- Content Type: {content_type}
-- Source: {url if url else 'File upload'}
-"""
+        # Prepare metadata for LLMClient
+        metadata = {
+            "filename": filename,
+            "file_extension": file_extension,
+        }
         
-        instruction = f"""
-        Summarize this {content_type} content in {config['target_length']}.
-        Focus on {config['detail_level']}.
-        Target length: approximately {config['target_tokens']} tokens.
+        # Create LLMClient and call summarize
+        client = LLMClient()
+        result = await client.summarize(
+            content=content,
+            title=title if title else "Document",
+            url=url,
+            summary_length=summary_length,
+            content_type=content_type,
+            llm_provider=llm_provider,
+            llm_model=llm_model,
+            target_tokens=target_tokens,
+            metadata=metadata
+        )
         
-        {file_context}
-        
-        Structure your summary with:
-        1. Brief overview including document title and type context
-        2. Main topics or sections covered
-        3. Key insights, findings, or conclusions
-        4. Important details, data, or examples mentioned
-        
-        Make the summary informative and well-structured, preserving important technical details and maintaining context.
-        IMPORTANT: Preserve the document title, filename, and source information in your response for reference.
-        """
-        
-        # Get LLM configuration
-        llm_config = get_llm_config(llm_provider, llm_model)
-        
-        # Create the complete prompt
-        full_prompt = f"""
-        {instruction}
-        
-        Please provide a JSON response with the following structure:
-        {{
-            "summary": "The summarized content (approximately {config['target_tokens']} tokens)",
-            "document_title": "{title if title else 'Document'}",
-            "filename": "{filename}",
-            "file_extension": "{file_extension}",
-            "content_type": "{content_type}",
-            "source_url": "{url}",
-            "key_topics": ["List", "of", "main", "topics"],
-            "main_insights": ["Key", "findings", "or", "insights"],
-            "technical_details": ["Important", "technical", "details"],
-            "reading_time_estimate": "Estimated reading time",
-            "summary_token_count": "Estimated token count of summary"
-        }}
-        
-        Content to summarize:
-        {content}
-        """
-        
-        # Use LLM for summarization
-        if hasattr(llm_config, 'provider'):
-            provider_info = llm_config.provider.split('/')
-            provider = provider_info[0] if provider_info else 'openai'
-            model = provider_info[1] if len(provider_info) > 1 else 'gpt-4o'
-            
-            if provider == 'openai':
-                import openai
-                import os
-                
-                api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
-                if not api_key:
-                    raise ValueError("OpenAI API key not found")
-                
-                client = openai.AsyncOpenAI(api_key=api_key)
-                
-                response = await client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": f"You are a helpful assistant that summarizes {content_type} content while preserving important metadata."},
-                        {"role": "user", "content": full_prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=min(4000, config['target_tokens'] * 2)  # Allow up to 2x target for flexibility
-                )
-                
-                extracted_content = response.choices[0].message.content
-
-            elif provider == 'anthropic':
-                import anthropic
-                import os
-
-                api_key = llm_config.api_token or os.environ.get('ANTHROPIC_API_KEY')
-                if not api_key:
-                    raise ValueError("Anthropic API key not found")
-
-                client = anthropic.AsyncAnthropic(api_key=api_key)
-                response = await client.messages.create(
-                    model=model,
-                    max_tokens=min(4000, config['target_tokens'] * 2),
-                    temperature=0.7,
-                    messages=[{"role": "user", "content": full_prompt}]
-                )
-                extracted_content = response.content[0].text
-
-            elif provider == 'ollama':
-                import aiohttp
-
-                base_url = llm_config.base_url or 'http://localhost:11434'
-
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        f"{base_url}/api/generate",
-                        json={
-                            "model": model,
-                            "prompt": full_prompt,
-                            "stream": False,
-                            "options": {"temperature": 0.7}
-                        },
-                        timeout=aiohttp.ClientTimeout(total=120)
-                    ) as response:
-                        if response.status == 200:
-                            result = await response.json()
-                            extracted_content = result.get('response', '')
-                        else:
-                            error_text = await response.text()
-                            raise ValueError(f"Ollama API request failed: {response.status} - {error_text}")
-            else:
-                raise ValueError(f"Provider {provider} not supported. Supported: openai, anthropic, ollama")
-        else:
-            raise ValueError("Invalid LLM config format")
-        
-        # Parse the response
-        if extracted_content:
-            try:
-                import json
-                # Clean up the extracted content if it's wrapped in markdown
-                content_to_parse = extracted_content
-                if content_to_parse.startswith('```json'):
-                    content_to_parse = content_to_parse.replace('```json', '').replace('```', '').strip()
-                
-                summary_data = json.loads(content_to_parse) if isinstance(content_to_parse, str) else content_to_parse
-                
-                # Ensure metadata is preserved
-                return {
-                    "success": True,
-                    "summary": summary_data.get("summary", "Summary generation failed"),
-                    "document_title": summary_data.get("document_title", title),
-                    "filename": summary_data.get("filename", filename),
-                    "file_extension": summary_data.get("file_extension", file_extension),
-                    "content_type": summary_data.get("content_type", content_type),
-                    "source_url": summary_data.get("source_url", url),
-                    "key_topics": summary_data.get("key_topics", []),
-                    "main_insights": summary_data.get("main_insights", []),
-                    "technical_details": summary_data.get("technical_details", []),
-                    "summary_length": summary_length,
-                    "target_tokens": config['target_tokens'],
-                    "estimated_summary_tokens": len(summary_data.get("summary", "")) // 4,  # Rough estimate
-                    "original_length": len(content),
-                    "compressed_ratio": len(summary_data.get("summary", "")) / len(content) if content else 0,
-                    "llm_provider": provider,
-                    "llm_model": model
-                }
-            except (json.JSONDecodeError, AttributeError) as e:
-                # Fallback: treat as plain text summary
-                return {
-                    "success": True,
-                    "summary": str(extracted_content),
-                    "document_title": title,
-                    "filename": filename,
-                    "file_extension": file_extension,
-                    "content_type": content_type,
-                    "source_url": url,
-                    "key_topics": [],
-                    "main_insights": [],
-                    "technical_details": [],
-                    "summary_length": summary_length,
-                    "target_tokens": config['target_tokens'],
-                    "estimated_summary_tokens": len(str(extracted_content)) // 4,
-                    "original_length": len(content),
-                    "compressed_ratio": len(str(extracted_content)) / len(content) if content else 0,
-                    "llm_provider": provider,
-                    "llm_model": model,
-                    "fallback_mode": True
-                }
+        # Transform result to file processing-specific format
+        if result.get("success"):
+            return {
+                "success": True,
+                "summary": result.get("summary", "Summary generation failed"),
+                "document_title": title if title else result.get("title", "Document"),
+                "filename": filename,
+                "file_extension": file_extension,
+                "content_type": result.get("content_type", content_type),
+                "source_url": url or result.get("source_url", ""),
+                "key_topics": result.get("key_topics", []),
+                "main_insights": result.get("main_insights", []),
+                "technical_details": [],  # LLMClient doesn't extract this separately
+                "summary_length": summary_length,
+                "target_tokens": result.get("target_tokens", 1000),
+                "estimated_summary_tokens": result.get("estimated_summary_tokens", 0),
+                "original_length": result.get("original_length", len(content)),
+                "compressed_ratio": result.get("compression_ratio", 0),
+                "llm_provider": result.get("llm_provider", "unknown"),
+                "llm_model": result.get("llm_model", "unknown"),
+            }
         else:
             return {
                 "success": False,
-                "error": "LLM returned empty result"
+                "error": result.get("error", "Summarization failed")
             }
             
     except Exception as e:

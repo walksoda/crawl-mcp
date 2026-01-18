@@ -18,12 +18,8 @@ from ..models import (
 )
 
 # Import required crawl4ai components
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
 from crawl4ai import (
-    JsonCssExtractionStrategy,
-    LLMExtractionStrategy,
-    JsonXPathExtractionStrategy,
-    RegexExtractionStrategy,
     BM25ContentFilter,
     PruningContentFilter,
     LLMContentFilter,
@@ -43,1668 +39,32 @@ from ..file_processor import FileProcessor
 from ..youtube_processor import YouTubeProcessor
 from ..suppress_output import suppress_stdout_stderr
 
+# Import refactored modules
+from .session_manager import get_session_manager
+from .strategy_cache import get_strategy_cache, get_fingerprint_config
+from .content_processors import (
+    convert_media_to_list as _convert_media_to_list,
+    has_meaningful_content as _has_meaningful_content,
+    is_block_page as _is_block_page,
+)
+from .fallback_strategies import (
+    normalize_cookies_to_playwright_format as _normalize_cookies_to_playwright_format,
+    static_fetch_content as _static_fetch_content,
+    extract_spa_json_data as _extract_spa_json_data,
+    detect_spa_framework as _detect_spa_framework,
+    build_amp_url as _build_amp_url,
+    try_fetch_rss_feed as _try_fetch_rss_feed,
+)
+from ..constants import FALLBACK_MIN_CONTENT_LENGTH, MAX_RESPONSE_TOKENS
+
 # Initialize processors
 file_processor = FileProcessor()
 youtube_processor = YouTubeProcessor()
 
 
-def _convert_media_to_list(media: Any) -> List[Dict[str, Any]]:
-    """
-    Convert crawl4ai's media dict format to flat list format.
-
-    crawl4ai returns media as: {'images': [...], 'videos': [...], 'audios': [...]}
-    CrawlResponse expects: List[Dict[str, Any]]
-    """
-    if not media:
-        return []
-
-    # If already a list, return as-is
-    if isinstance(media, list):
-        return media
-
-    # If it's a dict with media type keys, flatten it
-    if isinstance(media, dict):
-        result = []
-        for media_type in ['images', 'videos', 'audios', 'tables']:
-            items = media.get(media_type, [])
-            if items:
-                for item in items:
-                    if isinstance(item, dict):
-                        item_copy = dict(item)
-                        item_copy['media_type'] = media_type.rstrip('s')  # 'images' -> 'image'
-                        result.append(item_copy)
-        return result
-
-    return []
-
-
-def _has_meaningful_content(result, min_length: int = 100) -> tuple[bool, str]:
-    """
-    Check if crawl result has meaningful content.
-
-    Checks markdown, content, and raw_content fields.
-    Returns (True, content_source) if any field contains content exceeding min_length.
-    Returns (False, "") if no meaningful content found.
-
-    Args:
-        result: CrawlResponse object or dict with crawl result
-        min_length: Minimum content length to consider meaningful
-
-    Returns:
-        Tuple of (has_content: bool, content_source: str)
-        content_source indicates which field had content: "markdown", "content", or "raw_content"
-    """
-    # Check markdown first (most common and useful for MCP clients)
-    markdown = getattr(result, 'markdown', None) if hasattr(result, 'markdown') else (result.get('markdown') if isinstance(result, dict) else None)
-    if markdown and len(str(markdown).strip()) > min_length:
-        return True, "markdown"
-
-    # Check content (cleaned HTML)
-    content = getattr(result, 'content', None) if hasattr(result, 'content') else (result.get('content') if isinstance(result, dict) else None)
-    if content and len(str(content).strip()) > min_length:
-        return True, "content"
-
-    # Check raw_content (original HTML)
-    raw_content = getattr(result, 'raw_content', None) if hasattr(result, 'raw_content') else (result.get('raw_content') if isinstance(result, dict) else None)
-    if raw_content and len(str(raw_content).strip()) > min_length:
-        return True, "raw_content"
-
-    return False, ""
-
-
-# Constants for fallback success validation
-FALLBACK_MIN_CONTENT_LENGTH = 200
-BLOCK_INDICATORS = [
-    "access denied", "403 forbidden", "captcha",
-    "please enable javascript", "bot detected",
-    "unusual traffic", "rate limit", "you have been blocked",
-    "security check", "verify you are human", "request blocked"
-]
-
-
-def _is_block_page(content: str) -> bool:
-    """
-    Check if content appears to be a block/error page.
-
-    Args:
-        content: Text content to check (should be lowercased or will be lowercased)
-
-    Returns:
-        True if block indicators are found, False otherwise
-    """
-    if not content:
-        return False
-    content_lower = content.lower() if not content.islower() else content
-    return any(indicator in content_lower for indicator in BLOCK_INDICATORS)
-
-
-def _normalize_cookies_to_playwright_format(
-    cookies: Dict[str, str],
-    url: str
-) -> List[Dict[str, Any]]:
-    """
-    Convert Dict[str, str] cookies to Playwright format.
-
-    Uses 'url' field for host-only cookies (recommended by Playwright).
-    This ensures cookies are only sent to the exact host, not subdomains,
-    and correctly handles IPv6 addresses and localhost.
-
-    Args:
-        cookies: Dictionary of cookie name-value pairs
-        url: URL for cookie scope
-
-    Returns:
-        List of cookie dictionaries in Playwright format
-    """
-    # Build cookies with url field for host-only behavior (Playwright recommended)
-    # Using 'url' instead of 'domain' ensures:
-    # - Cookies are host-only (not sent to subdomains)
-    # - IPv6 addresses work correctly
-    # - localhost and IP addresses are handled properly
-    result = []
-    for name, value in cookies.items():
-        cookie = {
-            "name": name,
-            "value": str(value),  # Ensure string type
-            "url": url,  # Host-only cookie scope
-            "path": "/",
-        }
-        result.append(cookie)
-
-    return result
-
-
-# Phase 3: Multi-stage fallback helper functions
-
-async def _static_fetch_content(url: str, headers: dict = None, timeout: int = 30) -> tuple[bool, str, str]:
-    """
-    Stage 1: Fast static HTTP fetch without browser overhead.
-
-    Uses httpx for direct HTTP requests with readability extraction.
-
-    Returns:
-        Tuple of (success: bool, content: str, error: str)
-    """
-    import httpx
-    from urllib.parse import urlparse
-
-    try:
-        default_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-        }
-        if headers:
-            default_headers.update(headers)
-
-        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-            response = await client.get(url, headers=default_headers)
-            response.raise_for_status()
-
-            content_type = response.headers.get("content-type", "").lower()
-            if "text/html" not in content_type and "application/xhtml" not in content_type:
-                return False, "", f"Non-HTML content type: {content_type}"
-
-            html_content = response.text
-            if len(html_content.strip()) < 100:
-                return False, "", "Content too short"
-
-            return True, html_content, ""
-
-    except httpx.HTTPStatusError as e:
-        return False, "", f"HTTP error {e.response.status_code}"
-    except httpx.RequestError as e:
-        return False, "", f"Request error: {str(e)}"
-    except Exception as e:
-        return False, "", f"Static fetch error: {str(e)}"
-
-
-def _extract_spa_json_data(html_content: str) -> tuple[bool, dict, str]:
-    """
-    Stage 6: Extract JSON data from SPA frameworks.
-
-    Extracts data from:
-    - __NEXT_DATA__ (Next.js)
-    - window.__INITIAL_STATE__ (various frameworks)
-    - window.__NUXT__ (Nuxt.js)
-    - window.__APP_STATE__ (various frameworks)
-
-    Uses balanced brace matching to handle nested JSON correctly.
-
-    Returns:
-        Tuple of (success: bool, data: dict, source: str)
-    """
-    import re
-
-    def extract_balanced_json(text: str, start_pos: int) -> str:
-        """Extract JSON object with balanced braces starting from start_pos."""
-        if start_pos >= len(text) or text[start_pos] != '{':
-            return ""
-
-        depth = 0
-        in_string = False
-        escape_next = False
-        end_pos = start_pos
-
-        for i in range(start_pos, len(text)):
-            char = text[i]
-
-            if escape_next:
-                escape_next = False
-                continue
-
-            if char == '\\' and in_string:
-                escape_next = True
-                continue
-
-            if char == '"' and not escape_next:
-                in_string = not in_string
-                continue
-
-            if not in_string:
-                if char == '{':
-                    depth += 1
-                elif char == '}':
-                    depth -= 1
-                    if depth == 0:
-                        end_pos = i + 1
-                        break
-
-        if depth != 0:
-            return ""
-
-        return text[start_pos:end_pos]
-
-    # Extraction patterns: (regex to find start position, source name)
-    patterns = [
-        # Next.js - extract content from script tag
-        (r'<script[^>]*id="__NEXT_DATA__"[^>]*>', "next_data"),
-        # Nuxt.js
-        (r'window\.__NUXT__\s*=\s*', "nuxt_data"),
-        # Generic initial state patterns
-        (r'window\.__INITIAL_STATE__\s*=\s*', "initial_state"),
-        (r'window\.__APP_STATE__\s*=\s*', "app_state"),
-        (r'window\.__PRELOADED_STATE__\s*=\s*', "preloaded_state"),
-    ]
-
-    for pattern, source in patterns:
-        try:
-            match = re.search(pattern, html_content)
-            if match:
-                # Find the start of JSON object after the pattern
-                search_start = match.end()
-                # Skip any whitespace
-                while search_start < len(html_content) and html_content[search_start] in ' \t\n\r':
-                    search_start += 1
-
-                if search_start < len(html_content) and html_content[search_start] == '{':
-                    json_str = extract_balanced_json(html_content, search_start)
-                    if json_str:
-                        data = json.loads(json_str)
-                        return True, data, source
-        except (json.JSONDecodeError, AttributeError, IndexError):
-            continue
-
-    return False, {}, ""
-
-
-def _detect_spa_framework(html_content: str) -> tuple[str, str]:
-    """
-    Stage 4: Detect SPA framework for optimized crawling.
-
-    Returns:
-        Tuple of (framework_name: str, suggested_selector: str)
-    """
-    indicators = [
-        # Next.js
-        ("__NEXT_DATA__", "next.js", "#__next, [data-nextjs-page]"),
-        ("_next/static", "next.js", "#__next"),
-        # React
-        ("data-reactroot", "react", "[data-reactroot], #root, #app"),
-        ("__REACT_DEVTOOLS", "react", "#root, #app"),
-        # Vue.js
-        ("data-v-", "vue.js", "#app, [data-v-app]"),
-        ("__VUE__", "vue.js", "#app"),
-        # Angular
-        ("ng-version", "angular", "app-root, [ng-version]"),
-        ("_ngcontent", "angular", "app-root"),
-        # Nuxt.js
-        ("__NUXT__", "nuxt.js", "#__nuxt, #__layout"),
-        # Svelte
-        ("__sveltekit", "sveltekit", "#svelte, body > div"),
-    ]
-
-    for indicator, framework, selector in indicators:
-        if indicator in html_content:
-            return framework, selector
-
-    return "", ""
-
-
-def _build_amp_url(url: str) -> str:
-    """
-    Stage 6: Build AMP version URL.
-
-    Attempts to construct AMP URL for the given page.
-    Preserves query string and fragment from the original URL.
-    """
-    from urllib.parse import urlparse, urlunparse
-
-    parsed = urlparse(url)
-    path = parsed.path
-
-    # Common AMP URL patterns
-    if not path.endswith('/amp') and not path.endswith('/amp/'):
-        if path.endswith('/'):
-            amp_path = path + 'amp/'
-        else:
-            amp_path = path + '/amp'
-
-        # Preserve query string and fragment from original URL
-        return urlunparse((
-            parsed.scheme,
-            parsed.netloc,
-            amp_path,
-            parsed.params,  # URL parameters (rarely used but preserve)
-            parsed.query,   # Query string (?key=value)
-            parsed.fragment # Fragment (#section)
-        ))
-
-    return ""
-
-
-async def _try_fetch_rss_feed(url: str) -> tuple[bool, str, list]:
-    """
-    Stage 5: Try to find and fetch RSS/Atom feed for the page.
-
-    Returns:
-        Tuple of (success: bool, feed_url: str, items: list)
-    """
-    import httpx
-    import re
-    from urllib.parse import urljoin
-
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-            # First fetch the page to find feed links
-            response = await client.get(url)
-            html = response.text
-
-            # Look for RSS/Atom feed links
-            feed_patterns = [
-                r'<link[^>]*type=["\']application/rss\+xml["\'][^>]*href=["\']([^"\']+)["\']',
-                r'<link[^>]*type=["\']application/atom\+xml["\'][^>]*href=["\']([^"\']+)["\']',
-                r'<link[^>]*href=["\']([^"\']+)["\'][^>]*type=["\']application/rss\+xml["\']',
-                r'<link[^>]*href=["\']([^"\']+)["\'][^>]*type=["\']application/atom\+xml["\']',
-            ]
-
-            feed_url = None
-            for pattern in feed_patterns:
-                match = re.search(pattern, html)
-                if match:
-                    feed_url = urljoin(url, match.group(1))
-                    break
-
-            if not feed_url:
-                # Try common feed URL patterns
-                from urllib.parse import urlparse
-                parsed = urlparse(url)
-                common_feeds = [
-                    f"{parsed.scheme}://{parsed.netloc}/feed",
-                    f"{parsed.scheme}://{parsed.netloc}/rss",
-                    f"{parsed.scheme}://{parsed.netloc}/atom.xml",
-                    f"{parsed.scheme}://{parsed.netloc}/feed.xml",
-                    f"{parsed.scheme}://{parsed.netloc}/rss.xml",
-                ]
-
-                for potential_feed in common_feeds:
-                    try:
-                        feed_response = await client.get(potential_feed)
-                        if feed_response.status_code == 200:
-                            content_type = feed_response.headers.get("content-type", "").lower()
-                            if "xml" in content_type or "rss" in content_type or "atom" in content_type:
-                                feed_url = potential_feed
-                                break
-                    except:
-                        continue
-
-            if feed_url:
-                # Fetch and parse the feed
-                feed_response = await client.get(feed_url)
-                feed_content = feed_response.text
-
-                # Basic XML parsing for items
-                items = []
-                item_pattern = r'<item>(.*?)</item>|<entry>(.*?)</entry>'
-                for match in re.finditer(item_pattern, feed_content, re.DOTALL):
-                    item_xml = match.group(1) or match.group(2)
-                    title_match = re.search(r'<title[^>]*>([^<]+)</title>', item_xml)
-                    link_match = re.search(r'<link[^>]*>([^<]+)</link>|<link[^>]*href=["\']([^"\']+)["\']', item_xml)
-                    desc_match = re.search(r'<description[^>]*>([^<]+)</description>|<summary[^>]*>([^<]+)</summary>', item_xml, re.DOTALL)
-
-                    item = {}
-                    if title_match:
-                        item['title'] = title_match.group(1).strip()
-                    if link_match:
-                        item['link'] = (link_match.group(1) or link_match.group(2)).strip()
-                    if desc_match:
-                        item['description'] = (desc_match.group(1) or desc_match.group(2)).strip()
-
-                    if item:
-                        items.append(item)
-
-                return True, feed_url, items
-
-    except Exception as e:
-        pass
-
-    return False, "", []
-
-
-# ========================================
-# Phase 6: Session Management
-# ========================================
-
-class SessionManager:
-    """
-    Manages browser session persistence for web crawling.
-
-    Stores and retrieves session data (cookies, localStorage) per domain,
-    enabling authenticated crawling without re-login on each request.
-
-    Session data is stored in a JSON file (~/.crawl4ai_sessions.json) with
-    secure file permissions (0600).
-
-    Current Limitations:
-    - Only user-provided cookies are saved (crawl4ai doesn't expose response cookies)
-    - localStorage is stored but not applied (crawl_url doesn't support storage_state)
-    - Full Playwright storage_state integration requires architectural changes
-
-    Security Notes:
-    - Session file is protected with owner-only permissions
-    - URL credentials (user:pass@host) are stripped from domain keys
-    - Consider additional encryption for sensitive environments
-    """
-
-    def __init__(self, storage_path: str = None):
-        """
-        Initialize the session manager.
-
-        Args:
-            storage_path: Path to the session storage JSON file.
-                         If None, uses a default path in the user's home directory.
-        """
-        import os
-        from pathlib import Path
-
-        if storage_path is None:
-            # Default to ~/.crawl4ai_sessions.json
-            home = Path.home()
-            storage_path = str(home / ".crawl4ai_sessions.json")
-
-        self.storage_path = storage_path
-        self._sessions: Dict[str, dict] = {}
-        self._load_sessions()
-
-    def _load_sessions(self) -> None:
-        """Load sessions from the storage file with validation."""
-        import os
-
-        if os.path.exists(self.storage_path):
-            try:
-                with open(self.storage_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    # Validate data structure - must be a dict
-                    if not isinstance(data, dict):
-                        print(f"Warning: Invalid session data format, expected dict")
-                        self._sessions = {}
-                        return
-
-                    # Validate each domain entry
-                    validated = {}
-                    for domain, session in data.items():
-                        if not isinstance(domain, str) or not isinstance(session, dict):
-                            continue  # Skip invalid entries
-                        # Ensure required fields exist with valid types
-                        if 'storage_state' not in session:
-                            continue
-                        if not isinstance(session.get('storage_state'), dict):
-                            continue
-                        # Validate expires_at if present
-                        expires_at = session.get('expires_at')
-                        if expires_at is not None and not isinstance(expires_at, (int, float)):
-                            session['expires_at'] = None  # Remove invalid expiry
-                        validated[domain] = session
-
-                    self._sessions = validated
-            except (json.JSONDecodeError, IOError) as e:
-                print(f"Warning: Could not load sessions from {self.storage_path}: {e}")
-                self._sessions = {}
-
-    def _save_sessions(self) -> None:
-        """Save sessions to the storage file with secure permissions."""
-        import os
-        import stat
-
-        temp_path = self.storage_path + ".tmp"
-        try:
-            # Remove temp file if it exists to prevent symlink attacks
-            # O_EXCL will fail if file exists, so we need clean state
-            try:
-                os.remove(temp_path)
-            except FileNotFoundError:
-                pass
-
-            # Create temp file with O_EXCL to prevent race conditions and symlink attacks
-            # O_EXCL ensures atomic creation - fails if file already exists
-            fd = os.open(
-                temp_path,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                0o600
-            )
-            try:
-                with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                    json.dump(self._sessions, f, indent=2, ensure_ascii=False)
-            except Exception:
-                # fd is closed by fdopen even on error, but close explicitly if fdopen fails
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
-                raise
-
-            # Atomic rename
-            os.replace(temp_path, self.storage_path)
-
-        except (IOError, TypeError, ValueError, OSError) as e:
-            print(f"Warning: Could not save sessions to {self.storage_path}: {e}")
-            # Clean up temp file if it exists
-            try:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-            except OSError:
-                pass
-
-    def _get_domain_key(self, url: str) -> str:
-        """Extract domain from URL for session lookup, stripping credentials."""
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        # Strip user:pass@ from netloc for security
-        netloc = parsed.netloc.lower()
-        if '@' in netloc:
-            netloc = netloc.split('@')[-1]
-        return netloc
-
-    def get_session(self, url: str) -> Optional[dict]:
-        """
-        Get stored session data for a URL's domain.
-
-        Args:
-            url: The URL to get session data for.
-
-        Returns:
-            Session data dict with 'cookies' and 'origins' keys, or None.
-        """
-        domain = self._get_domain_key(url)
-        session = self._sessions.get(domain)
-
-        if session and isinstance(session, dict):
-            # Check if session has expired
-            import time
-            expires_at = session.get('expires_at')
-            if isinstance(expires_at, (int, float)) and expires_at < time.time():
-                # Session expired, remove it
-                del self._sessions[domain]
-                self._save_sessions()
-                return None
-
-            storage_state = session.get('storage_state')
-            if isinstance(storage_state, dict):
-                return storage_state
-
-        return None
-
-    def save_session(
-        self,
-        url: str,
-        cookies: List[dict] = None,
-        local_storage: Dict[str, str] = None,
-        ttl_hours: int = 24
-    ) -> None:
-        """
-        Save session data for a URL's domain.
-
-        Args:
-            url: The URL to save session data for.
-            cookies: List of cookie dicts with name, value, domain, etc.
-            local_storage: Dict of localStorage key-value pairs.
-            ttl_hours: Time-to-live in hours for the session (default 24, min 1).
-        """
-        import time
-        from urllib.parse import urlparse
-
-        # Validate TTL
-        if ttl_hours < 1:
-            ttl_hours = 1  # Minimum 1 hour
-
-        domain = self._get_domain_key(url)
-        parsed = urlparse(url)
-        # Strip credentials from origin for security
-        netloc = parsed.netloc
-        if '@' in netloc:
-            netloc = netloc.split('@')[-1]
-        origin = f"{parsed.scheme}://{netloc}"
-
-        # Build storage_state in Playwright format
-        storage_state = {
-            "cookies": cookies or [],
-            "origins": []
-        }
-
-        if local_storage:
-            storage_state["origins"].append({
-                "origin": origin,
-                "localStorage": [
-                    {"name": k, "value": v} for k, v in local_storage.items()
-                ]
-            })
-
-        self._sessions[domain] = {
-            "storage_state": storage_state,
-            "created_at": time.time(),
-            "expires_at": time.time() + (ttl_hours * 3600),
-            "domain": domain,
-            "origin": origin
-        }
-
-        self._save_sessions()
-
-    def save_storage_state(self, url: str, storage_state: dict, ttl_hours: int = 24) -> None:
-        """
-        Save a complete storage_state dict for a URL's domain.
-
-        Args:
-            url: The URL to save session data for.
-            storage_state: Complete storage_state dict from Playwright.
-            ttl_hours: Time-to-live in hours for the session (min 1).
-        """
-        import time
-
-        # Validate TTL - clamp to minimum of 1 hour (consistent with save_session)
-        if not isinstance(ttl_hours, (int, float)) or ttl_hours < 1:
-            ttl_hours = max(1, ttl_hours) if isinstance(ttl_hours, (int, float)) else 1
-
-        domain = self._get_domain_key(url)
-
-        self._sessions[domain] = {
-            "storage_state": storage_state,
-            "created_at": time.time(),
-            "expires_at": time.time() + (ttl_hours * 3600),
-            "domain": domain
-        }
-
-        self._save_sessions()
-
-    def clear_session(self, url: str) -> bool:
-        """
-        Clear session data for a URL's domain.
-
-        Args:
-            url: The URL to clear session data for.
-
-        Returns:
-            True if session was cleared, False if no session existed.
-        """
-        domain = self._get_domain_key(url)
-        if domain in self._sessions:
-            del self._sessions[domain]
-            self._save_sessions()
-            return True
-        return False
-
-    def clear_all_sessions(self) -> int:
-        """
-        Clear all stored sessions.
-
-        Returns:
-            Number of sessions cleared.
-        """
-        count = len(self._sessions)
-        self._sessions = {}
-        self._save_sessions()
-        return count
-
-    def list_sessions(self) -> List[dict]:
-        """
-        List all stored sessions with metadata.
-
-        Returns:
-            List of session info dicts with domain, created_at, expires_at.
-        """
-        import time
-        current_time = time.time()
-        result = []
-        for domain, data in self._sessions.items():
-            if not isinstance(data, dict):
-                continue  # Skip invalid entries
-
-            expires_at = data.get("expires_at")
-            is_expired = False
-            if isinstance(expires_at, (int, float)):
-                is_expired = expires_at < current_time
-
-            storage_state = data.get("storage_state", {})
-            cookie_count = 0
-            if isinstance(storage_state, dict):
-                cookies = storage_state.get("cookies", [])
-                if isinstance(cookies, list):
-                    cookie_count = len(cookies)
-
-            result.append({
-                "domain": domain,
-                "created_at": data.get("created_at"),
-                "expires_at": expires_at,
-                "is_expired": is_expired,
-                "cookie_count": cookie_count
-            })
-        return result
-
-    def get_browser_config_params(self, url: str) -> dict:
-        """
-        Get BrowserConfig parameters for session persistence.
-
-        Args:
-            url: The URL to get config for.
-
-        Returns:
-            Dict with storage_state and other browser config params.
-        """
-        session = self.get_session(url)
-        if session:
-            return {
-                "storage_state": session,
-                "use_persistent_context": True
-            }
-        return {}
-
-
-class StrategyCache:
-    """
-    Caches successful crawling strategies per domain.
-
-    Tracks which fallback stages work best for each domain,
-    allowing future crawls to start from the optimal strategy
-    instead of always starting from Stage 1.
-
-    Features:
-    - Records successful strategies with response times
-    - Tracks failure patterns to avoid repeated failures
-    - TTL-based expiration (default 7 days)
-    - Adaptive strategy selection based on failure history
-
-    Storage:
-    - JSON file at ~/.crawl4ai_strategy_cache.json
-    - Secure permissions (0600)
-
-    Strategy Entry Structure:
-    {
-        "domain": "example.com",
-        "best_stage": 3,
-        "best_strategy": "chromium_stealth",
-        "success_count": 5,
-        "last_success": 1234567890.0,
-        "avg_response_time": 2.5,
-        "failed_stages": [1, 2],  # Stages that consistently fail
-        "expires_at": 1234567890.0
-    }
-    """
-
-    # Strategy names mapping for stage numbers
-    STAGE_NAMES = {
-        1: "static_fast_path",
-        2: "normal_headless",
-        3: "chromium_stealth",
-        4: "user_behavior",
-        5: "mobile_agent",
-        6: "amp_rss",
-        7: "json_extraction"
-    }
-
-    def __init__(self, storage_path: str = None, default_ttl_days: int = 7):
-        """
-        Initialize the strategy cache.
-
-        Args:
-            storage_path: Path to store cache data. Defaults to ~/.crawl4ai_strategy_cache.json
-            default_ttl_days: Default TTL in days for cache entries (min 1).
-        """
-        import os
-        self.storage_path = storage_path or os.path.expanduser("~/.crawl4ai_strategy_cache.json")
-        self.default_ttl_days = max(1, default_ttl_days) if isinstance(default_ttl_days, (int, float)) else 7
-        self._cache: Dict[str, dict] = {}
-        self._load_cache()
-
-    def _load_cache(self) -> None:
-        """Load cache from storage file with validation."""
-        import os
-
-        if not os.path.exists(self.storage_path):
-            self._cache = {}
-            return
-
-        try:
-            with open(self.storage_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            if not isinstance(data, dict):
-                self._cache = {}
-                return
-
-            # Validate each entry
-            validated = {}
-            for domain, entry in data.items():
-                if not isinstance(domain, str) or not isinstance(entry, dict):
-                    continue
-                # Required fields
-                if "best_stage" not in entry or "best_strategy" not in entry:
-                    continue
-                # Type validation
-                if not isinstance(entry.get("best_stage"), int):
-                    continue
-                if not isinstance(entry.get("best_strategy"), str):
-                    continue
-                # Validate expires_at
-                expires_at = entry.get("expires_at")
-                if expires_at is not None and not isinstance(expires_at, (int, float)):
-                    entry["expires_at"] = None
-                # Validate and normalize failed_stages to List[int]
-                failed_stages = entry.get("failed_stages", [])
-                if not isinstance(failed_stages, list):
-                    entry["failed_stages"] = []
-                else:
-                    # Filter to valid integers only
-                    entry["failed_stages"] = [s for s in failed_stages if isinstance(s, int) and 1 <= s <= 7]
-                # Validate success_count
-                if not isinstance(entry.get("success_count"), int):
-                    entry["success_count"] = 0
-                # Validate avg_response_time
-                if not isinstance(entry.get("avg_response_time"), (int, float)):
-                    entry["avg_response_time"] = 0.0
-                validated[domain] = entry
-
-            self._cache = validated
-
-        except (json.JSONDecodeError, IOError, OSError):
-            self._cache = {}
-
-    def _save_cache(self) -> None:
-        """Save cache to storage file with secure permissions."""
-        import os
-
-        temp_path = self.storage_path + ".tmp"
-        try:
-            # Remove temp file if exists
-            try:
-                os.remove(temp_path)
-            except FileNotFoundError:
-                pass
-
-            # Create with O_EXCL for security
-            fd = os.open(
-                temp_path,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                0o600
-            )
-            try:
-                with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                    json.dump(self._cache, f, indent=2, ensure_ascii=False)
-            except Exception:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
-                raise
-
-            os.replace(temp_path, self.storage_path)
-
-        except (IOError, TypeError, ValueError, OSError) as e:
-            print(f"Warning: Could not save strategy cache to {self.storage_path}: {e}")
-            try:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-            except OSError:
-                pass
-
-    def _get_domain_key(self, url: str) -> str:
-        """Extract domain key from URL, stripping credentials and path/query."""
-        from urllib.parse import urlparse
-        try:
-            # Add scheme if missing to ensure proper parsing
-            if not url.startswith(('http://', 'https://', '//')):
-                url = 'https://' + url
-            parsed = urlparse(url)
-            # Strip user:pass from netloc and extract hostname only
-            host = parsed.hostname
-            if not host:
-                # Fallback: split netloc manually
-                netloc = parsed.netloc or url.split('/')[0]
-                host = netloc.split('@')[-1].split(':')[0]
-            # Never return path, query, or fragment - only domain
-            return host.lower() if host else "unknown"
-        except Exception:
-            # Last resort: try to extract domain-like pattern
-            import re
-            match = re.search(r'(?:https?://)?(?:www\.)?([a-zA-Z0-9.-]+)', url)
-            return match.group(1).lower() if match else "unknown"
-
-    def get_best_strategy(self, url: str) -> Optional[dict]:
-        """
-        Get the best known strategy for a domain.
-
-        Args:
-            url: The URL to get strategy for.
-
-        Returns:
-            Dict with strategy info or None if no cached strategy.
-            {
-                "start_stage": int,  # Stage to start from
-                "strategy_name": str,
-                "skip_stages": list[int],  # Stages to skip (known failures)
-                "success_count": int,
-                "avg_response_time": float
-            }
-        """
-        import time
-
-        domain = self._get_domain_key(url)
-        entry = self._cache.get(domain)
-
-        if not entry:
-            return None
-
-        # Check TTL
-        expires_at = entry.get("expires_at")
-        if expires_at is not None and expires_at < time.time():
-            del self._cache[domain]
-            self._save_cache()
-            return None
-
-        return {
-            "start_stage": entry.get("best_stage", 1),
-            "strategy_name": entry.get("best_strategy", "unknown"),
-            "skip_stages": entry.get("failed_stages", []),
-            "success_count": entry.get("success_count", 0),
-            "avg_response_time": entry.get("avg_response_time", 0.0)
-        }
-
-    def record_success(
-        self,
-        url: str,
-        stage: int,
-        strategy_name: str,
-        response_time: float = None,
-        ttl_days: int = None
-    ) -> None:
-        """
-        Record a successful crawl strategy for a domain.
-
-        Args:
-            url: The URL that was crawled.
-            stage: The fallback stage number that succeeded (1-7).
-            strategy_name: Name of the successful strategy.
-            response_time: Time taken for the crawl in seconds.
-            ttl_days: TTL in days for this entry (min 1).
-        """
-        import time
-
-        domain = self._get_domain_key(url)
-
-        # Validate TTL
-        if ttl_days is None:
-            ttl_days = self.default_ttl_days
-        elif not isinstance(ttl_days, (int, float)) or ttl_days < 1:
-            ttl_days = max(1, ttl_days) if isinstance(ttl_days, (int, float)) else self.default_ttl_days
-
-        # Get existing entry or create new
-        entry = self._cache.get(domain, {
-            "domain": domain,
-            "best_stage": stage,
-            "best_strategy": strategy_name,
-            "success_count": 0,
-            "last_success": 0,
-            "avg_response_time": 0.0,
-            "failed_stages": [],
-            "expires_at": 0
-        })
-
-        # Update entry
-        old_count = entry.get("success_count", 0)
-        old_avg = entry.get("avg_response_time", 0.0)
-
-        entry["success_count"] = old_count + 1
-
-        # Update best stage if this one is better (lower = faster)
-        current_best = entry.get("best_stage", 7)
-        if stage <= current_best:
-            entry["best_stage"] = stage
-            entry["best_strategy"] = strategy_name
-
-        entry["last_success"] = time.time()
-        entry["expires_at"] = time.time() + (ttl_days * 86400)
-
-        # Update rolling average response time
-        if response_time is not None and response_time > 0:
-            if old_count > 0 and old_avg > 0:
-                entry["avg_response_time"] = (old_avg * old_count + response_time) / (old_count + 1)
-            else:
-                entry["avg_response_time"] = response_time
-
-        # Remove this stage from failed_stages if it was there
-        failed = entry.get("failed_stages", [])
-        if stage in failed:
-            failed.remove(stage)
-            entry["failed_stages"] = failed
-
-        self._cache[domain] = entry
-        self._save_cache()
-
-    def record_failure(
-        self,
-        url: str,
-        stage: int,
-        strategy_name: str,
-        error: str = None
-    ) -> None:
-        """
-        Record a failed strategy attempt for a domain.
-
-        Uses a failure count threshold to avoid marking stages as failed
-        due to temporary issues. Only after FAILURE_THRESHOLD consecutive
-        failures is a stage added to failed_stages.
-
-        Args:
-            url: The URL that failed.
-            stage: The fallback stage number that failed (1-7).
-            strategy_name: Name of the failed strategy.
-            error: Optional error message.
-        """
-        import time
-
-        FAILURE_THRESHOLD = 3  # Require 3 consecutive failures to mark as "failed"
-        DECAY_HOURS = 24  # Reset failure count after 24 hours
-
-        domain = self._get_domain_key(url)
-
-        # Get existing entry or create minimal one
-        entry = self._cache.get(domain, {
-            "domain": domain,
-            "best_stage": 7,  # Default to last resort
-            "best_strategy": "unknown",
-            "success_count": 0,
-            "failed_stages": [],
-            "failure_counts": {},  # Track per-stage failure counts
-            "last_failure_time": {},  # Track when failures occurred
-            "expires_at": time.time() + (self.default_ttl_days * 86400)
-        })
-
-        # Initialize failure tracking if not present
-        if "failure_counts" not in entry:
-            entry["failure_counts"] = {}
-        if "last_failure_time" not in entry:
-            entry["last_failure_time"] = {}
-
-        now = time.time()
-        stage_key = str(stage)  # Use string keys for JSON compatibility
-
-        # Check if previous failure has decayed
-        last_failure = entry["last_failure_time"].get(stage_key, 0)
-        if now - last_failure > DECAY_HOURS * 3600:
-            # Reset failure count after decay period
-            entry["failure_counts"][stage_key] = 0
-
-        # Increment failure count
-        current_count = entry["failure_counts"].get(stage_key, 0) + 1
-        entry["failure_counts"][stage_key] = current_count
-        entry["last_failure_time"][stage_key] = now
-
-        # Only add to failed_stages if threshold reached
-        failed = entry.get("failed_stages", [])
-        if not isinstance(failed, list):
-            failed = []
-
-        if current_count >= FAILURE_THRESHOLD and stage not in failed:
-            failed.append(stage)
-            failed.sort()
-            entry["failed_stages"] = failed
-            print(f"Strategy cache: Stage {stage} marked as failed for {domain} after {current_count} failures")
-
-        # Update best_stage if current best has failed
-        if entry.get("best_stage", 1) in failed:
-            # Find the lowest non-failed stage
-            for s in range(1, 8):
-                if s not in failed:
-                    entry["best_stage"] = s
-                    entry["best_strategy"] = self.STAGE_NAMES.get(s, f"stage_{s}")
-                    break
-
-        self._cache[domain] = entry
-        self._save_cache()
-
-    def get_recommended_stages(self, url: str) -> List[int]:
-        """
-        Get recommended stage order for a URL based on cache.
-
-        Returns stages in optimal order: best_stage first,
-        then remaining stages (excluding known failures at end).
-
-        Args:
-            url: The URL to get recommendations for.
-
-        Returns:
-            List of stage numbers in recommended order.
-        """
-        strategy = self.get_best_strategy(url)
-
-        if not strategy:
-            # No cache - use default order
-            return [1, 2, 3, 4, 5, 6, 7]
-
-        start_stage = strategy.get("start_stage", 1)
-        skip_stages = strategy.get("skip_stages", [])
-
-        # Build recommended order
-        recommended = []
-
-        # Start with best known stage
-        if start_stage not in skip_stages:
-            recommended.append(start_stage)
-
-        # Add remaining stages in order (except skipped)
-        for stage in range(1, 8):
-            if stage not in recommended and stage not in skip_stages:
-                recommended.append(stage)
-
-        # Add skipped stages at the end (as last resort)
-        for stage in skip_stages:
-            if stage not in recommended:
-                recommended.append(stage)
-
-        return recommended
-
-    def clear_cache(self, url: str = None) -> None:
-        """
-        Clear cache for a specific domain or all domains.
-
-        Args:
-            url: If provided, clear only this domain. Otherwise clear all.
-        """
-        if url:
-            domain = self._get_domain_key(url)
-            if domain in self._cache:
-                del self._cache[domain]
-        else:
-            self._cache = {}
-        self._save_cache()
-
-    def list_cached_domains(self) -> List[dict]:
-        """
-        List all cached domain strategies.
-
-        Returns:
-            List of dicts with domain strategy info.
-        """
-        import time
-        result = []
-        now = time.time()
-
-        for domain, entry in self._cache.items():
-            if not isinstance(entry, dict):
-                continue
-
-            expires_at = entry.get("expires_at")
-            is_expired = expires_at is not None and expires_at < now
-
-            result.append({
-                "domain": domain,
-                "best_stage": entry.get("best_stage"),
-                "best_strategy": entry.get("best_strategy"),
-                "success_count": entry.get("success_count", 0),
-                "failed_stages": entry.get("failed_stages", []),
-                "avg_response_time": entry.get("avg_response_time"),
-                "is_expired": is_expired
-            })
-
-        return result
-
-
-# Global strategy cache instance
-_strategy_cache: Optional[StrategyCache] = None
-
-
-def get_strategy_cache() -> StrategyCache:
-    """Get or create the global strategy cache instance."""
-    global _strategy_cache
-    if _strategy_cache is None:
-        _strategy_cache = StrategyCache()
-    return _strategy_cache
-
-
-# ========================================
-# Phase 8: Fingerprint Evasion
-# ========================================
-
-class FingerprintProfile:
-    """
-    Generates consistent browser fingerprint profiles for anti-detection.
-
-    Creates matching sets of:
-    - User-Agent strings
-    - HTTP headers (sec-ch-ua*, Accept-Language, etc.)
-    - JavaScript fingerprint evasion scripts
-    - Timezone and locale settings
-
-    The key is consistency: all components must match to avoid detection.
-    For example, a Chrome User-Agent must have matching sec-ch-ua headers.
-    """
-
-    # Pre-defined browser profiles with consistent configurations
-    BROWSER_PROFILES = {
-        "chrome_windows": {
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "platform": "Win32",
-            "vendor": "Google Inc.",
-            "app_version": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-            "sec_ch_ua_mobile": "?0",
-            "sec_ch_ua_platform": '"Windows"',
-            "languages": ["en-US", "en"],
-            "timezone": "America/New_York",
-            "webgl_vendor": "Google Inc. (NVIDIA)",
-            "webgl_renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1080 Direct3D11 vs_5_0 ps_5_0, D3D11)",
-        },
-        "chrome_mac": {
-            "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "platform": "MacIntel",
-            "vendor": "Google Inc.",
-            "app_version": "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-            "sec_ch_ua_mobile": "?0",
-            "sec_ch_ua_platform": '"macOS"',
-            "languages": ["en-US", "en"],
-            "timezone": "America/Los_Angeles",
-            "webgl_vendor": "Google Inc. (Apple)",
-            "webgl_renderer": "ANGLE (Apple, Apple M1 Pro, OpenGL 4.1)",
-        },
-        "firefox_windows": {
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-            "platform": "Win32",
-            "vendor": "",
-            "app_version": "5.0 (Windows)",
-            "sec_ch_ua": None,  # Firefox doesn't send sec-ch-ua
-            "sec_ch_ua_mobile": None,
-            "sec_ch_ua_platform": None,
-            "languages": ["en-US", "en"],
-            "timezone": "America/New_York",
-            "webgl_vendor": "Mozilla",
-            "webgl_renderer": "Mozilla",
-        },
-        "safari_mac": {
-            "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-            "platform": "MacIntel",
-            "vendor": "Apple Computer, Inc.",
-            "app_version": "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-            "sec_ch_ua": None,  # Safari doesn't send sec-ch-ua
-            "sec_ch_ua_mobile": None,
-            "sec_ch_ua_platform": None,
-            "languages": ["en-US", "en"],
-            "timezone": "America/Los_Angeles",
-            "webgl_vendor": "Apple Inc.",
-            "webgl_renderer": "Apple GPU",
-        },
-        "chrome_mobile": {
-            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.119 Mobile/15E148 Safari/604.1",
-            "platform": "iPhone",
-            "vendor": "Google Inc.",
-            "app_version": "5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.119 Mobile/15E148 Safari/604.1",
-            "sec_ch_ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-            "sec_ch_ua_mobile": "?1",
-            "sec_ch_ua_platform": '"iOS"',
-            "languages": ["en-US", "en"],
-            "timezone": "America/New_York",
-            "webgl_vendor": "Apple Inc.",
-            "webgl_renderer": "Apple GPU",
-        },
-        "safari_mobile": {
-            # iOS Safari - used for Stage 5 mobile agent
-            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            "platform": "iPhone",
-            "vendor": "Apple Computer, Inc.",
-            "app_version": "5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            "sec_ch_ua": None,  # Safari doesn't send sec-ch-ua
-            "sec_ch_ua_mobile": None,
-            "sec_ch_ua_platform": None,
-            "languages": ["en-US", "en"],
-            "timezone": "America/New_York",
-            "webgl_vendor": "Apple Inc.",
-            "webgl_renderer": "Apple GPU",
-        },
-    }
-
-    def __init__(self, profile_name: str = None):
-        """
-        Initialize with a specific profile or random selection.
-
-        Args:
-            profile_name: One of the BROWSER_PROFILES keys, or None for random.
-        """
-        import random
-        if profile_name and profile_name in self.BROWSER_PROFILES:
-            self.profile_name = profile_name
-        else:
-            self.profile_name = random.choice(list(self.BROWSER_PROFILES.keys()))
-        self.profile = self.BROWSER_PROFILES[self.profile_name]
-
-    def get_user_agent(self) -> str:
-        """Get the User-Agent string for this profile."""
-        return self.profile["user_agent"]
-
-    def get_headers(self) -> Dict[str, str]:
-        """
-        Get HTTP headers consistent with this profile.
-
-        Returns headers that match the User-Agent to avoid detection.
-        """
-        headers = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            "Accept-Language": ",".join(self.profile["languages"]) + ";q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "DNT": "1",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-User": "?1",
-            "Cache-Control": "max-age=0",
-        }
-
-        # Add sec-ch-ua headers only for Chrome-based browsers
-        if self.profile.get("sec_ch_ua"):
-            headers["Sec-CH-UA"] = self.profile["sec_ch_ua"]
-        if self.profile.get("sec_ch_ua_mobile"):
-            headers["Sec-CH-UA-Mobile"] = self.profile["sec_ch_ua_mobile"]
-        if self.profile.get("sec_ch_ua_platform"):
-            headers["Sec-CH-UA-Platform"] = self.profile["sec_ch_ua_platform"]
-
-        return headers
-
-    def get_stealth_js(self) -> str:
-        """
-        Generate JavaScript to evade fingerprint detection.
-
-        This script should be injected before page load to:
-        1. Remove navigator.webdriver flag
-        2. Spoof navigator properties
-        3. Spoof WebGL fingerprint
-        4. Spoof Canvas fingerprint
-        5. Spoof AudioContext fingerprint
-        """
-        profile = self.profile
-
-        return f'''
-// ========================================
-// Phase 8: Fingerprint Evasion Script
-// ========================================
-
-(function() {{
-    'use strict';
-
-    // 1. Remove webdriver flag
-    Object.defineProperty(navigator, 'webdriver', {{
-        get: () => undefined,
-        configurable: true
-    }});
-
-    // Delete webdriver from navigator prototype
-    delete Navigator.prototype.webdriver;
-
-    // 2. Spoof navigator properties
-    const navigatorProps = {{
-        platform: '{profile["platform"]}',
-        vendor: '{profile["vendor"]}',
-        appVersion: '{profile["app_version"]}',
-        languages: {json.dumps(profile["languages"])},
-        language: '{profile["languages"][0]}',
-        hardwareConcurrency: 8,
-        deviceMemory: 8,
-        maxTouchPoints: {'10' if 'mobile' in self.profile_name.lower() or 'iPhone' in profile["platform"] else '0'}
-    }};
-
-    for (const [prop, value] of Object.entries(navigatorProps)) {{
-        try {{
-            Object.defineProperty(navigator, prop, {{
-                get: () => value,
-                configurable: true
-            }});
-        }} catch (e) {{}}
-    }}
-
-    // 3. Spoof WebGL fingerprint
-    const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
-    WebGLRenderingContext.prototype.getParameter = function(parameter) {{
-        // UNMASKED_VENDOR_WEBGL
-        if (parameter === 37445) {{
-            return '{profile["webgl_vendor"]}';
-        }}
-        // UNMASKED_RENDERER_WEBGL
-        if (parameter === 37446) {{
-            return '{profile["webgl_renderer"]}';
-        }}
-        return originalGetParameter.call(this, parameter);
-    }};
-
-    // Also for WebGL2
-    if (typeof WebGL2RenderingContext !== 'undefined') {{
-        const originalGetParameter2 = WebGL2RenderingContext.prototype.getParameter;
-        WebGL2RenderingContext.prototype.getParameter = function(parameter) {{
-            if (parameter === 37445) {{
-                return '{profile["webgl_vendor"]}';
-            }}
-            if (parameter === 37446) {{
-                return '{profile["webgl_renderer"]}';
-            }}
-            return originalGetParameter2.call(this, parameter);
-        }};
-    }}
-
-    // 4. Spoof Canvas fingerprint (add consistent noise based on domain seed)
-    // Use seeded PRNG for consistent fingerprint - reset seed on each call
-    const canvasSeed = Array.from(window.location.hostname).reduce((a, c) => a + c.charCodeAt(0), 0);
-    function createSeededRng(seed) {{
-        let state = seed;
-        return function() {{
-            state = (state * 1103515245 + 12345) & 0x7fffffff;
-            return state / 0x7fffffff;
-        }};
-    }}
-    const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-    HTMLCanvasElement.prototype.toDataURL = function(type) {{
-        if (this.width > 0 && this.height > 0) {{
-            const ctx = this.getContext('2d');
-            if (ctx) {{
-                // Reset RNG seed on each call for consistent fingerprint
-                const seededRandom = createSeededRng(canvasSeed);
-                // Add invisible noise to canvas using seeded RNG for consistency
-                const imageData = ctx.getImageData(0, 0, Math.min(this.width, 10), Math.min(this.height, 10));
-                for (let i = 0; i < imageData.data.length; i += 4) {{
-                    // Subtle modification that doesn't affect visual appearance
-                    // Uses seeded RNG so same domain always gets same noise pattern
-                    imageData.data[i] = imageData.data[i] ^ (seededRandom() > 0.99 ? 1 : 0);
-                }}
-                ctx.putImageData(imageData, 0, 0);
-            }}
-        }}
-        return originalToDataURL.apply(this, arguments);
-    }};
-
-    // 5. Spoof AudioContext fingerprint
-    if (typeof AudioContext !== 'undefined') {{
-        const originalCreateOscillator = AudioContext.prototype.createOscillator;
-        AudioContext.prototype.createOscillator = function() {{
-            const oscillator = originalCreateOscillator.call(this);
-            // Add tiny frequency variation
-            const originalFrequency = oscillator.frequency;
-            Object.defineProperty(oscillator, 'frequency', {{
-                get: function() {{
-                    return originalFrequency;
-                }},
-                configurable: true
-            }});
-            return oscillator;
-        }};
-    }}
-
-    // 6. Spoof Permissions API
-    if (navigator.permissions) {{
-        const originalQuery = navigator.permissions.query;
-        navigator.permissions.query = function(parameters) {{
-            if (parameters.name === 'notifications') {{
-                return Promise.resolve({{ state: 'prompt', onchange: null }});
-            }}
-            return originalQuery.call(this, parameters);
-        }};
-    }}
-
-    // 7. Spoof Plugin array (Chrome typically has plugins)
-    Object.defineProperty(navigator, 'plugins', {{
-        get: () => {{
-            const plugins = {{
-                length: {'5' if 'chrome' in self.profile_name.lower() else '0'},
-                item: function(i) {{ return this[i] || null; }},
-                namedItem: function(name) {{ return null; }},
-                refresh: function() {{}}
-            }};
-            {'// Chrome plugins' if 'chrome' in self.profile_name.lower() else ''}
-            return plugins;
-        }},
-        configurable: true
-    }});
-
-    // 8. Spoof Timezone
-    const targetTimezone = '{profile["timezone"]}';
-    const originalDateTimeFormat = Intl.DateTimeFormat;
-    Intl.DateTimeFormat = function(locales, options) {{
-        options = options || {{}};
-        if (!options.timeZone) {{
-            options.timeZone = targetTimezone;
-        }}
-        return new originalDateTimeFormat(locales, options);
-    }};
-    Intl.DateTimeFormat.prototype = originalDateTimeFormat.prototype;
-    Intl.DateTimeFormat.supportedLocalesOf = originalDateTimeFormat.supportedLocalesOf;
-
-    // 9. Remove automation indicators
-    // Remove Playwright/Puppeteer traces
-    const automationProps = [
-        '__playwright',
-        '__puppeteer_evaluation_script__',
-        '__selenium_evaluate',
-        '__webdriver_evaluate',
-        '__driver_evaluate',
-        '__webdriver_script_fn',
-        '__webdriver_unwrapped',
-        '__lastWatirAlert',
-        '__lastWatirConfirm',
-        '__lastWatirPrompt',
-        '_Selenium_IDE_Recorder',
-        '_selenium',
-        'calledSelenium',
-        '$chrome_asyncScriptInfo',
-        '$cdc_asdjflasutopfhvcZLmcfl_',
-        '__cdc_asdjflasutopfhvcZLmcfl_'
-    ];
-
-    for (const prop of automationProps) {{
-        try {{
-            delete window[prop];
-            delete document[prop];
-        }} catch (e) {{}}
-    }}
-
-    // 10. Fix Chrome runtime
-    if (!window.chrome) {{
-        window.chrome = {{}};
-    }}
-    if (!window.chrome.runtime) {{
-        window.chrome.runtime = {{}};
-    }}
-
-    console.log('Fingerprint evasion script loaded');
-}})();
-'''
-
-    def get_timezone(self) -> str:
-        """Get the timezone for this profile."""
-        return self.profile["timezone"]
-
-    def get_locale(self) -> str:
-        """Get the primary locale for this profile."""
-        return self.profile["languages"][0]
-
-    @classmethod
-    def get_random_profile(cls) -> "FingerprintProfile":
-        """Get a random fingerprint profile."""
-        import random
-        profile_name = random.choice(list(cls.BROWSER_PROFILES.keys()))
-        return cls(profile_name)
-
-    @classmethod
-    def get_desktop_profile(cls) -> "FingerprintProfile":
-        """Get a random desktop browser profile."""
-        import random
-        desktop_profiles = [k for k in cls.BROWSER_PROFILES.keys() if "mobile" not in k.lower()]
-        return cls(random.choice(desktop_profiles))
-
-    @classmethod
-    def get_mobile_profile(cls) -> "FingerprintProfile":
-        """Get a mobile browser profile (iOS Safari)."""
-        return cls("safari_mobile")
-
-
-def get_fingerprint_config(profile_name: str = None) -> Dict[str, any]:
-    """
-    Get a complete fingerprint evasion configuration.
-
-    Args:
-        profile_name: Specific profile name or None for random desktop.
-
-    Returns:
-        Dict with user_agent, headers, stealth_js, timezone, locale
-    """
-    if profile_name:
-        fp = FingerprintProfile(profile_name)
-    else:
-        fp = FingerprintProfile.get_desktop_profile()
-
-    return {
-        "profile_name": fp.profile_name,
-        "user_agent": fp.get_user_agent(),
-        "headers": fp.get_headers(),
-        "stealth_js": fp.get_stealth_js(),
-        "timezone": fp.get_timezone(),
-        "locale": fp.get_locale()
-    }
-
-
-# Global session manager instance
-_session_manager: Optional[SessionManager] = None
-
-
-def get_session_manager(storage_path: str = None) -> SessionManager:
-    """
-    Get or create the global session manager instance.
-
-    Args:
-        storage_path: Optional custom storage path for sessions.
-
-    Returns:
-        The SessionManager instance.
-    """
-    global _session_manager
-    if _session_manager is None:
-        _session_manager = SessionManager(storage_path)
-    return _session_manager
-
-
-async def extract_cookies_from_result(result) -> List[dict]:
-    """
-    Extract cookies from a crawl result if available.
-
-    Note: This requires the crawler to expose cookies in the result,
-    which may not always be available depending on crawl4ai version.
-
-    Args:
-        result: CrawlResponse or similar result object.
-
-    Returns:
-        List of cookie dicts, or empty list if not available.
-    """
-    # Try to get cookies from various possible locations
-    cookies = []
-
-    # Check if result has cookies attribute
-    if hasattr(result, 'cookies'):
-        cookies = result.cookies or []
-    elif hasattr(result, 'extracted_data') and result.extracted_data:
-        cookies = result.extracted_data.get('cookies', [])
-
-    return cookies
-
-
 # Placeholder for summarize_web_content function
-# Response size limit for MCP protocol (approximately 100k tokens)
-# This prevents issues with oversized responses in Claude Desktop
-MAX_RESPONSE_TOKENS = 100000  # Conservative limit to ensure safe transmission
+# Response size limit for MCP protocol
+# MAX_RESPONSE_TOKENS imported from constants.py
 MAX_RESPONSE_CHARS = MAX_RESPONSE_TOKENS * 4  # Rough estimate: 1 token ≈ 4 characters
 
 async def summarize_web_content(
@@ -1719,125 +79,64 @@ async def summarize_web_content(
     Summarize web content using LLM with fallback to basic text truncation.
     """
     try:
-        # Import config
-        try:
-            from ..config import get_llm_config
-        except ImportError:
-            from config import get_llm_config
-        
-        # Get LLM configuration
-        llm_config = get_llm_config(llm_provider, llm_model)
-        
+        from ..utils.llm_extraction import LLMExtractionClient
+
+        # Create LLM client from config
+        client = LLMExtractionClient.from_config(llm_provider, llm_model)
+
         # Prepare summarization prompt based on summary length
         length_instructions = {
             "short": "Provide a brief 2-3 sentence summary of the main points.",
             "medium": "Provide a comprehensive summary in 1-2 paragraphs covering key points.",
             "long": "Provide a detailed summary covering all important information, insights, and context."
         }
-        
+
         prompt = f"""
         Please summarize the following web content.
-        
+
         Title: {title}
         URL: {url}
-        
+
         {length_instructions.get(summary_length, length_instructions["medium"])}
-        
+
         Focus on:
         - Main topics and key information
         - Important facts, statistics, or findings
         - Practical insights or conclusions
         - Technical details if present
-        
+
         Content to summarize:
         {content[:50000]}  # Limit to prevent token overflow
         """
-        
-        # Get provider info from config
-        provider_info = llm_config.provider.split('/')
-        provider = provider_info[0] if provider_info else 'openai'
-        model = provider_info[1] if len(provider_info) > 1 else 'gpt-4o'
-        
-        summary_text = None
-        
-        if provider == 'openai':
-            import openai
-            api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
-            if not api_key:
-                raise ValueError("OpenAI API key not found")
-            
-            client = openai.AsyncOpenAI(api_key=api_key, base_url=llm_config.base_url)
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "You are an expert content summarizer. Provide clear, concise summaries."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=2000
-            )
-            summary_text = response.choices[0].message.content
-            
-        elif provider == 'anthropic':
-            import anthropic
-            api_key = llm_config.api_token or os.environ.get('ANTHROPIC_API_KEY')
-            if not api_key:
-                raise ValueError("Anthropic API key not found")
-            
-            client = anthropic.AsyncAnthropic(api_key=api_key)
-            response = await client.messages.create(
-                model=model,
-                max_tokens=2000,
-                temperature=0.3,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            summary_text = response.content[0].text
 
-        elif provider == 'ollama':
-            import aiohttp
+        system_message = "You are an expert content summarizer. Provide clear, concise summaries."
 
-            base_url = llm_config.base_url or 'http://localhost:11434'
+        summary_text = await client.call_llm(
+            prompt=prompt,
+            system_message=system_message,
+            temperature=0.3,
+            max_tokens=2000
+        )
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{base_url}/api/generate",
-                    json={
-                        "model": model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {"temperature": 0.3}
-                    },
-                    timeout=aiohttp.ClientTimeout(total=120)
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        summary_text = result.get('response', '')
-                    else:
-                        error_text = await response.text()
-                        raise ValueError(f"Ollama API request failed: {response.status} - {error_text}")
-        else:
-            # Fallback for unsupported providers
-            raise ValueError(f"LLM provider '{provider}' not supported for summarization. Supported: openai, anthropic, ollama")
-        
         if summary_text:
             # Calculate compression ratio
             original_length = len(content)
             summary_length_chars = len(summary_text)
-            compression_ratio = round((1 - summary_length_chars / original_length) * 100, 2)
-            
+            compression_ratio = round((1 - summary_length_chars / original_length) * 100, 2) if original_length > 0 else 0
+
             return {
                 "success": True,
                 "summary": summary_text,
                 "original_length": original_length,
                 "summary_length": summary_length_chars,
                 "compressed_ratio": compression_ratio,
-                "llm_provider": provider,
-                "llm_model": model,
+                "llm_provider": client.provider,
+                "llm_model": client.model,
                 "content_type": "web_content"
             }
         else:
             raise ValueError("LLM returned empty summary")
-            
+
     except Exception as e:
         # Fallback to simple truncation if LLM fails
         max_chars = {
@@ -1845,11 +144,11 @@ async def summarize_web_content(
             "medium": 1500,
             "long": 3000
         }.get(summary_length, 1500)
-        
+
         truncated = content[:max_chars]
         if len(content) > max_chars:
             truncated += "... [Content truncated due to size]"
-        
+
         return {
             "success": False,
             "error": f"LLM summarization failed: {str(e)}. Returning truncated content.",
@@ -2041,11 +340,30 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
         # Configure chunking if requested
         chunking_strategy = None
         if request.chunk_content:
-            step_size = int(request.chunk_size * (1 - request.overlap_rate))
-            chunking_strategy = SlidingWindowChunking(
-                window_size=request.chunk_size,
-                step=step_size
-            )
+            step_size = max(1, int(request.chunk_size * (1 - request.overlap_rate)))
+            # Calculate actual overlap amount (not step size)
+            overlap_chars = max(0, int(request.chunk_size * request.overlap_rate))
+
+            if request.chunk_strategy == "topic":
+                chunking_strategy = TopicSegmentationChunking(
+                    num_keywords=5,
+                    chunk_size=request.chunk_size
+                )
+            elif request.chunk_strategy == "regex":
+                # Use common text separators for regex chunking
+                chunking_strategy = RegexChunking(
+                    patterns=[r"\n\n", r"\n#{1,6}\s", r"\n---\n"]
+                )
+            elif request.chunk_strategy == "sentence":
+                chunking_strategy = OverlappingWindowChunking(
+                    window_size=request.chunk_size,
+                    overlap=overlap_chars
+                )
+            else:  # sliding (default fallback)
+                chunking_strategy = SlidingWindowChunking(
+                    window_size=request.chunk_size,
+                    step=step_size
+                )
 
         # Create config parameters
         config_params = {
@@ -2060,6 +378,8 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
             "cache_mode": cache_mode,
             # Phase 2: Add simulate_user support
             "simulate_user": request.simulate_user,
+            # Phase 4: Pass generate_markdown to CrawlerRunConfig
+            "generate_markdown": request.generate_markdown,
         }
 
         # Phase 2: Handle wait_for_js - use wait_until and delay for JS-heavy sites
@@ -2168,9 +488,13 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
 
         # Suppress output to avoid JSON parsing errors
         with suppress_stdout_stderr():
-            # Try WebKit first, fallback to Chromium if needed
+            # Try browsers with fallback
             result = None
-            browsers_to_try = ["webkit", "chromium"]
+            # Prioritize Chromium when stealth mode is requested for better compatibility
+            if request.use_undetected_browser:
+                browsers_to_try = ["chromium"]  # Only use Chromium for stealth
+            else:
+                browsers_to_try = ["webkit", "chromium"]
             
             for browser_type in browsers_to_try:
                 try:
@@ -2178,10 +502,10 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                     current_browser_config["browser_type"] = browser_type
                     
                     async with AsyncWebCrawler(**current_browser_config) as crawler:
-                        # Execute custom JavaScript if provided
-                        if request.execute_js:
+                        # Execute custom JavaScript if provided (with compatibility check)
+                        if request.execute_js and hasattr(config, 'js_code'):
                             config.js_code = request.execute_js
-                        
+
                         # Run crawler with config and proper timeout
                         arun_params = {"url": request.url, "config": config}
 
@@ -2230,7 +554,15 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                         all_markdown.append(f"=== {page_result.url} ===\n{page_result.markdown}")
                     if hasattr(page_result, 'media') and page_result.media and request.extract_media:
                         all_media.extend(_convert_media_to_list(page_result.media))
-            
+
+            # Check if any pages were successfully crawled
+            if not crawled_urls:
+                return CrawlResponse(
+                    success=False,
+                    url=request.url,
+                    error="Deep crawl completed but no pages were successfully crawled"
+                )
+
             response = CrawlResponse(
                 success=True,
                 url=request.url,
@@ -2266,7 +598,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 # Prepare content for potential summarization
                 combined_content = "\n\n".join(all_content) if all_content else result.cleaned_html
                 combined_markdown = "\n\n".join(all_markdown) if all_markdown else result.markdown
-                title_to_use = result.metadata.get("title", "")
+                title_to_use = (result.metadata or {}).get("title", "")
                 extracted_data = {"crawled_pages": len(result.crawled_pages)} if hasattr(result, 'crawled_pages') else {}
                 
                 # Apply auto-summarization if enabled and content is large
@@ -2337,7 +669,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 content_to_use = result.cleaned_html
                 markdown_to_use = result.markdown
                 extracted_data = None
-                title_to_use = result.metadata.get("title", "")
+                title_to_use = (result.metadata or {}).get("title", "")
                 
                 # Apply auto-summarization if enabled and content is large
                 if request.auto_summarize and content_to_use:
@@ -2468,8 +800,12 @@ async def _check_and_summarize_if_needed(
     Check if response content exceeds token limits and apply summarization if needed.
     Respects user-specified limits when provided.
     """
-    # Skip if response failed or already summarized
-    if not response.success or not response.content:
+    # Skip if response failed
+    if not response.success:
+        return response
+    
+    # Skip if neither content nor markdown exists
+    if not response.content and not response.markdown:
         return response
     
     # Check if already summarized
@@ -2519,14 +855,43 @@ async def _check_and_summarize_if_needed(
             )
             
             if summary_result.get("success"):
-                # Update response with summarized content
+                summary_text = summary_result['summary']
+                
+                # Build prefix based on limit source
                 if limit_source == "USER_SPECIFIED":
                     prefix = f"⚠️ Content exceeded user-specified limit ({total_chars:,} chars > {effective_limit_chars:,} chars). Auto-summarized:\n\n"
                 else:
                     prefix = f"⚠️ Content exceeded MCP token limit ({total_chars:,} chars > {effective_limit_chars:,} chars). Auto-summarized:\n\n"
                 
-                response.content = f"{prefix}{summary_result['summary']}"
-                response.markdown = response.content
+                # Verify summarized content fits within limits with strict control
+                final_content = f"{prefix}{summary_text}"
+                if len(final_content) > effective_limit_chars:
+                    # Truncate if summary still exceeds limit
+                    suffix = "... [Summary truncated]"
+                    available_chars = effective_limit_chars - len(prefix) - len(suffix)
+
+                    if available_chars > 0:
+                        summary_text = summary_text[:available_chars] + suffix
+                    else:
+                        # Extreme case: prefix alone exceeds limit, use minimal prefix
+                        minimal_prefix = "[Exceeded limit] "
+                        available_chars = effective_limit_chars - len(minimal_prefix) - len(suffix)
+                        if available_chars > 0:
+                            summary_text = summary_text[:available_chars] + suffix
+                            prefix = minimal_prefix
+                        else:
+                            # Ultimate fallback: no content fits
+                            summary_text = ""
+                            prefix = f"[Content exceeded {effective_limit_chars} char limit]"
+
+                    final_content = f"{prefix}{summary_text}"
+
+                    # Final safety check - hard truncate if still over limit
+                    if len(final_content) > effective_limit_chars:
+                        final_content = final_content[:effective_limit_chars - 3] + "..."
+                
+                response.content = final_content
+                response.markdown = final_content
                 
                 # Update extracted_data
                 if response.extracted_data is None:
@@ -2543,12 +908,15 @@ async def _check_and_summarize_if_needed(
                     "compression_ratio": summary_result.get("compressed_ratio", 0),
                     "llm_provider": summary_result.get("llm_provider", "unknown"),
                     "llm_model": summary_result.get("llm_model", "unknown"),
+                    "post_summary_truncated": len(f"{prefix}{summary_result['summary']}") > effective_limit_chars,
                 })
             else:
                 # Summarization failed, truncate content
-                truncate_at = effective_limit_chars - 500  # Leave room for message
+                # Use markdown if content is None
+                content_to_truncate = response.content or response.markdown or ""
+                truncate_at = max(100, effective_limit_chars - 500)  # Leave room for message, minimum 100 chars
                 prefix = f"⚠️ Content exceeded limit ({total_chars:,} chars > {effective_limit_chars:,} chars).\n\nSummarization failed: {summary_result.get('error', 'Unknown error')}\n\nTruncated content:\n\n"
-                response.content = f"{prefix}{response.content[:truncate_at]}... [Content truncated]"
+                response.content = f"{prefix}{content_to_truncate[:truncate_at]}... [Content truncated]"
                 response.markdown = response.content
                 
                 if response.extracted_data is None:
@@ -2566,9 +934,11 @@ async def _check_and_summarize_if_needed(
                 
         except Exception as e:
             # Final fallback: aggressive truncation
-            truncate_at = effective_limit_chars - 500
+            # Use markdown if content is None
+            content_to_truncate = response.content or response.markdown or ""
+            truncate_at = max(100, effective_limit_chars - 500)  # Minimum 100 chars
             prefix = f"⚠️ Content exceeded limit ({total_chars:,} chars > {effective_limit_chars:,} chars).\n\nEmergency truncation applied due to error: {str(e)}\n\n"
-            response.content = f"{prefix}{response.content[:truncate_at]}... [Content truncated]"
+            response.content = f"{prefix}{content_to_truncate[:truncate_at]}... [Content truncated]"
             response.markdown = response.content
             
             if response.extracted_data is None:
@@ -2610,6 +980,71 @@ async def _finalize_fallback_response(
     return await _check_and_summarize_if_needed(response, dummy_request)
 
 
+async def _build_json_extraction_response(
+    json_data: dict,
+    json_source: str,
+    url: str,
+    strategy_name: str,
+    stage: int,
+    auto_summarize: bool,
+    max_content_tokens: int,
+    llm_provider: Optional[str],
+    llm_model: Optional[str],
+    extract_content_keys: Optional[List[str]] = None
+) -> CrawlResponse:
+    """
+    Build CrawlResponse from extracted JSON data.
+    
+    Common helper for Stage 1 (static JSON extraction) and Stage 7 (JSON extraction fallback).
+    
+    Args:
+        json_data: Extracted JSON data
+        json_source: Source identifier (e.g., '__NEXT_DATA__')
+        url: Original request URL
+        strategy_name: Name of the strategy (e.g., 'static_json_extraction', 'json_extraction')
+        stage: Fallback stage number (1 or 7)
+        auto_summarize: Whether to auto-summarize large content
+        max_content_tokens: Token limit for auto-summarization
+        llm_provider: LLM provider for summarization
+        llm_model: LLM model for summarization
+        extract_content_keys: Optional list of priority keys to extract content from
+            (e.g., ['props', 'pageProps', 'data']). If None, uses full JSON.
+    
+    Returns:
+        CrawlResponse with formatted JSON content
+    """
+    content_text = ""
+    
+    # Try to extract content from priority keys if specified
+    if isinstance(json_data, dict) and extract_content_keys:
+        for key in extract_content_keys:
+            if key in json_data:
+                content_text = json.dumps(json_data[key], indent=2, ensure_ascii=False)
+                break
+    
+    # Fallback to full JSON if no priority key found or not specified
+    if not content_text:
+        content_text = json.dumps(json_data, indent=2, ensure_ascii=False)
+    
+    response = CrawlResponse(
+        success=True,
+        url=url,
+        markdown=f"# Extracted JSON Data ({json_source})\n\n```json\n{content_text[:50000]}\n```",
+        content=content_text,
+        extracted_data={
+            "fallback_strategy_used": strategy_name,
+            "fallback_stage": stage,
+            "json_source": json_source,
+            "site_type_detected": "spa_with_json"
+        }
+    )
+    
+    response = await _finalize_fallback_response(
+        response, url, auto_summarize, max_content_tokens, llm_provider, llm_model
+    )
+    return response
+
+
 # Other internal functions for specialized extraction
 async def _internal_intelligent_extract(
     url: str,
@@ -2633,18 +1068,19 @@ async def _internal_intelligent_extract(
             content_filter=content_filter,
             filter_query=filter_query,
             chunk_content=chunk_content,
-            generate_markdown=True
+            generate_markdown=True,
+            include_cleaned_html=True
         )
-        
+
         crawl_result = await _internal_crawl_url(request)
-        
+
         if not crawl_result.success:
             return {
                 "url": url,
                 "success": False,
                 "error": f"Failed to crawl URL: {crawl_result.error}"
             }
-        
+
         # If LLM processing is disabled, return the crawled content
         if not use_llm:
             return {
@@ -2654,33 +1090,29 @@ async def _internal_intelligent_extract(
                 "extraction_goal": extraction_goal,
                 "processing_method": "basic_crawl_only"
             }
-        
+
         # Implement LLM-based intelligent extraction
         try:
-            # Import config
-            try:
-                from ..config import get_llm_config
-            except ImportError:
-                from config import get_llm_config
-            
-            # Get LLM configuration
-            llm_config = get_llm_config(llm_provider, llm_model)
-            
+            from ..utils.llm_extraction import LLMExtractionClient
+
+            # Create LLM client from config
+            client = LLMExtractionClient.from_config(llm_provider, llm_model)
+
             # Prepare extraction prompt
             extraction_prompt = f"""
             You are an expert content analyst. Your task is to extract specific information from web content based on the extraction goal.
-            
+
             EXTRACTION GOAL: {extraction_goal}
-            
+
             INSTRUCTIONS:
             - Focus specifically on information relevant to the extraction goal
             - Extract concrete data, statistics, quotes, and specific details
             - Maintain accuracy and preserve exact information from the source
             - Organize findings in a structured, easy-to-understand format
             - If the content doesn't contain relevant information, clearly state that
-            
+
             {f"ADDITIONAL INSTRUCTIONS: {custom_instructions}" if custom_instructions else ""}
-            
+
             Please provide a JSON response with the following structure:
             {{
                 "extracted_data": "The specific information extracted according to the goal",
@@ -2691,78 +1123,25 @@ async def _internal_intelligent_extract(
                 "extraction_confidence": "High/Medium/Low - confidence in extraction quality",
                 "missing_information": ["Information", "sought", "but", "not", "found"]
             }}
-            
+
             CONTENT TO ANALYZE:
             {crawl_result.content[:50000]}  # Limit content to prevent token overflow
             """
-            
-            # Make LLM API call
-            provider_info = llm_config.provider.split('/')
-            provider = provider_info[0] if provider_info else 'openai'
-            model = provider_info[1] if len(provider_info) > 1 else 'gpt-4o'
-            
-            extracted_content = None
-            
-            if provider == 'openai':
-                import openai
-                
-                api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
-                if not api_key:
-                    raise ValueError("OpenAI API key not found")
-                
-                client = openai.AsyncOpenAI(api_key=api_key, base_url=llm_config.base_url)
-                
-                response = await client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": "You are an expert content analyst specializing in precise information extraction."},
-                        {"role": "user", "content": extraction_prompt}
-                    ],
-                    temperature=0.1,  # Low temperature for consistent extraction
-                    max_tokens=4000
-                )
-                
-                extracted_content = response.choices[0].message.content
-                
-            elif provider == 'anthropic':
-                import anthropic
-                
-                api_key = llm_config.api_token or os.environ.get('ANTHROPIC_API_KEY')
-                if not api_key:
-                    raise ValueError("Anthropic API key not found")
-                
-                client = anthropic.AsyncAnthropic(api_key=api_key)
-                
-                response = await client.messages.create(
-                    model=model,
-                    max_tokens=4000,
-                    temperature=0.1,
-                    messages=[
-                        {"role": "user", "content": extraction_prompt}
-                    ]
-                )
-                
-                extracted_content = response.content[0].text
-                
-            else:
-                # Fallback for unsupported providers
-                return {
-                    "url": url,
-                    "success": False,
-                    "error": f"LLM provider '{provider}' not supported for intelligent extraction"
-                }
-            
+
+            system_message = "You are an expert content analyst specializing in precise information extraction."
+
+            extracted_content = await client.call_llm(
+                prompt=extraction_prompt,
+                system_message=system_message,
+                temperature=0.1,
+                max_tokens=4000
+            )
+
             # Parse JSON response
             if extracted_content:
                 try:
-                    import json
-                    # Clean up the extracted content if it's wrapped in markdown
-                    content_to_parse = extracted_content
-                    if content_to_parse.startswith('```json'):
-                        content_to_parse = content_to_parse.replace('```json', '').replace('```', '').strip()
-                    
-                    extraction_data = json.loads(content_to_parse) if isinstance(content_to_parse, str) else content_to_parse
-                    
+                    extraction_data = client.parse_json_response(extracted_content)
+
                     return {
                         "url": url,
                         "success": True,
@@ -2775,12 +1154,12 @@ async def _internal_intelligent_extract(
                         "extraction_confidence": extraction_data.get("extraction_confidence", "Medium"),
                         "missing_information": extraction_data.get("missing_information", []),
                         "processing_method": "llm_intelligent_extraction",
-                        "llm_provider": provider,
-                        "llm_model": model,
+                        "llm_provider": client.provider,
+                        "llm_model": client.model,
                         "original_content_length": len(crawl_result.content) if crawl_result.content else 0,
                         "custom_instructions_used": bool(custom_instructions)
                     }
-                    
+
                 except (json.JSONDecodeError, AttributeError) as e:
                     # Fallback: treat as plain text extraction
                     return {
@@ -2795,8 +1174,8 @@ async def _internal_intelligent_extract(
                         "extraction_confidence": "Medium",
                         "missing_information": [],
                         "processing_method": "llm_intelligent_extraction_fallback",
-                        "llm_provider": provider,
-                        "llm_model": model,
+                        "llm_provider": client.provider,
+                        "llm_model": client.model,
                         "original_content_length": len(crawl_result.content) if crawl_result.content else 0,
                         "custom_instructions_used": bool(custom_instructions),
                         "json_parse_error": str(e)
@@ -2807,7 +1186,7 @@ async def _internal_intelligent_extract(
                     "success": False,
                     "error": "LLM extraction returned empty result"
                 }
-                
+
         except Exception as llm_error:
             # LLM processing failed, return crawled content with error info
             return {
@@ -2826,13 +1205,97 @@ async def _internal_intelligent_extract(
                 "original_content_length": len(crawl_result.content) if crawl_result.content else 0,
                 "custom_instructions_used": bool(custom_instructions)
             }
-        
+
     except Exception as e:
         return {
             "url": url,
             "success": False,
             "error": f"Intelligent extraction error: {str(e)}"
         }
+
+
+
+
+def _regex_worker(pattern: str, text: str, flags: int, result_queue) -> None:
+    """
+    Worker function for regex execution in separate process.
+    
+    This runs in an isolated process to enable true timeout via process termination.
+    
+    Args:
+        pattern: Regular expression pattern
+        text: Text to search
+        flags: Regex compilation flags
+        result_queue: multiprocessing.Queue to put results
+    """
+    import re
+    try:
+        compiled = re.compile(pattern, flags)
+        matches = compiled.findall(text)
+        result_queue.put(("success", matches))
+    except Exception as e:
+        result_queue.put(("error", str(e)))
+
+def _safe_regex_findall(pattern: str, text: str, timeout: float = 5.0) -> List[str]:
+    """
+    Execute re.findall with true timeout protection using multiprocessing.
+    
+    This provides genuine timeout protection against ReDoS attacks by running
+    the regex in a separate process that can be forcefully terminated.
+    
+    Args:
+        pattern: Regular expression pattern to match
+        text: Text to search in
+        timeout: Maximum execution time in seconds (default: 5.0)
+    
+    Returns:
+        List of matches found
+        
+    Raises:
+        ValueError: If the pattern is invalid or too long
+        TimeoutError: If regex execution exceeds timeout
+    """
+    import re
+    import multiprocessing
+    
+    # Validate pattern first
+    try:
+        re.compile(pattern, re.IGNORECASE)
+    except re.error as e:
+        raise ValueError(f"Invalid regex pattern: {e}")
+    
+    # Safety: limit pattern complexity to mitigate DoS risk
+    if len(pattern) > 500:
+        raise ValueError(f"Pattern too long ({len(pattern)} chars, max 500)")
+    
+    # Use multiprocessing for true timeout with process termination
+    result_queue = multiprocessing.Queue()
+    process = multiprocessing.Process(
+        target=_regex_worker,
+        args=(pattern, text, re.IGNORECASE, result_queue)
+    )
+    
+    process.start()
+    process.join(timeout=timeout)
+    
+    if process.is_alive():
+        # Process exceeded timeout - terminate it
+        process.terminate()
+        process.join(timeout=1.0)
+        if process.is_alive():
+            # Force kill if terminate didn't work
+            process.kill()
+            process.join()
+        raise TimeoutError(f"Regex execution timed out after {timeout}s (possible ReDoS pattern)")
+    
+    if result_queue.empty():
+        raise RuntimeError("Regex worker returned no result")
+    
+    status, result = result_queue.get_nowait()
+    if status == "error":
+        raise ValueError(f"Regex execution error: {result}")
+    
+    return result
 
 
 async def _internal_extract_entities(
@@ -2847,23 +1310,25 @@ async def _internal_extract_entities(
     """
     try:
         # First crawl the URL to get the content
-        request = CrawlRequest(url=url, generate_markdown=True)
+        request = CrawlRequest(url=url, generate_markdown=True, include_cleaned_html=True)
         crawl_result = await _internal_crawl_url(request)
-        
+
         if not crawl_result.success:
             return {
                 "url": url,
                 "success": False,
                 "error": f"Failed to crawl URL: {crawl_result.error}"
             }
-        
-        content = crawl_result.content or ""
+
+        # Use content if available, fallback to markdown for entity extraction
+        content = crawl_result.content or crawl_result.markdown or ""
         entities = {}
-        
+        pattern_errors = {}
+
         # Define regex patterns for common entity types
         patterns = {
             "emails": r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-            "phones": r'(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})',
+            "phones": r'(?:\+?1[-.\s]?)?(?:\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})',
             "urls": r'https?://(?:[-\w.])+(?:[:\d]+)?(?:/(?:[\w/_.])*(?:\?(?:[\w&=%.])*)?(?:#(?:[\w.])*)?)?',
             "dates": r'\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{2,4}[/-]\d{1,2}[/-]\d{1,2})\b',
             "ips": r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b',
@@ -2876,18 +1341,26 @@ async def _internal_extract_entities(
         if custom_patterns:
             patterns.update(custom_patterns)
         
-        # Extract entities for each requested type
-        import re
+        # Extract entities for each requested type using safe regex with timeout
         for entity_type in entity_types:
             if entity_type in patterns:
-                matches = re.findall(patterns[entity_type], content, re.IGNORECASE)
-                if matches:
-                    # Deduplicate if requested
-                    if deduplicate:
-                        matches = list(set(matches))
-                    entities[entity_type] = matches
+                try:
+                    matches = _safe_regex_findall(patterns[entity_type], content, timeout=5.0)
+                    if matches:
+                        # Deduplicate if requested
+                        if deduplicate:
+                            matches = list(set(matches))
+                        entities[entity_type] = matches
+                except ValueError as e:
+                    # Invalid regex pattern (likely from custom_patterns)
+                    pattern_errors[entity_type] = f"Invalid pattern: {str(e)}"
+                    entities[entity_type] = []
+                except TimeoutError as e:
+                    # Regex execution timed out (possible ReDoS)
+                    pattern_errors[entity_type] = f"Pattern timeout: {str(e)}"
+                    entities[entity_type] = []
         
-        return {
+        result = {
             "url": url,
             "success": True,
             "entities": entities,
@@ -2896,6 +1369,12 @@ async def _internal_extract_entities(
             "content_length": len(content),
             "total_entities_found": sum(len(v) for v in entities.values())
         }
+        
+        # Include pattern errors if any occurred
+        if pattern_errors:
+            result["pattern_errors"] = pattern_errors
+        
+        return result
         
     except Exception as e:
         return {
@@ -2916,23 +1395,24 @@ async def _internal_llm_extract_entities(
 ) -> Dict[str, Any]:
     """
     Internal LLM extract entities implementation using AI-powered named entity recognition.
-    
+
     Supports both standard entity types (emails, phones, etc.) and advanced NER
     (people, organizations, locations, custom entities).
     """
     try:
         # First crawl the URL to get the content
-        request = CrawlRequest(url=url, generate_markdown=True)
+        request = CrawlRequest(url=url, generate_markdown=True, include_cleaned_html=True)
         crawl_result = await _internal_crawl_url(request)
-        
+
         if not crawl_result.success:
             return {
                 "url": url,
                 "success": False,
                 "error": f"Failed to crawl URL: {crawl_result.error}"
             }
-        
-        content = crawl_result.content or ""
+
+        # Use content if available, fallback to markdown for entity extraction
+        content = crawl_result.content or crawl_result.markdown or ""
         if not content.strip():
             return {
                 "url": url,
@@ -2944,20 +1424,17 @@ async def _internal_llm_extract_entities(
                 "total_entities_found": 0,
                 "note": "No content found to extract entities from"
             }
-        
-        # Get LLM configuration
-        try:
-            from ..config import get_llm_config
-        except ImportError:
-            from config import get_llm_config
-        
-        llm_config = get_llm_config(provider, model)
-        
+
+        from ..utils.llm_extraction import LLMExtractionClient
+
+        # Create LLM client from config
+        client = LLMExtractionClient.from_config(provider, model)
+
         # Define entity types and their descriptions
         entity_descriptions = {
             "emails": "Email addresses (e.g., user@example.com)",
             "phones": "Phone numbers in various formats",
-            "urls": "Web URLs and links", 
+            "urls": "Web URLs and links",
             "dates": "Dates in various formats",
             "ips": "IP addresses",
             "prices": "Prices and monetary amounts",
@@ -2970,15 +1447,15 @@ async def _internal_llm_extract_entities(
             "products": "Product names, brands, models",
             "events": "Events, conferences, meetings, occasions"
         }
-        
+
         # Build entity types description for prompt
         requested_entities = []
         for entity_type in entity_types:
             description = entity_descriptions.get(entity_type, f"Custom entity type: {entity_type}")
             requested_entities.append(f"- {entity_type}: {description}")
-        
+
         entity_types_text = "\n".join(requested_entities)
-        
+
         # Prepare extraction prompt
         extraction_prompt = f"""
 You are an expert entity extraction specialist. Extract all instances of the specified entity types from the given web content.
@@ -3020,96 +1497,21 @@ Please provide a JSON response with the following structure:
 WEB CONTENT TO ANALYZE:
 {content[:40000]}  # Limit content to prevent token overflow
 """
-        
-        # Make LLM API call
-        provider_info = llm_config.provider.split('/')
-        provider_name = provider_info[0] if provider_info else 'openai'
-        model_name = provider_info[1] if len(provider_info) > 1 else 'gpt-4o'
-        
-        extracted_content = None
-        
-        if provider_name == 'openai':
-            import openai
-            
-            api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
-            if not api_key:
-                raise ValueError("OpenAI API key not found")
-            
-            client = openai.AsyncOpenAI(api_key=api_key, base_url=llm_config.base_url)
-            
-            response = await client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {"role": "system", "content": "You are an expert entity extraction specialist focused on accuracy and comprehensive extraction."},
-                    {"role": "user", "content": extraction_prompt}
-                ],
-                temperature=0.1,  # Low temperature for consistent extraction
-                max_tokens=4000
-            )
-            
-            extracted_content = response.choices[0].message.content
-            
-        elif provider_name == 'anthropic':
-            import anthropic
-            
-            api_key = llm_config.api_token or os.environ.get('ANTHROPIC_API_KEY')
-            if not api_key:
-                raise ValueError("Anthropic API key not found")
-            
-            client = anthropic.AsyncAnthropic(api_key=api_key)
-            
-            response = await client.messages.create(
-                model=model_name,
-                max_tokens=4000,
-                temperature=0.1,
-                messages=[
-                    {"role": "user", "content": extraction_prompt}
-                ]
-            )
-            
-            extracted_content = response.content[0].text
-            
-        elif provider_name == 'ollama':
-            import aiohttp
-            
-            base_url = llm_config.base_url or 'http://localhost:11434'
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{base_url}/api/generate",
-                    json={
-                        "model": model_name,
-                        "prompt": extraction_prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.1
-                        }
-                    }
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        extracted_content = result.get('response', '')
-                    else:
-                        raise ValueError(f"Ollama API request failed: {response.status}")
-                        
-        else:
-            return {
-                "url": url,
-                "success": False,
-                "error": f"LLM provider '{provider_name}' not supported for entity extraction"
-            }
-        
+
+        system_message = "You are an expert entity extraction specialist focused on accuracy and comprehensive extraction."
+
+        extracted_content = await client.call_llm(
+            prompt=extraction_prompt,
+            system_message=system_message,
+            temperature=0.1,
+            max_tokens=4000
+        )
+
         # Parse JSON response
         if extracted_content:
             try:
-                import json
-                # Clean up the extracted content if it's wrapped in markdown
-                content_to_parse = extracted_content
-                if content_to_parse.startswith('```json'):
-                    content_to_parse = content_to_parse.replace('```json', '').replace('```', '').strip()
-                
-                extraction_result = json.loads(content_to_parse) if isinstance(content_to_parse, str) else content_to_parse
-                
+                extraction_result = client.parse_json_response(extracted_content)
+
                 # Process entities to match expected format
                 processed_entities = {}
                 for entity_type, entities_list in extraction_result.get("entities", {}).items():
@@ -3129,17 +1531,17 @@ WEB CONTENT TO ANALYZE:
                                 processed_entities[entity_type] = list(set(values)) if deduplicate else values
                             else:
                                 processed_entities[entity_type] = entities_list
-                
+
                 summary = extraction_result.get("extraction_summary", {})
-                
+
                 return {
                     "url": url,
                     "success": True,
                     "entities": processed_entities,
                     "entity_types_requested": entity_types,
                     "processing_method": "llm_extraction",
-                    "llm_provider": provider_name,
-                    "llm_model": model_name,
+                    "llm_provider": client.provider,
+                    "llm_model": client.model,
                     "content_length": len(content),
                     "total_entities_found": summary.get("total_entities_found", sum(len(v) for v in processed_entities.values())),
                     "extraction_confidence": summary.get("extraction_confidence", "Medium"),
@@ -3148,7 +1550,7 @@ WEB CONTENT TO ANALYZE:
                     "include_context": include_context,
                     "deduplicated": deduplicate
                 }
-                
+
             except (json.JSONDecodeError, AttributeError) as e:
                 # Fallback: treat as plain text
                 return {
@@ -3157,8 +1559,8 @@ WEB CONTENT TO ANALYZE:
                     "entities": {"raw_extraction": [str(extracted_content)]},
                     "entity_types_requested": entity_types,
                     "processing_method": "llm_extraction_fallback",
-                    "llm_provider": provider_name,
-                    "llm_model": model_name,
+                    "llm_provider": client.provider,
+                    "llm_model": client.model,
                     "content_length": len(content),
                     "total_entities_found": 1,
                     "extraction_confidence": "Low",
@@ -3171,7 +1573,7 @@ WEB CONTENT TO ANALYZE:
                 "success": False,
                 "error": "LLM entity extraction returned empty result"
             }
-            
+
     except Exception as e:
         return {
             "url": url,
@@ -3189,27 +1591,28 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
         # First crawl the URL to get the content
         crawl_request = CrawlRequest(
             url=request.url,
-            generate_markdown=True
+            generate_markdown=True,
+            include_cleaned_html=True
         )
-        
+
         crawl_result = await _internal_crawl_url(crawl_request)
-        
+
         if not crawl_result.success:
             return CrawlResponse(
                 success=False,
                 url=request.url,
                 error=f"Failed to crawl URL for structured extraction: {crawl_result.error}"
             )
-        
+
         extracted_data = {}
-        
+
         if request.extraction_type == "css" and request.css_selectors:
             # CSS selector-based extraction
             try:
                 from bs4 import BeautifulSoup
-                
+
                 soup = BeautifulSoup(crawl_result.content, 'html.parser')
-                
+
                 for field_name, css_selector in request.css_selectors.items():
                     elements = soup.select(css_selector)
                     if elements:
@@ -3221,7 +1624,7 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                             extracted_data[field_name] = [elem.get_text(strip=True) for elem in elements]
                     else:
                         extracted_data[field_name] = None
-                
+
                 return CrawlResponse(
                     success=True,
                     url=request.url,
@@ -3235,26 +1638,22 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                         "extracted_fields": list(extracted_data.keys())
                     }
                 )
-                
+
             except ImportError:
                 return CrawlResponse(
                     success=False,
                     url=request.url,
                     error="BeautifulSoup4 not installed. Install with: pip install beautifulsoup4"
                 )
-                
+
         elif request.extraction_type == "llm":
             # LLM-based extraction
             try:
-                # Import config
-                try:
-                    from ..config import get_llm_config
-                except ImportError:
-                    from config import get_llm_config
-                
-                # Get LLM configuration
-                llm_config = get_llm_config(request.llm_provider, request.llm_model)
-                
+                from ..utils.llm_extraction import LLMExtractionClient
+
+                # Create LLM client from config
+                client = LLMExtractionClient.from_config(request.llm_provider, request.llm_model)
+
                 # Prepare schema description
                 schema_description = ""
                 if request.extraction_schema:
@@ -3262,7 +1661,7 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                     for field, description in request.extraction_schema.items():
                         schema_items.append(f"- {field}: {description}")
                     schema_description = "\n".join(schema_items)
-                
+
                 # Prepare extraction prompt
                 structured_prompt = f"""
                 You are an expert data extraction specialist. Extract structured data from the given web content according to the specified schema.
@@ -3276,7 +1675,7 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                 - If a field's information is not found, set it to null
                 - Return data in valid JSON format matching the schema structure
                 - Focus on extracting concrete, factual information
-                
+
                 {f"ADDITIONAL INSTRUCTIONS: {request.instruction}" if request.instruction else ""}
 
                 Please provide a JSON response with the following structure:
@@ -3293,73 +1692,21 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                 WEB CONTENT TO ANALYZE:
                 {crawl_result.content[:40000]}  # Limit content to prevent token overflow
                 """
-                
-                # Make LLM API call
-                provider_info = llm_config.provider.split('/')
-                provider = provider_info[0] if provider_info else 'openai'
-                model = provider_info[1] if len(provider_info) > 1 else 'gpt-4o'
-                
-                extracted_content = None
-                
-                if provider == 'openai':
-                    import openai
-                    
-                    api_key = llm_config.api_token or os.environ.get('OPENAI_API_KEY')
-                    if not api_key:
-                        raise ValueError("OpenAI API key not found")
-                    
-                    client = openai.AsyncOpenAI(api_key=api_key, base_url=llm_config.base_url)
-                    
-                    response = await client.chat.completions.create(
-                        model=model,
-                        messages=[
-                            {"role": "system", "content": "You are an expert data extraction specialist focused on accuracy and structured output."},
-                            {"role": "user", "content": structured_prompt}
-                        ],
-                        temperature=0.1,  # Low temperature for consistent extraction
-                        max_tokens=4000
-                    )
-                    
-                    extracted_content = response.choices[0].message.content
-                    
-                elif provider == 'anthropic':
-                    import anthropic
-                    
-                    api_key = llm_config.api_token or os.environ.get('ANTHROPIC_API_KEY')
-                    if not api_key:
-                        raise ValueError("Anthropic API key not found")
-                    
-                    client = anthropic.AsyncAnthropic(api_key=api_key)
-                    
-                    response = await client.messages.create(
-                        model=model,
-                        max_tokens=4000,
-                        temperature=0.1,
-                        messages=[
-                            {"role": "user", "content": structured_prompt}
-                        ]
-                    )
-                    
-                    extracted_content = response.content[0].text
-                    
-                else:
-                    return CrawlResponse(
-                        success=False,
-                        url=request.url,
-                        error=f"LLM provider '{provider}' not supported for structured extraction"
-                    )
-                
+
+                system_message = "You are an expert data extraction specialist focused on accuracy and structured output."
+
+                extracted_content = await client.call_llm(
+                    prompt=structured_prompt,
+                    system_message=system_message,
+                    temperature=0.1,
+                    max_tokens=4000
+                )
+
                 # Parse JSON response
                 if extracted_content:
                     try:
-                        import json
-                        # Clean up the extracted content if it's wrapped in markdown
-                        content_to_parse = extracted_content
-                        if content_to_parse.startswith('```json'):
-                            content_to_parse = content_to_parse.replace('```json', '').replace('```', '').strip()
-                        
-                        extraction_result = json.loads(content_to_parse) if isinstance(content_to_parse, str) else content_to_parse
-                        
+                        extraction_result = client.parse_json_response(extracted_content)
+
                         return CrawlResponse(
                             success=True,
                             url=request.url,
@@ -3374,12 +1721,12 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                                 "missing_fields": extraction_result.get("missing_fields", []),
                                 "additional_context": extraction_result.get("additional_context", ""),
                                 "schema_fields": list(request.extraction_schema.keys()) if request.extraction_schema else [],
-                                "llm_provider": provider,
-                                "llm_model": model,
+                                "llm_provider": client.provider,
+                                "llm_model": client.model,
                                 "custom_instruction_used": bool(request.instruction)
                             }
                         )
-                        
+
                     except (json.JSONDecodeError, AttributeError) as e:
                         # Fallback: treat as plain text
                         return CrawlResponse(
@@ -3396,8 +1743,8 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                                 "missing_fields": list(request.extraction_schema.keys()) if request.extraction_schema else [],
                                 "additional_context": f"JSON parsing failed: {str(e)}",
                                 "schema_fields": list(request.extraction_schema.keys()) if request.extraction_schema else [],
-                                "llm_provider": provider,
-                                "llm_model": model,
+                                "llm_provider": client.provider,
+                                "llm_model": client.model,
                                 "json_parse_error": str(e)
                             }
                         )
@@ -3407,21 +1754,21 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
                         url=request.url,
                         error="LLM structured extraction returned empty result"
                     )
-                    
+
             except Exception as llm_error:
                 return CrawlResponse(
                     success=False,
                     url=request.url,
                     error=f"LLM structured extraction failed: {str(llm_error)}"
                 )
-        
+
         else:
             return CrawlResponse(
                 success=False,
                 url=request.url,
                 error=f"Unsupported extraction type: {request.extraction_type}. Supported types: 'css', 'llm'"
             )
-            
+
     except Exception as e:
         return CrawlResponse(
             success=False,
@@ -3434,7 +1781,6 @@ async def _internal_extract_structured_data(request: StructuredExtractionRequest
 async def crawl_url(
     url: Annotated[str, Field(description="Target URL to crawl")],
     css_selector: Annotated[Optional[str], Field(description="CSS selector for content extraction (default: None)")] = None,
-    xpath: Annotated[Optional[str], Field(description="XPath selector for content extraction (default: None)")] = None,
     extract_media: Annotated[bool, Field(description="Whether to extract media files (default: False)")] = False,
     take_screenshot: Annotated[bool, Field(description="Whether to take a screenshot (default: False)")] = False,
     generate_markdown: Annotated[bool, Field(description="Whether to generate markdown (default: True)")] = True,
@@ -3482,7 +1828,6 @@ async def crawl_url(
     request = CrawlRequest(
         url=url,
         css_selector=css_selector,
-        xpath=xpath,
         extract_media=extract_media,
         take_screenshot=take_screenshot,
         generate_markdown=generate_markdown,
@@ -3630,7 +1975,6 @@ async def extract_structured_data(
 async def crawl_url_with_fallback(
     url: Annotated[str, Field(description="URL to crawl")],
     css_selector: Annotated[Optional[str], Field(description="CSS selector")] = None,
-    xpath: Annotated[Optional[str], Field(description="XPath selector")] = None,
     extract_media: Annotated[bool, Field(description="Extract media")] = False,
     take_screenshot: Annotated[bool, Field(description="Take screenshot")] = False,
     generate_markdown: Annotated[bool, Field(description="Generate markdown")] = True,
@@ -3742,20 +2086,44 @@ async def crawl_url_with_fallback(
         if save_session and session_manager and result.success:
             # Try to extract cookies from result or use provided cookies
             cookies_to_save = []
+            parsed = urlparse(url)
 
-            # If we have user-provided cookies, convert to Playwright format
+            # Check if result has cookies from crawl (in extracted_data)
+            if result.extracted_data and isinstance(result.extracted_data, dict):
+                crawl_cookies = result.extracted_data.get("cookies", [])
+                if crawl_cookies and isinstance(crawl_cookies, list):
+                    for cookie in crawl_cookies:
+                        if isinstance(cookie, dict) and "name" in cookie and "value" in cookie:
+                            cookies_to_save.append({
+                                "name": cookie["name"],
+                                "value": cookie["value"],
+                                "domain": cookie.get("domain", parsed.netloc),
+                                "path": cookie.get("path", "/"),
+                                "httpOnly": cookie.get("httpOnly", False),
+                                "secure": cookie.get("secure", parsed.scheme == "https"),
+                                "sameSite": cookie.get("sameSite", "Lax")
+                            })
+
+            # Add user-provided cookies (these take precedence)
             if cookies:
-                parsed = urlparse(url)
+                existing_names = {c["name"] for c in cookies_to_save}
                 for name, value in cookies.items():
-                    cookies_to_save.append({
-                        "name": name,
-                        "value": value,
-                        "domain": parsed.netloc,
-                        "path": "/",
-                        "httpOnly": False,
-                        "secure": parsed.scheme == "https",
-                        "sameSite": "Lax"
-                    })
+                    if name not in existing_names:
+                        cookies_to_save.append({
+                            "name": name,
+                            "value": value,
+                            "domain": parsed.netloc,
+                            "path": "/",
+                            "httpOnly": False,
+                            "secure": parsed.scheme == "https",
+                            "sameSite": "Lax"
+                        })
+                    else:
+                        # Update existing cookie with user value
+                        for c in cookies_to_save:
+                            if c["name"] == name:
+                                c["value"] = value
+                                break
 
             if cookies_to_save:
                 session_manager.save_session(
@@ -3770,6 +2138,7 @@ async def crawl_url_with_fallback(
                     result.extracted_data = {}
                 result.extracted_data["session_saved"] = True
                 result.extracted_data["session_domain"] = domain
+                result.extracted_data["session_cookies_count"] = len(cookies_to_save)
 
         return result
 
@@ -3820,10 +2189,14 @@ async def crawl_url_with_fallback(
 
     if use_stealth_mode:
         stealth_config = get_fingerprint_config(fingerprint_profile)
-        stealth_js = stealth_config["stealth_js"]
-        stealth_user_agent = stealth_config["user_agent"]
-        stealth_headers = stealth_config["headers"]
-        print(f"Stealth mode enabled: profile={stealth_config['profile_name']}")
+        # Validate stealth_config and fallback to default if invalid
+        if not stealth_config or not isinstance(stealth_config, dict):
+            stealth_config = get_fingerprint_config("chrome_win")  # Default fallback
+        # Ensure required keys exist with defaults
+        stealth_js = stealth_config.get("stealth_js", "")
+        stealth_user_agent = stealth_config.get("user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        stealth_headers = stealth_config.get("headers", {})
+        print(f"Stealth mode enabled: profile={stealth_config.get('profile_name', 'fallback')}")
 
         # IMPORTANT: For consistency, stealth mode always uses profile's UA and headers
         # User-provided values are ignored to maintain fingerprint integrity
@@ -3892,20 +2265,16 @@ async def crawl_url_with_fallback(
                 # Record success for Phase 7
                 _record_strategy_success(1, "static_json_extraction")
                 # Return JSON extracted data with size limit check
-                json_response = CrawlResponse(
-                    success=True,
+                json_response = await _build_json_extraction_response(
+                    json_data=json_data,
+                    json_source=json_source,
                     url=url,
-                    markdown=f"# Extracted JSON Data ({json_source})\n\n```json\n{json.dumps(json_data, indent=2, ensure_ascii=False)[:50000]}\n```",
-                    content=json.dumps(json_data, ensure_ascii=False),
-                    extracted_data={
-                        "fallback_strategy_used": "static_json_extraction",
-                        "fallback_stage": 1,
-                        "json_source": json_source,
-                        "site_type_detected": "spa_with_json"
-                    }
-                )
-                json_response = await _finalize_fallback_response(
-                    json_response, url, auto_summarize, max_content_tokens, llm_provider, llm_model
+                    strategy_name="static_json_extraction",
+                    stage=1,
+                    auto_summarize=auto_summarize,
+                    max_content_tokens=max_content_tokens,
+                    llm_provider=llm_provider,
+                    llm_model=llm_model
                 )
                 return _save_session_on_success(json_response)
 
@@ -4105,7 +2474,6 @@ async def crawl_url_with_fallback(
             strategy_params = {
                 "url": url,
                 "css_selector": strategy["params"].get("css_selector", css_selector),
-                "xpath": xpath,
                 "extract_media": extract_media,
                 "take_screenshot": take_screenshot,
                 "generate_markdown": generate_markdown,
@@ -4292,33 +2660,20 @@ async def crawl_url_with_fallback(
     if static_success and static_html:
         json_success, json_data, json_source = _extract_spa_json_data(static_html)
         if json_success and json_data:
-            # Try to extract useful content from JSON
-            content_text = ""
-            if isinstance(json_data, dict):
-                # Common patterns for content extraction
-                for key in ['props', 'pageProps', 'data', 'content', 'article', 'post']:
-                    if key in json_data:
-                        content_text = json.dumps(json_data[key], indent=2, ensure_ascii=False)
-                        break
-                if not content_text:
-                    content_text = json.dumps(json_data, indent=2, ensure_ascii=False)
-
             # Record success for Phase 7
             _record_strategy_success(7, "json_extraction")
-            stage7_response = CrawlResponse(
-                success=True,
+            # Use priority keys for content extraction
+            stage7_response = await _build_json_extraction_response(
+                json_data=json_data,
+                json_source=json_source,
                 url=url,
-                markdown=f"# Extracted JSON Data ({json_source})\n\n```json\n{content_text[:50000]}\n```",
-                content=content_text,
-                extracted_data={
-                    "fallback_strategy_used": "json_extraction",
-                    "fallback_stage": 7,
-                    "json_source": json_source,
-                    "site_type_detected": "spa_with_json"
-                }
-            )
-            stage7_response = await _finalize_fallback_response(
-                stage7_response, url, auto_summarize, max_content_tokens, llm_provider, llm_model
+                strategy_name="json_extraction",
+                stage=7,
+                auto_summarize=auto_summarize,
+                max_content_tokens=max_content_tokens,
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+                extract_content_keys=['props', 'pageProps', 'data', 'content', 'article', 'post']
             )
             return _save_session_on_success(stage7_response)
 

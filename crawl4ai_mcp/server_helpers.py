@@ -1,0 +1,250 @@
+"""Server helper functions for Crawl4AI MCP Server.
+
+This module contains utility functions used by the main server for:
+- Module loading and initialization
+- Browser setup and diagnostics
+- Result processing and content handling
+- Fallback logic
+"""
+
+import glob
+import platform
+from pathlib import Path
+from typing import Optional, Tuple, List
+
+# Global state for lazy loading
+_heavy_imports_loaded = False
+_browser_setup_done = False
+_browser_setup_failed = False
+_tools_imported = False
+
+# Global module references
+asyncio = None
+json = None
+AsyncWebCrawler = None
+web_crawling = None
+search = None
+youtube = None
+file_processing = None
+utilities = None
+
+
+def _load_heavy_imports() -> None:
+    """Load heavy imports only when tools are actually used."""
+    global _heavy_imports_loaded
+    if _heavy_imports_loaded:
+        return
+
+    global asyncio, json, AsyncWebCrawler
+
+    import asyncio as _asyncio
+    import json as _json
+    from crawl4ai import AsyncWebCrawler as _AsyncWebCrawler
+
+    asyncio = _asyncio
+    json = _json
+    AsyncWebCrawler = _AsyncWebCrawler
+
+    _heavy_imports_loaded = True
+
+
+def _load_tool_modules() -> bool:
+    """
+    Load tool modules only when needed.
+
+    Returns:
+        True if modules were loaded successfully, False otherwise.
+    """
+    global _tools_imported
+    if _tools_imported:
+        return True
+
+    global web_crawling, search, youtube, file_processing, utilities
+
+    try:
+        from .tools import web_crawling as _wc
+        from .tools import search as _s
+        from .tools import youtube as _yt
+        from .tools import file_processing as _fp
+        from .tools import utilities as _ut
+
+        web_crawling = _wc
+        search = _s
+        youtube = _yt
+        file_processing = _fp
+        utilities = _ut
+        _tools_imported = True
+        return True
+    except ImportError:
+        # Fallback for absolute imports
+        try:
+            from crawl4ai_mcp.tools import web_crawling as _wc
+            from crawl4ai_mcp.tools import search as _s
+            from crawl4ai_mcp.tools import youtube as _yt
+            from crawl4ai_mcp.tools import file_processing as _fp
+            from crawl4ai_mcp.tools import utilities as _ut
+
+            web_crawling = _wc
+            search = _s
+            youtube = _yt
+            file_processing = _fp
+            utilities = _ut
+            _tools_imported = True
+            return True
+        except ImportError:
+            _tools_imported = False
+            return False
+
+
+def _ensure_browser_setup() -> bool:
+    """
+    Browser setup with lazy loading.
+
+    Returns:
+        True if browser is set up, False otherwise.
+    """
+    global _browser_setup_done, _browser_setup_failed
+
+    if _browser_setup_done:
+        return True
+    if _browser_setup_failed:
+        return False
+
+    try:
+        # Quick browser cache check
+        cache_pattern = str(Path.home() / ".cache" / "ms-playwright" / "chromium-*")
+        if glob.glob(cache_pattern):
+            _browser_setup_done = True
+            return True
+        else:
+            _browser_setup_failed = True
+            return False
+    except Exception:
+        _browser_setup_failed = True
+        return False
+
+
+def get_system_diagnostics() -> dict:
+    """Get system diagnostics for troubleshooting browser and environment issues."""
+    _load_heavy_imports()
+
+    # Check browser cache
+    cache_pattern = str(Path.home() / ".cache" / "ms-playwright" / "chromium-*")
+    cache_dirs = glob.glob(cache_pattern)
+
+    return {
+        "status": "FastMCP 2.0 Server - Clean STDIO communication",
+        "platform": platform.system(),
+        "python_version": platform.python_version(),
+        "fastmcp_version": "2.0.0",
+        "browser_cache_found": len(cache_dirs) > 0,
+        "cache_directories": cache_dirs,
+        "recommendations": [
+            "Install Playwright browsers: pip install playwright && playwright install webkit",
+            "For UVX: uvx --with playwright playwright install webkit"
+        ]
+    }
+
+
+def _convert_result_to_dict(result) -> dict:
+    """Convert CrawlResponse or similar object to dict."""
+    if hasattr(result, 'model_dump'):
+        return result.model_dump()
+    elif hasattr(result, 'dict'):
+        return result.dict()
+    return result
+
+
+def _process_content_fields(
+    result_dict: dict,
+    include_cleaned_html: bool,
+    generate_markdown: bool
+) -> dict:
+    """Process content fields based on flags and add warnings if needed."""
+    # Preserve existing warnings from crawler
+    warnings = result_dict.get("warnings", [])
+    if not isinstance(warnings, list):
+        warnings = [warnings] if warnings else []
+
+    # Handle content field based on include_cleaned_html flag
+    if not include_cleaned_html and 'content' in result_dict:
+        # Only remove if markdown is available or generate_markdown is True
+        if generate_markdown and result_dict.get("markdown", "").strip():
+            del result_dict['content']
+            warnings.append(
+                "HTML content removed to save tokens. Use include_cleaned_html=true to include it."
+            )
+        elif not generate_markdown:
+            # Keep content when markdown generation is disabled
+            warnings.append("HTML content preserved because generate_markdown=false.")
+
+    if warnings:
+        result_dict["warnings"] = warnings
+
+    return result_dict
+
+
+def _should_trigger_fallback(
+    result_dict: dict,
+    generate_markdown: bool
+) -> Tuple[bool, str]:
+    """
+    Determine if fallback should be triggered and return reason.
+
+    Args:
+        result_dict: The crawl result dictionary
+        generate_markdown: Whether markdown generation was requested
+
+    Returns:
+        Tuple of (should_trigger, reason_message)
+    """
+    # Check explicit failure
+    if not result_dict.get("success", True):
+        error_msg = result_dict.get("error", "Unknown error")
+        return True, f"Initial crawl failed: {error_msg}"
+
+    # Check for meaningful content based on what was requested
+    has_markdown = bool(result_dict.get("markdown", "").strip())
+    has_content = bool(result_dict.get("content", "").strip())
+    has_raw_content = bool(result_dict.get("raw_content", "").strip())
+
+    # If markdown was requested but is empty, and no other content exists
+    if generate_markdown and not has_markdown:
+        if has_content or has_raw_content:
+            # Has some content, don't fallback - might be intentional (PDF, etc.)
+            return False, ""
+        return True, "Empty markdown and no alternative content available"
+
+    # If markdown was not requested, check for any content
+    if not generate_markdown and not has_content and not has_raw_content:
+        return True, "No content available in response"
+
+    return False, ""
+
+
+def get_tool_modules():
+    """
+    Get the loaded tool modules.
+
+    Returns:
+        Tuple of (web_crawling, search, youtube, file_processing, utilities)
+        or (None, None, None, None, None) if not loaded.
+    """
+    if not _tools_imported:
+        _load_tool_modules()
+    return web_crawling, search, youtube, file_processing, utilities
+
+
+def is_heavy_imports_loaded() -> bool:
+    """Check if heavy imports are loaded."""
+    return _heavy_imports_loaded
+
+
+def is_tools_imported() -> bool:
+    """Check if tool modules are imported."""
+    return _tools_imported
+
+
+def is_browser_setup_done() -> bool:
+    """Check if browser setup is done."""
+    return _browser_setup_done

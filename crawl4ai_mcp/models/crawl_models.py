@@ -13,7 +13,6 @@ class CrawlRequest(BaseRequest):
     """Request model for crawling operations."""
     url: str = Field(..., description="URL to crawl")
     css_selector: Optional[str] = Field(None, description="CSS selector for content extraction")
-    xpath: Optional[str] = Field(None, description="XPath selector for content extraction")
     extract_media: bool = Field(False, description="Whether to extract media files")
     take_screenshot: bool = Field(False, description="Whether to take a screenshot")
     generate_markdown: bool = Field(True, description="Whether to generate markdown")
