@@ -81,7 +81,6 @@ def _get_tool_modules():
 async def crawl_url(
     url: Annotated[str, Field(description="URL to crawl")],
     css_selector: Annotated[Optional[str], Field(description="CSS selector for extraction")] = None,
-    xpath: Annotated[Optional[str], Field(description="XPath selector for extraction")] = None,
     extract_media: Annotated[bool, Field(description="Extract images/videos")] = False,
     take_screenshot: Annotated[bool, Field(description="Take screenshot")] = False,
     generate_markdown: Annotated[bool, Field(description="Generate markdown")] = True,
@@ -107,7 +106,7 @@ async def crawl_url(
 
     try:
         result = await web_crawling.crawl_url(
-            url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
+            url=url, css_selector=css_selector, extract_media=extract_media,
             take_screenshot=take_screenshot, generate_markdown=generate_markdown,
             include_cleaned_html=include_cleaned_html,
             wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
@@ -129,7 +128,7 @@ async def crawl_url(
 
         # Try fallback with undetected browser
         fallback_dict = await _execute_fallback(
-            url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
+            url=url, css_selector=css_selector, extract_media=extract_media,
             take_screenshot=take_screenshot, generate_markdown=generate_markdown,
             include_cleaned_html=include_cleaned_html, wait_for_selector=wait_for_selector,
             timeout=timeout, wait_for_js=wait_for_js, auto_summarize=auto_summarize,
@@ -145,7 +144,7 @@ async def crawl_url(
 
         try:
             fallback_dict = await _execute_fallback(
-                url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
+                url=url, css_selector=css_selector, extract_media=extract_media,
                 take_screenshot=take_screenshot, generate_markdown=generate_markdown,
                 include_cleaned_html=include_cleaned_html, wait_for_selector=wait_for_selector,
                 timeout=timeout, wait_for_js=wait_for_js, auto_summarize=auto_summarize,
@@ -173,14 +172,14 @@ async def crawl_url(
 
 
 async def _execute_fallback(
-    url: str, css_selector: Optional[str], xpath: Optional[str], extract_media: bool,
+    url: str, css_selector: Optional[str], extract_media: bool,
     take_screenshot: bool, generate_markdown: bool, include_cleaned_html: bool,
     wait_for_selector: Optional[str], timeout: int, wait_for_js: bool, auto_summarize: bool,
     fallback_reason: str, original_error: Optional[str]
 ) -> dict:
     """Execute fallback crawl with undetected browser and add diagnostics."""
     fallback_result = await web_crawling.crawl_url_with_fallback(
-        url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
+        url=url, css_selector=css_selector, extract_media=extract_media,
         take_screenshot=take_screenshot, generate_markdown=generate_markdown,
         include_cleaned_html=include_cleaned_html,
         wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
@@ -700,7 +699,6 @@ async def deep_crawl_site(
 async def crawl_url_with_fallback(
     url: Annotated[str, Field(description="URL to crawl")],
     css_selector: Annotated[Optional[str], Field(description="CSS selector")] = None,
-    xpath: Annotated[Optional[str], Field(description="XPath selector")] = None,
     extract_media: Annotated[bool, Field(description="Extract media")] = False,
     take_screenshot: Annotated[bool, Field(description="Take screenshot")] = False,
     generate_markdown: Annotated[bool, Field(description="Generate markdown")] = True,
@@ -715,10 +713,10 @@ async def crawl_url_with_fallback(
             "success": False,
             "error": "Tool modules not available"
         }
-    
+
     try:
         result = await web_crawling.crawl_url_with_fallback(
-            url=url, css_selector=css_selector, xpath=xpath, extract_media=extract_media,
+            url=url, css_selector=css_selector, extract_media=extract_media,
             take_screenshot=take_screenshot, generate_markdown=generate_markdown,
             wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
             auto_summarize=auto_summarize
@@ -1687,8 +1685,7 @@ async def multi_url_crawl(
                 "wait_for_js": matched_config.get("wait_for_js", False),
                 "timeout": matched_config.get("timeout", base_timeout),
                 "use_undetected_browser": matched_config.get("use_undetected_browser", False),
-                "css_selector": matched_config.get("css_selector"),
-                "xpath": matched_config.get("xpath")
+                "css_selector": matched_config.get("css_selector")
             }
             
             try:
