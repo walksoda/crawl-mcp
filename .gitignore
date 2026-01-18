@@ -92,10 +92,11 @@ secrets/
 *.pem
 config.local.json
 
-# Test files
-test_*.py
-*_test.py
-tests/
+# Test files (root level only, allow in tests/ subdirectories)
+/test_*.py
+/*_test.py
+!tests/mcp/test_*.py
+!tests/unit/test_*.py
 tests_results/
 .pytest_cache/
 .coverage

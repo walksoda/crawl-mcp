@@ -44,6 +44,14 @@ dependencies = [
     "tiktoken>=0.5.0",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-timeout>=2.3.1",
+    "pytest-cov>=5.0.0",
+]
+
 [project.urls]
 "Homepage" = "https://github.com/walksoda/crawl-mcp"
 "Bug Reports" = "https://github.com/walksoda/crawl-mcp/issues"
@@ -68,3 +76,18 @@ build = "hatch build"
 publish-test = "hatch publish -r test"
 server = "python -m crawl4ai_mcp.server"
 server-http = "python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000"
+
+[tool.coverage.run]
+source = ["crawl4ai_mcp"]
+branch = true
+omit = [
+    "crawl4ai_mcp/archived_servers/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
