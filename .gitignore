@@ -102,6 +102,16 @@ tests_results/
 .coverage
 htmlcov/
 
+# Legacy test directories (replaced by pytest)
+tests/client/
+tests/development/
+tests/integration/
+tests/verification/
+tests/transcript_*.json
+
+# Example test files
+examples/*_test.py
+
 # Debug and development scripts
 debug_*.py
 check_*.py
