@@ -42,8 +42,9 @@ from .server_helpers import (
     is_heavy_imports_loaded,
     is_tools_imported,
     is_browser_setup_done,
+    _apply_content_slicing,
 )
-from .validators import validate_crawl_url_params
+from .validators import validate_crawl_url_params, validate_content_slicing_params
 
 # Create MCP server with clean initialization
 mcp = FastMCP("Crawl4AI")
@@ -89,13 +90,20 @@ async def crawl_url(
     timeout: Annotated[int, Field(description="Timeout in seconds")] = 60,
     wait_for_js: Annotated[bool, Field(description="Wait for JavaScript")] = False,
     auto_summarize: Annotated[bool, Field(description="Auto-summarize large content")] = False,
-    use_undetected_browser: Annotated[bool, Field(description="Bypass bot detection")] = False
+    use_undetected_browser: Annotated[bool, Field(description="Bypass bot detection")] = False,
+    content_limit: Annotated[int, Field(description="Max characters to return (0=unlimited)")] = 0,
+    content_offset: Annotated[int, Field(description="Start position for content (0-indexed)")] = 0,
 ) -> dict:
-    """Extract web page content with JavaScript support. Use wait_for_js=true for SPAs."""
+    """Extract web page content with JavaScript support. Use wait_for_js=true for SPAs. Use content_offset/content_limit for pagination."""
     # Input validation
     validation_error = _validate_crawl_url_params(url, timeout)
     if validation_error:
         return validation_error
+
+    # Content slicing validation
+    slicing_error = validate_content_slicing_params(content_limit, content_offset)
+    if slicing_error:
+        return slicing_error
 
     if not _get_tool_modules():
         return {
@@ -115,6 +123,7 @@ async def crawl_url(
 
         result_dict = _convert_result_to_dict(result)
         result_dict = _process_content_fields(result_dict, include_cleaned_html, generate_markdown)
+        result_dict = _apply_content_slicing(result_dict, content_limit, content_offset)
 
         # Record if undetected browser was used in initial request
         if use_undetected_browser:
@@ -132,7 +141,8 @@ async def crawl_url(
             take_screenshot=take_screenshot, generate_markdown=generate_markdown,
             include_cleaned_html=include_cleaned_html, wait_for_selector=wait_for_selector,
             timeout=timeout, wait_for_js=wait_for_js, auto_summarize=auto_summarize,
-            fallback_reason=fallback_reason, original_error=None
+            fallback_reason=fallback_reason, original_error=None,
+            content_limit=content_limit, content_offset=content_offset
         )
 
         return _apply_token_limit_fallback(fallback_dict, max_tokens=25000)
@@ -149,7 +159,8 @@ async def crawl_url(
                 include_cleaned_html=include_cleaned_html, wait_for_selector=wait_for_selector,
                 timeout=timeout, wait_for_js=wait_for_js, auto_summarize=auto_summarize,
                 fallback_reason=f"Exception during initial crawl: {error_type}",
-                original_error=error_message
+                original_error=error_message,
+                content_limit=content_limit, content_offset=content_offset
             )
 
             return _apply_token_limit_fallback(fallback_dict, max_tokens=25000)
@@ -175,7 +186,8 @@ async def _execute_fallback(
     url: str, css_selector: Optional[str], extract_media: bool,
     take_screenshot: bool, generate_markdown: bool, include_cleaned_html: bool,
     wait_for_selector: Optional[str], timeout: int, wait_for_js: bool, auto_summarize: bool,
-    fallback_reason: str, original_error: Optional[str]
+    fallback_reason: str, original_error: Optional[str],
+    content_limit: int = 0, content_offset: int = 0
 ) -> dict:
     """Execute fallback crawl with undetected browser and add diagnostics."""
     fallback_result = await web_crawling.crawl_url_with_fallback(
@@ -188,6 +200,7 @@ async def _execute_fallback(
 
     fallback_dict = _convert_result_to_dict(fallback_result)
     fallback_dict = _process_content_fields(fallback_dict, include_cleaned_html, generate_markdown)
+    fallback_dict = _apply_content_slicing(fallback_dict, content_limit, content_offset)
 
     # Always add fallback diagnostics
     fallback_dict["fallback_used"] = True
@@ -705,9 +718,16 @@ async def crawl_url_with_fallback(
     wait_for_selector: Annotated[Optional[str], Field(description="Element to wait for")] = None,
     timeout: Annotated[int, Field(description="Timeout in seconds")] = 60,
     wait_for_js: Annotated[bool, Field(description="Wait for JavaScript")] = False,
-    auto_summarize: Annotated[bool, Field(description="Auto-summarize content")] = False
+    auto_summarize: Annotated[bool, Field(description="Auto-summarize content")] = False,
+    content_limit: Annotated[int, Field(description="Max characters to return (0=unlimited)")] = 0,
+    content_offset: Annotated[int, Field(description="Start position for content (0-indexed)")] = 0,
 ) -> dict:
-    """Crawl with fallback strategies for anti-bot sites."""
+    """Crawl with fallback strategies for anti-bot sites. Use content_offset/content_limit for pagination."""
+    # Content slicing validation
+    slicing_error = validate_content_slicing_params(content_limit, content_offset)
+    if slicing_error:
+        return slicing_error
+
     if not _get_tool_modules():
         return {
             "success": False,
@@ -721,7 +741,10 @@ async def crawl_url_with_fallback(
             wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
             auto_summarize=auto_summarize
         )
-        return result
+        # Convert to dict and apply content slicing
+        result_dict = _convert_result_to_dict(result)
+        result_dict = _apply_content_slicing(result_dict, content_limit, content_offset)
+        return result_dict
     except Exception as e:
         return {
             "success": False,

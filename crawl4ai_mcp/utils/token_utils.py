@@ -166,7 +166,11 @@ def _generate_recommendations(result: Dict[str, Any]) -> List[str]:
     if any(key in result for key in ["content", "markdown", "text"]):
         recommendations.append("Consider using auto_summarize=True for large content")
         recommendations.append(
-            "Consider using css_selector or xpath to extract specific content sections"
+            "Consider using css_selector to extract specific content sections"
+        )
+        recommendations.append(
+            "Use content_limit and content_offset to retrieve content in chunks "
+            "(e.g., content_limit=5000, content_offset=0 for first 5000 chars)"
         )
 
     if "search_query" in result or "query" in result:

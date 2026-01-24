@@ -324,3 +324,32 @@ def validate_search_params(
         }
 
     return None
+
+
+def validate_content_slicing_params(
+    content_limit: int,
+    content_offset: int
+) -> Optional[Dict[str, Any]]:
+    """
+    Validate content slicing parameters.
+
+    Args:
+        content_limit: Maximum characters to return (0=unlimited)
+        content_offset: Start position for content (0-indexed)
+
+    Returns:
+        Error dictionary if invalid, None if valid
+    """
+    if content_limit < 0:
+        return {
+            "success": False,
+            "error": f"content_limit must be non-negative. Got: {content_limit}",
+            "error_code": "invalid_content_limit"
+        }
+    if content_offset < 0:
+        return {
+            "success": False,
+            "error": f"content_offset must be non-negative. Got: {content_offset}",
+            "error_code": "invalid_content_offset"
+        }
+    return None

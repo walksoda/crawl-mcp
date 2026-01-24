@@ -119,14 +119,23 @@ def file_test_urls() -> Dict[str, Dict[str, Any]]:
 # Helper functions for MCP result validation
 def extract_mcp_content(result) -> str:
     """Extract text content from MCP tool result."""
+    # Handle CallToolResult with content attribute
     if hasattr(result, 'content'):
         content = result.content
-    elif isinstance(result, (list, tuple)) and len(result) > 0:
-        content = result[0]
-        if hasattr(content, 'text'):
-            content = content.text
     else:
-        content = str(result)
+        content = result
+
+    # Handle list/tuple of content items
+    if isinstance(content, (list, tuple)) and len(content) > 0:
+        item = content[0]
+        if hasattr(item, 'text'):
+            return item.text
+        return str(item)
+
+    # Handle direct text content
+    if hasattr(content, 'text'):
+        return content.text
+
     return str(content)
 
 
@@ -185,3 +194,34 @@ def assert_json_structure(result, *expected_keys: str) -> None:
     elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
         for key in expected_keys:
             assert key in data[0], f"Expected key '{key}' not found in JSON result"
+
+
+def parse_mcp_json(result) -> Dict[str, Any]:
+    """Parse MCP tool result as JSON and return the data dict."""
+    import json
+    content = extract_mcp_content(result)
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return {}
+
+
+def assert_content_slicing(result, expected_limit: int, expected_offset: int = 0) -> None:
+    """Assert that content slicing was applied correctly."""
+    data = parse_mcp_json(result)
+    slicing_info = data.get("slicing_info", {})
+    markdown_info = slicing_info.get("markdown", {})
+
+    # Check if slicing info exists
+    assert slicing_info, "No slicing_info found in result"
+
+    # Check limit and offset were applied
+    if markdown_info.get("present", True):
+        assert markdown_info.get("limit") == expected_limit, \
+            f"Expected limit {expected_limit}, got {markdown_info.get('limit')}"
+        assert markdown_info.get("offset") == expected_offset, \
+            f"Expected offset {expected_offset}, got {markdown_info.get('offset')}"
+        # Check returned length respects limit
+        returned_length = markdown_info.get("returned_length", 0)
+        assert returned_length <= expected_limit, \
+            f"Returned length {returned_length} exceeds limit {expected_limit}"
