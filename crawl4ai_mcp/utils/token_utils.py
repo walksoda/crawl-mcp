@@ -102,7 +102,7 @@ def truncate_content(content: str, max_tokens: int) -> str:
     return truncated
 
 
-def apply_token_limit(result: Dict[str, Any], max_tokens: int = 20000) -> Dict[str, Any]:
+def apply_token_limit(result: Dict[str, Any], max_tokens: int = 25000) -> Dict[str, Any]:
     """
     Apply token limit to MCP tool responses to prevent Claude Code errors.
 
