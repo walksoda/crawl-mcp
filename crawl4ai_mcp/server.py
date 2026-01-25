@@ -43,6 +43,10 @@ from .server_helpers import (
     is_tools_imported,
     is_browser_setup_done,
     _apply_content_slicing,
+    _apply_search_content_slicing,
+    _get_search_cache_key,
+    _get_cached_search_result,
+    _cache_search_result,
 )
 from .validators import validate_crawl_url_params, validate_content_slicing_params
 
@@ -271,12 +275,12 @@ async def extract_youtube_transcript(
                 transcript['original_segment_count'] = segment_count
 
         # Apply token limit fallback to prevent MCP errors
-        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
+        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=25000)
 
         # Add YouTube-specific recommendations when truncation occurs
         if result_with_fallback.get("token_limit_applied") or result_with_fallback.get("emergency_truncation"):
             youtube_recommendations = [
-                "For long YouTube videos, use crawl_url directly for higher token limit (25,000 vs 20,000)",
+                "For long YouTube videos, consider using crawl_url for different extraction options",
                 f"Example: crawl_url(url='{url}', wait_for_js=true)",
             ]
             existing_recs = result_with_fallback.get("recommendations", [])
@@ -311,7 +315,7 @@ async def batch_extract_youtube_transcripts(
         result = await youtube.batch_extract_youtube_transcripts(request)
         
         # Apply token limit fallback to prevent MCP errors
-        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
+        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=25000)
         
         # If token limit was applied, provide helpful suggestion
         if result_with_fallback.get("token_limit_applied"):
@@ -351,7 +355,7 @@ async def get_youtube_video_info(
         )
         
         # Apply token limit fallback to prevent MCP errors
-        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
+        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=25000)
         
         # If token limit was applied and summarize_transcript was False, provide helpful suggestion
         if result_with_fallback.get("token_limit_applied") and not summarize_transcript:
@@ -393,7 +397,9 @@ async def process_file(
     max_content_tokens: Annotated[int, Field(description="Max tokens before summarization")] = 15000,
     summary_length: Annotated[str, Field(description="'short'|'medium'|'long'")] = "medium",
     llm_provider: Annotated[Optional[str], Field(description="LLM provider")] = None,
-    llm_model: Annotated[Optional[str], Field(description="LLM model")] = None
+    llm_model: Annotated[Optional[str], Field(description="LLM model")] = None,
+    content_limit: Annotated[int, Field(description="Max characters to return (0=unlimited)")] = 0,
+    content_offset: Annotated[int, Field(description="Start position for content (0-indexed)")] = 0
 ) -> dict:
     """Convert PDF, Word, Excel, PowerPoint, ZIP to markdown."""
     if not _get_tool_modules():
@@ -403,6 +409,12 @@ async def process_file(
         }
     
     try:
+        # Validate content slicing parameters (always validate if non-zero)
+        if content_limit != 0 or content_offset != 0:
+            slicing_error = validate_content_slicing_params(content_limit, content_offset)
+            if slicing_error:
+                return slicing_error
+
         result = await file_processing.process_file(
             url=url, max_size_mb=max_size_mb, extract_all_from_zip=extract_all_from_zip,
             include_metadata=include_metadata, auto_summarize=auto_summarize,
@@ -432,8 +444,12 @@ async def process_file(
                 'processing_time': getattr(result, 'processing_time', None)
             }
         
+        # Apply content slicing if requested
+        if content_limit != 0 or content_offset != 0:
+            result_dict = _apply_content_slicing(result_dict, content_limit, content_offset)
+        
         # Apply token limit fallback to prevent MCP errors
-        result_with_fallback = _apply_token_limit_fallback(result_dict, max_tokens=20000)
+        result_with_fallback = _apply_token_limit_fallback(result_dict, max_tokens=25000)
         
         # If token limit was applied and auto_summarize was False, provide helpful suggestion
         if result_with_fallback.get("token_limit_applied") and not auto_summarize:
@@ -1267,10 +1283,55 @@ async def search_google(
         }
     
     try:
-        result = await search.search_google(request)
+        # Extract parameters from request
+        query = request.get('query', '')
+        num_results = request.get('num_results', 10)
         
+        # Extract and coerce to int (handles float/string from JSON)
+        try:
+            content_limit = int(request.get('content_limit', 0))
+            content_offset = int(request.get('content_offset', 0))
+        except (TypeError, ValueError) as e:
+            return {
+                "success": False,
+                "error": f"Invalid content slicing parameter type: {str(e)}",
+                "error_code": "invalid_slicing_param_type"
+            }
+
+        # Validate content slicing parameters (always validate if non-zero)
+        if content_limit != 0 or content_offset != 0:
+            slicing_error = validate_content_slicing_params(content_limit, content_offset)
+            if slicing_error:
+                return slicing_error
+
+        # Check cache when slicing is requested
+        cache_key = None
+        if content_limit != 0 or content_offset != 0:
+            cache_key = _get_search_cache_key(request)
+            cached = _get_cached_search_result(cache_key)
+            if cached:
+                # Apply slicing to cached result
+                import copy
+                result_copy = copy.deepcopy(cached)
+                result_copy = _apply_search_content_slicing(result_copy, content_limit, content_offset)
+                result_copy['cache_hit'] = True
+                return _apply_token_limit_fallback(result_copy, max_tokens=25000)
+
+        # Execute search
+        result = await search.search_google(request)
+
+        # Store in cache if slicing is requested and search succeeded
+        if result.get('success') and cache_key:
+            import copy
+            _cache_search_result(cache_key, copy.deepcopy(result))
+
+        # Apply content slicing if requested
+        if content_limit != 0 or content_offset != 0:
+            result = _apply_search_content_slicing(result, content_limit, content_offset)
+            result['cache_hit'] = False
+
         # Apply token limit fallback to prevent MCP errors
-        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=20000)
+        result_with_fallback = _apply_token_limit_fallback(result, max_tokens=25000)
         
         return result_with_fallback
         

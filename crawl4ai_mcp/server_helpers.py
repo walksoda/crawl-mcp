@@ -311,3 +311,184 @@ def _apply_content_slicing(
 
     result_dict['slicing_info'] = slicing_info
     return result_dict
+
+
+# =============================================================================
+# Search Result Cache Mechanism (LRU + TTL)
+# =============================================================================
+
+from collections import OrderedDict
+from dataclasses import dataclass
+import hashlib
+import time as _time
+
+# Cache settings
+_SEARCH_CACHE_MAX_SIZE = 5
+_SEARCH_CACHE_TTL_SECONDS = 3600  # 1 hour
+
+
+@dataclass
+class _CacheEntry:
+    """Cache entry with data and timestamp."""
+    data: dict
+    timestamp: float
+
+
+# Search result cache (LRU + TTL)
+_search_result_cache: OrderedDict[str, _CacheEntry] = OrderedDict()
+
+
+def _get_search_cache_key(request: dict) -> str:
+    """Generate cache key for search query including all relevant parameters.
+    
+    Normalizes defaults to match actual search behavior and avoid cache misses.
+    """
+    # Normalize num_results (clamp to valid range 1-100, default 10)
+    num_results = request.get('num_results', 10)
+    if num_results is None:
+        num_results = 10
+    num_results = max(1, min(100, int(num_results)))
+    
+    # Normalize language (default 'en')
+    language = request.get('language') or 'en'
+    
+    # Normalize region (default 'us')
+    region = request.get('region') or 'us'
+    
+    # Normalize recent_days (None/0/'' all mean no filter)
+    recent_days = request.get('recent_days')
+    recent_days_str = str(recent_days) if recent_days else ''
+    
+    # Normalize safe_search (default True)
+    safe_search = request.get('safe_search', True)
+    if safe_search is None:
+        safe_search = True
+    
+    # Normalize search_genre (None/'' both mean no genre filter)
+    search_genre = request.get('search_genre') or ''
+    
+    # Build cache key with all parameters that affect search results
+    key_parts = [
+        request.get('query', ''),
+        str(num_results),
+        search_genre,
+        language,
+        region,
+        recent_days_str,
+        str(safe_search),
+    ]
+    key_str = ":".join(key_parts)
+    return hashlib.md5(key_str.encode()).hexdigest()
+
+
+def _cleanup_expired_cache() -> None:
+    """Remove expired cache entries."""
+    now = _time.time()
+    expired_keys = [
+        key for key, entry in _search_result_cache.items()
+        if now - entry.timestamp > _SEARCH_CACHE_TTL_SECONDS
+    ]
+    for key in expired_keys:
+        del _search_result_cache[key]
+
+
+def _get_cached_search_result(cache_key: str) -> Optional[dict]:
+    """Get search result from cache (LRU update, TTL check)."""
+    _cleanup_expired_cache()  # Clean up expired entries first
+
+    if cache_key in _search_result_cache:
+        entry = _search_result_cache[cache_key]
+        # TTL check
+        if _time.time() - entry.timestamp <= _SEARCH_CACHE_TTL_SECONDS:
+            _search_result_cache.move_to_end(cache_key)
+            return entry.data
+        else:
+            # Expired, remove it
+            del _search_result_cache[cache_key]
+    return None
+
+
+def _cache_search_result(cache_key: str, result: dict) -> None:
+    """Store search result in cache."""
+    _cleanup_expired_cache()  # Clean up before storing
+
+    if cache_key in _search_result_cache:
+        _search_result_cache.move_to_end(cache_key)
+        _search_result_cache[cache_key] = _CacheEntry(data=result, timestamp=_time.time())
+    else:
+        if len(_search_result_cache) >= _SEARCH_CACHE_MAX_SIZE:
+            _search_result_cache.popitem(last=False)  # Remove oldest entry
+        _search_result_cache[cache_key] = _CacheEntry(data=result, timestamp=_time.time())
+
+
+def clear_search_cache() -> None:
+    """Clear the search result cache. Useful for testing."""
+    _search_result_cache.clear()
+
+
+def _apply_search_content_slicing(
+    result_dict: dict,
+    content_limit: int,
+    content_offset: int
+) -> dict:
+    """
+    Apply content slicing to search results by combining snippets.
+
+    Args:
+        result_dict: The search result dictionary
+        content_limit: Maximum characters to return (0=unlimited)
+        content_offset: Start position for content (0-indexed)
+
+    Returns:
+        Result dictionary with content field and slicing_info added
+    """
+    # Defensive: ensure non-negative values
+    content_limit = max(0, content_limit)
+    content_offset = max(0, content_offset)
+
+    # Null-safe handling of results
+    results = result_dict.get('results') or []
+    if not isinstance(results, list):
+        results = []
+    content_parts = []
+
+    for i, item in enumerate(results, 1):
+        # Skip non-dict items to prevent AttributeError
+        if not isinstance(item, dict):
+            continue
+        title = item.get('title', '') or ''
+        snippet = item.get('snippet', '') or ''
+        url = item.get('url', '') or ''
+        part = f"[{i}] {title}\n{url}\n{snippet}\n"
+        content_parts.append(part)
+
+    combined_content = "\n".join(content_parts)
+    original_length = len(combined_content)
+
+    # Apply slicing
+    sliced = combined_content[content_offset:]
+    if content_limit > 0:
+        sliced = sliced[:content_limit]
+
+    result_dict['content'] = sliced
+
+    # Calculate effective_limit
+    if content_limit > 0:
+        effective_limit = content_limit
+    else:
+        effective_limit = max(0, original_length - content_offset)
+
+    result_dict['slicing_info'] = {
+        'content': {
+            'original_length': original_length,
+            'offset': content_offset,
+            'limit': content_limit,
+            'effective_limit': effective_limit,
+            'returned_length': len(sliced),
+            'offset_exceeded': content_offset >= original_length,
+            'source': 'combined_search_snippets',
+            'result_count': len(results)
+        }
+    }
+
+    return result_dict
