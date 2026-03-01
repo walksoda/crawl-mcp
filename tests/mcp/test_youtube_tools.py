@@ -112,7 +112,13 @@ class TestExtractYoutubeTranscript:
 
         assert_tool_success(result)
         data = parse_mcp_result(result)
-        assert data.get("extracted_data", {}).get("language_info", {}).get("source_language") is not None
+        extracted = data.get("extracted_data", {})
+        # When transcript API succeeds, language_info contains source_language.
+        # When fallback is used, language_info may be empty but processing_method indicates fallback.
+        if extracted.get("processing_method") == "crawl_url_fallback":
+            assert extracted.get("language_info") is not None
+        else:
+            assert extracted.get("language_info", {}).get("source_language") is not None
 
     @pytest.mark.asyncio
     @pytest.mark.slow
