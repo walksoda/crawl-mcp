@@ -29,6 +29,16 @@ class YouTubeTranscriptResponse(BaseResponse):
     extracted_data: Optional[Dict[str, Any]] = None
 
 
+class YouTubeCommentsResponse(BaseResponse):
+    """Response model for YouTube comments extraction."""
+    url: Optional[str] = None
+    video_id: Optional[str] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    markdown: Optional[str] = None
+    extracted_data: Optional[Dict[str, Any]] = None
+
+
 class YouTubeBatchRequest(BaseRequest):
     """Request model for batch YouTube transcript extraction."""
     urls: List[str] = Field(..., description="List of YouTube video URLs")

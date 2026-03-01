@@ -250,6 +250,270 @@ class TestBatchExtractYoutubeTranscripts:
 
 @pytest.mark.mcp
 @pytest.mark.youtube
+class TestExtractYoutubeComments:
+    """Tests for extract_youtube_comments tool."""
+
+    @pytest.mark.asyncio
+    async def test_basic_extraction(self, mcp_client, youtube_test_videos):
+        """Test basic comment extraction returns expected structure."""
+        video = youtube_test_videos["music_video"]
+
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "max_comments": 10}
+        )
+
+        assert_tool_success(result)
+        data = parse_mcp_result(result)
+
+        assert data["success"] is True
+        assert "content" in data
+        assert "markdown" in data
+        assert "video_id" in data
+        assert "title" in data
+        assert "extracted_data" in data
+
+        extracted = data["extracted_data"]
+        assert "video_id" in extracted
+        assert "processing_method" in extracted
+        assert extracted["processing_method"] == "youtube_comment_downloader"
+        assert "comment_stats" in extracted
+        assert "comments" in extracted
+        assert "has_more" in extracted
+
+    @pytest.mark.asyncio
+    async def test_sort_by_recent(self, mcp_client, youtube_test_videos):
+        """Test comment extraction with sort_by=recent."""
+        video = youtube_test_videos["music_video"]
+
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "max_comments": 5, "sort_by": "recent"}
+        )
+
+        assert_tool_success(result)
+        data = parse_mcp_result(result)
+        assert data["success"] is True
+        assert data["extracted_data"]["sort_by"] == "recent"
+
+    @pytest.mark.asyncio
+    async def test_exclude_replies(self, mcp_client, youtube_test_videos):
+        """Test comment extraction without replies."""
+        video = youtube_test_videos["music_video"]
+
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "max_comments": 10, "include_replies": False}
+        )
+
+        assert_tool_success(result)
+        data = parse_mcp_result(result)
+        assert data["success"] is True
+        assert data["extracted_data"]["include_replies"] is False
+
+        # All comments should be top-level
+        comments = data["extracted_data"]["comments"]
+        for c in comments:
+            assert c["is_reply"] is False
+
+    @pytest.mark.asyncio
+    async def test_comment_stats_structure(self, mcp_client, youtube_test_videos):
+        """Test that comment_stats has expected fields."""
+        video = youtube_test_videos["music_video"]
+
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "max_comments": 10}
+        )
+
+        assert_tool_success(result)
+        data = parse_mcp_result(result)
+
+        stats = data["extracted_data"]["comment_stats"]
+        assert "total_comments" in stats
+        assert "top_level_comments" in stats
+        assert "reply_comments" in stats
+        assert "unique_authors" in stats
+        assert stats["total_comments"] == stats["top_level_comments"] + stats["reply_comments"]
+
+    @pytest.mark.asyncio
+    async def test_comment_offset_pagination(self, mcp_client, youtube_test_videos):
+        """Test comment_offset for pagination produces different results."""
+        video = youtube_test_videos["music_video"]
+
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "max_comments": 3, "comment_offset": 0, "include_replies": False}
+        )
+
+        assert_tool_success(result)
+        data = parse_mcp_result(result)
+        assert data["success"] is True
+        assert data["extracted_data"]["comment_offset"] == 0
+        page1_cids = {c["cid"] for c in data["extracted_data"]["comments"]}
+
+        # Second page
+        result2 = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "max_comments": 3, "comment_offset": 3, "include_replies": False}
+        )
+
+        assert_tool_success(result2)
+        data2 = parse_mcp_result(result2)
+        assert data2["success"] is True
+        assert data2["extracted_data"]["comment_offset"] == 3
+
+        # Verify no overlap between pages
+        page2_cids = {c["cid"] for c in data2["extracted_data"]["comments"]}
+        assert page1_cids.isdisjoint(page2_cids), "Pages should not have duplicate comments"
+
+    @pytest.mark.asyncio
+    async def test_content_slicing(self, mcp_client, youtube_test_videos):
+        """Test content slicing with content_offset and content_limit."""
+        video = youtube_test_videos["music_video"]
+
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {
+                "url": video["url"],
+                "max_comments": 10,
+                "content_limit": 200,
+                "content_offset": 0
+            }
+        )
+
+        assert_tool_success(result)
+        data = parse_mcp_result(result)
+
+        if data.get("slicing_info"):
+            slicing = data["slicing_info"]
+            assert "markdown" in slicing or "content" in slicing
+
+    @pytest.mark.asyncio
+    async def test_invalid_url(self, mcp_client):
+        """Test extraction with invalid URL returns error."""
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": "https://example.com/not-youtube"}
+        )
+
+        content = extract_mcp_content(result)
+        data = json.loads(content)
+        assert data["success"] is False
+        assert "error" in data
+
+    @pytest.mark.asyncio
+    async def test_invalid_sort_by(self, mcp_client, youtube_test_videos):
+        """Test extraction with invalid sort_by value returns error."""
+        video = youtube_test_videos["music_video"]
+
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "sort_by": "invalid_sort"}
+        )
+
+        content = extract_mcp_content(result)
+        data = json.loads(content)
+        assert data["success"] is False
+        assert "sort_by" in data["error"].lower() or "invalid" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_max_comments_boundary(self, mcp_client, youtube_test_videos):
+        """Test max_comments boundary values."""
+        video = youtube_test_videos["music_video"]
+
+        # max_comments = 1 (minimum)
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "max_comments": 1}
+        )
+
+        assert_tool_success(result)
+        data = parse_mcp_result(result)
+        assert data["success"] is True
+        assert len(data["extracted_data"]["comments"]) <= 1
+
+    @pytest.mark.asyncio
+    async def test_max_comments_over_limit(self, mcp_client, youtube_test_videos):
+        """Test max_comments over 1000 returns error."""
+        video = youtube_test_videos["music_video"]
+
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "max_comments": 1001}
+        )
+
+        content = extract_mcp_content(result)
+        data = json.loads(content)
+        assert data["success"] is False
+        assert "max_comments" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_negative_comment_offset(self, mcp_client, youtube_test_videos):
+        """Test negative comment_offset returns error."""
+        video = youtube_test_videos["music_video"]
+
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "comment_offset": -1}
+        )
+
+        content = extract_mcp_content(result)
+        data = json.loads(content)
+        assert data["success"] is False
+        assert "comment_offset" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_markdown_escaping(self, mcp_client, youtube_test_videos):
+        """Test that markdown content contains escaped special characters."""
+        video = youtube_test_videos["music_video"]
+
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "max_comments": 5}
+        )
+
+        assert_tool_success(result)
+        data = parse_mcp_result(result)
+
+        # Markdown should exist and content/markdown should match
+        assert data.get("content") == data.get("markdown")
+        assert len(data.get("markdown", "")) > 0
+
+    @pytest.mark.asyncio
+    async def test_comments_disabled_video(self, mcp_client, youtube_test_videos):
+        """Test extraction from a video with comments disabled returns empty list."""
+        video = youtube_test_videos["comments_disabled"]
+
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "max_comments": 5}
+        )
+
+        assert_tool_success(result)
+        data = parse_mcp_result(result)
+        assert data["success"] is True
+        assert data["extracted_data"]["comment_stats"]["total_comments"] == 0
+        assert data["extracted_data"]["comments"] == []
+        assert data["extracted_data"]["has_more"] is False
+
+    @pytest.mark.asyncio
+    async def test_content_and_markdown_match(self, mcp_client, youtube_test_videos):
+        """Test that content and markdown fields contain identical values."""
+        video = youtube_test_videos["music_video"]
+
+        result = await mcp_client.call_tool(
+            "extract_youtube_comments",
+            {"url": video["url"], "max_comments": 3}
+        )
+
+        assert_tool_success(result)
+        data = parse_mcp_result(result)
+        assert data["content"] == data["markdown"]
+
+
+@pytest.mark.mcp
+@pytest.mark.youtube
 class TestGetYoutubeVideoInfo:
     """Tests for get_youtube_video_info tool."""
 

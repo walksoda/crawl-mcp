@@ -29,6 +29,7 @@ __all__ = [
     # YouTube models
     'YouTubeTranscriptRequest',
     'YouTubeTranscriptResponse',
+    'YouTubeCommentsResponse',
     'YouTubeBatchRequest',
     'YouTubeBatchResponse',
     

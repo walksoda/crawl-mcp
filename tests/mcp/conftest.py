@@ -38,6 +38,10 @@ def youtube_test_videos() -> Dict[str, Dict[str, Any]]:
             "has_transcript": True,
             "min_duration": 300,
         },
+        "comments_disabled": {
+            "url": "https://www.youtube.com/watch?v=fGWH4Oh0my0",
+            "has_comments": False,
+        },
     }
 
 

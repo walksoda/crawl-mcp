@@ -169,6 +169,84 @@ def register_youtube_tools(mcp, get_modules):
                 "error": f"YouTube video info error: {str(e)}"
             }
 
+    @mcp.tool()
+    async def extract_youtube_comments(
+        url: Annotated[str, Field(description="YouTube video URL")],
+        sort_by: Annotated[str, Field(description="'popular'|'recent'")] = "popular",
+        max_comments: Annotated[int, Field(description="Max comments to retrieve (1-1000)")] = 300,
+        comment_offset: Annotated[int, Field(description="Number of comments to skip (for pagination)")] = 0,
+        include_replies: Annotated[bool, Field(description="Include reply comments")] = True,
+        content_offset: Annotated[int, Field(description="Start position for content (0-indexed)")] = 0,
+        content_limit: Annotated[int, Field(description="Max characters to return (0=unlimited)")] = 0,
+    ) -> dict:
+        """Extract YouTube video comments. Supports pagination via comment_offset."""
+        modules = get_modules()
+        if not modules:
+            return {"success": False, "error": "Tool modules not available"}
+        _, _, youtube, _, _ = modules
+
+        # Validate content slicing params
+        slicing_error = validate_content_slicing_params(content_limit, content_offset)
+        if slicing_error:
+            return slicing_error
+
+        try:
+            result = await youtube.extract_youtube_comments(
+                url=url, sort_by=sort_by, max_comments=max_comments,
+                include_replies=include_replies, comment_offset=comment_offset,
+            )
+
+            # Apply content slicing if requested
+            if content_limit > 0 or content_offset > 0:
+                result = _apply_content_slicing(result, content_limit, content_offset)
+
+            # Pre-truncate comments array to prevent token limit bypass
+            # The generic apply_token_limit only truncates top-level string/list
+            # fields and does not reach nested arrays inside extracted_data
+            extracted = result.get("extracted_data")
+            if isinstance(extracted, dict) and "comments" in extracted:
+                import json as _json
+                from ..utils.token_utils import estimate_tokens
+                result_tokens = estimate_tokens(_json.dumps(result))
+                if result_tokens > 25000:
+                    comments_list = extracted["comments"]
+                    original_count = len(comments_list)
+                    # Progressively reduce until under limit
+                    while len(comments_list) > 1:
+                        comments_list = comments_list[:len(comments_list) // 2]
+                        extracted["comments"] = comments_list
+                        if estimate_tokens(_json.dumps(result)) <= 25000:
+                            break
+                    if original_count != len(comments_list):
+                        extracted["comments_truncated_from"] = original_count
+                        extracted["comments_truncated_info"] = (
+                            f"Showing {len(comments_list)} of {original_count} comments. "
+                            "Use comment_offset for pagination."
+                        )
+
+            # Apply token limit fallback to prevent MCP errors
+            result_with_fallback = apply_token_limit(result, max_tokens=25000)
+
+            # Add recommendations when truncation occurs
+            if result_with_fallback.get("token_limit_applied") or result_with_fallback.get("emergency_truncation"):
+                comment_recommendations = [
+                    "Use max_comments to limit the number of comments retrieved",
+                    "Use comment_offset to paginate through comments",
+                    f"Example: extract_youtube_comments(url='{url}', max_comments=100, comment_offset={comment_offset + max_comments})",
+                    "Use content_limit and content_offset to retrieve content in chunks",
+                ]
+                existing_recs = result_with_fallback.get("recommendations", [])
+                result_with_fallback["recommendations"] = comment_recommendations + existing_recs
+                result_with_fallback["suggestion"] = "Comments were truncated due to MCP token limits. Use comment_offset for pagination or reduce max_comments."
+
+            return result_with_fallback
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"YouTube comment extraction error: {str(e)}"
+            }
+
     async def get_youtube_api_setup_guide() -> Dict[str, Any]:
         """Get youtube-transcript-api setup info. No API key required."""
         modules = get_modules()

@@ -9,7 +9,8 @@ from .youtube import (
     extract_youtube_transcript,
     batch_extract_youtube_transcripts,
     get_youtube_video_info,
-    get_youtube_api_setup_guide
+    get_youtube_api_setup_guide,
+    extract_youtube_comments,
 )
 
 # File processing tools
@@ -91,6 +92,7 @@ __all__ = [
     'batch_extract_youtube_transcripts',
     'get_youtube_video_info',
     'get_youtube_api_setup_guide',
+    'extract_youtube_comments',
 
     # File processing tools
     'process_file',

@@ -23,6 +23,9 @@ beautifulsoup4>=4.12.0
 # YouTube transcript extraction - fixed version
 youtube-transcript-api==1.2.3
 
+# YouTube comment extraction - fixed version
+youtube-comment-downloader==0.1.78
+
 # Playwright for lightweight browser automation - fixed version
 playwright==1.55.0
 

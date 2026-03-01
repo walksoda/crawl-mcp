@@ -292,6 +292,125 @@ class YouTubeProcessor(YouTubeProcessorBase):
 
         return processed_results
 
+    async def extract_comments(
+        self,
+        video_id: str,
+        url: str,
+        sort_by: str = "popular",
+        max_comments: int = 300,
+        include_replies: bool = True,
+        comment_offset: int = 0
+    ) -> Dict[str, Any]:
+        """Extract comments from YouTube video using youtube-comment-downloader."""
+        try:
+            from youtube_comment_downloader import YoutubeCommentDownloader, SORT_BY_POPULAR, SORT_BY_RECENT
+        except ImportError:
+            return {
+                'success': False,
+                'error': 'youtube-comment-downloader is not installed. Install with: pip install youtube-comment-downloader==0.1.78',
+                'video_id': video_id
+            }
+
+        sort_map = {
+            "popular": SORT_BY_POPULAR,
+            "recent": SORT_BY_RECENT,
+        }
+        sort_constant = sort_map.get(sort_by, SORT_BY_POPULAR)
+
+        def _download_comments():
+            downloader = YoutubeCommentDownloader()
+            generator = downloader.get_comments_from_url(url, sort_by=sort_constant)
+
+            comments = []
+            skipped = 0
+            collected = 0
+            has_more = False
+
+            for raw_comment in generator:
+                is_reply = raw_comment.get('reply', False)
+
+                if not include_replies and is_reply:
+                    continue
+
+                if skipped < comment_offset:
+                    skipped += 1
+                    continue
+
+                if collected >= max_comments:
+                    has_more = True
+                    break
+
+                comment = {
+                    'cid': raw_comment.get('cid', ''),
+                    'text': raw_comment.get('text', ''),
+                    'author': raw_comment.get('author', ''),
+                    'time': raw_comment.get('time', ''),
+                    'votes': raw_comment.get('votes', '0'),
+                    'replies': raw_comment.get('replies', 0),
+                    'heart': raw_comment.get('heart', False),
+                    'is_reply': is_reply,
+                }
+                comments.append(comment)
+                collected += 1
+
+            return comments, has_more
+
+        try:
+            comments, has_more = await asyncio.wait_for(
+                asyncio.to_thread(_download_comments),
+                timeout=120
+            )
+        except asyncio.TimeoutError:
+            return {
+                'success': False,
+                'error': 'Comment extraction timed out after 120 seconds. Try reducing max_comments or using comment_offset for pagination.',
+                'video_id': video_id
+            }
+        except Exception as e:
+            error_msg = str(e)
+            if "disable" in error_msg.lower() or "unavailable" in error_msg.lower():
+                return {
+                    'success': False,
+                    'error': f'Comments are disabled or video is unavailable: {error_msg}',
+                    'video_id': video_id
+                }
+            return {
+                'success': False,
+                'error': f'Comment extraction failed: {error_msg}',
+                'video_id': video_id
+            }
+
+        if not comments:
+            return {
+                'success': True,
+                'video_id': video_id,
+                'comments': [],
+                'has_more': False,
+                'comment_stats': {
+                    'total_comments': 0,
+                    'top_level_comments': 0,
+                    'reply_comments': 0,
+                    'unique_authors': 0
+                }
+            }
+
+        top_level = [c for c in comments if not c['is_reply']]
+        reply_comments = [c for c in comments if c['is_reply']]
+        unique_authors = len(set(c['author'] for c in comments if c['author']))
+
+        return {
+            'success': True,
+            'video_id': video_id,
+            'comments': comments,
+            'has_more': has_more,
+            'comment_stats': {
+                'total_comments': len(comments),
+                'top_level_comments': len(top_level),
+                'reply_comments': len(reply_comments),
+                'unique_authors': unique_authors
+            }
+        }
+
     async def summarize_transcript(
         self,
         transcript_text: str,
