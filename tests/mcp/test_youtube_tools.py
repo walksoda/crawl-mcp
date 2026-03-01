@@ -24,6 +24,23 @@ def parse_mcp_result(result) -> dict:
     return json.loads(content)
 
 
+def assert_comments_success(data: dict) -> None:
+    """Assert comment extraction succeeded, skip if YouTube API is unavailable in CI."""
+    if data.get("success") is True:
+        return
+    error = data.get("error", "")
+    # Skip on transient/network errors that indicate CI environment issues
+    skip_patterns = [
+        "timeout", "timed out", "unavailable", "blocked", "rate limit",
+        "connection", "network", "http error", "403", "429",
+    ]
+    error_lower = error.lower()
+    for pattern in skip_patterns:
+        if pattern in error_lower:
+            pytest.skip(f"YouTube comments API unavailable in CI: {error}")
+    assert data["success"] is True, f"Comment extraction failed: {error}"
+
+
 @pytest.mark.mcp
 @pytest.mark.youtube
 class TestExtractYoutubeTranscript:
@@ -271,8 +288,8 @@ class TestExtractYoutubeComments:
 
         assert_tool_success(result)
         data = parse_mcp_result(result)
+        assert_comments_success(data)
 
-        assert data["success"] is True
         assert "content" in data
         assert "markdown" in data
         assert "video_id" in data
@@ -299,7 +316,7 @@ class TestExtractYoutubeComments:
 
         assert_tool_success(result)
         data = parse_mcp_result(result)
-        assert data["success"] is True
+        assert_comments_success(data)
         assert data["extracted_data"]["sort_by"] == "recent"
 
     @pytest.mark.asyncio
@@ -314,7 +331,7 @@ class TestExtractYoutubeComments:
 
         assert_tool_success(result)
         data = parse_mcp_result(result)
-        assert data["success"] is True
+        assert_comments_success(data)
         assert data["extracted_data"]["include_replies"] is False
 
         # All comments should be top-level
@@ -334,6 +351,7 @@ class TestExtractYoutubeComments:
 
         assert_tool_success(result)
         data = parse_mcp_result(result)
+        assert_comments_success(data)
 
         stats = data["extracted_data"]["comment_stats"]
         assert "total_comments" in stats
@@ -354,7 +372,7 @@ class TestExtractYoutubeComments:
 
         assert_tool_success(result)
         data = parse_mcp_result(result)
-        assert data["success"] is True
+        assert_comments_success(data)
         assert data["extracted_data"]["comment_offset"] == 0
         assert len(data["extracted_data"]["comments"]) > 0
 
@@ -366,7 +384,7 @@ class TestExtractYoutubeComments:
 
         assert_tool_success(result2)
         data2 = parse_mcp_result(result2)
-        assert data2["success"] is True
+        assert_comments_success(data2)
         assert data2["extracted_data"]["comment_offset"] == 5
         assert len(data2["extracted_data"]["comments"]) > 0
 
@@ -433,7 +451,7 @@ class TestExtractYoutubeComments:
 
         assert_tool_success(result)
         data = parse_mcp_result(result)
-        assert data["success"] is True
+        assert_comments_success(data)
         assert len(data["extracted_data"]["comments"]) <= 1
 
     @pytest.mark.asyncio
@@ -478,6 +496,7 @@ class TestExtractYoutubeComments:
 
         assert_tool_success(result)
         data = parse_mcp_result(result)
+        assert_comments_success(data)
 
         # Markdown should exist and content/markdown should match
         assert data.get("content") == data.get("markdown")
@@ -495,7 +514,7 @@ class TestExtractYoutubeComments:
 
         assert_tool_success(result)
         data = parse_mcp_result(result)
-        assert data["success"] is True
+        assert_comments_success(data)
         assert data["extracted_data"]["comment_stats"]["total_comments"] == 0
         assert data["extracted_data"]["comments"] == []
         assert data["extracted_data"]["has_more"] is False
@@ -512,6 +531,7 @@ class TestExtractYoutubeComments:
 
         assert_tool_success(result)
         data = parse_mcp_result(result)
+        assert_comments_success(data)
         assert data["content"] == data["markdown"]
 
 
