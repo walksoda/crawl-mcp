@@ -98,6 +98,7 @@ ESSENTIAL_FIELDS = [
     "search_query",
     "video_id",
     "language_info",
+    "extracted_data",
 ]
 
 # =============================================================================

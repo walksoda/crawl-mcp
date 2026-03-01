@@ -60,6 +60,8 @@ logs/
 
 # Claude Desktop specific
 .claude/
+tasks/
+tasks/**
 
 # Temporary files
 *.tmp

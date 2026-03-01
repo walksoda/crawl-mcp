@@ -273,13 +273,6 @@ def _apply_emergency_truncation(
             f"Showing 3 of {len(original_result['results'])} results"
         )
 
-    # Special handling for YouTube transcript data
-    if original_result.get("transcript") and isinstance(original_result["transcript"], list):
-        _add_transcript_content(
-            original_result, essential_result,
-            available_content_tokens, content_added
-        )
-
     return essential_result
 
 
@@ -353,43 +346,3 @@ def _fit_content_to_tokens(
     return truncated_content if truncated_content else None
 
 
-def _add_transcript_content(
-    original_result: Dict[str, Any],
-    essential_result: Dict[str, Any],
-    available_tokens: int,
-    content_added: bool
-) -> None:
-    """Add YouTube transcript content with intelligent truncation."""
-    transcript_entries = original_result["transcript"]
-    total_entries = len(transcript_entries)
-
-    # Use remaining available tokens if content wasn't added
-    transcript_available_tokens = (
-        available_tokens if not content_added else max(available_tokens // 2, 1000)
-    )
-
-    # Find maximum number of entries that fit
-    entries_to_include = []
-    for i, entry in enumerate(transcript_entries):
-        test_entries = transcript_entries[:i + 1]
-        test_size = estimate_tokens(json.dumps(test_entries))
-        if test_size > transcript_available_tokens:
-            break
-        entries_to_include = test_entries
-
-    if entries_to_include:
-        essential_result["transcript"] = entries_to_include
-        included_count = len(entries_to_include)
-        percentage = int((included_count / total_entries) * 100)
-        essential_result["transcript_truncated_info"] = (
-            f"Showing {included_count} of {total_entries} entries ({percentage}%)"
-        )
-        essential_result["transcript_total_entries"] = total_entries
-
-        # Calculate time coverage if timestamps are available
-        if entries_to_include and "start" in entries_to_include[-1]:
-            last_timestamp = entries_to_include[-1].get("start", 0)
-            essential_result["transcript_time_coverage_seconds"] = last_timestamp
-            essential_result["transcript_time_coverage_formatted"] = (
-                f"{int(last_timestamp // 60)}:{int(last_timestamp % 60):02d}"
-            )
