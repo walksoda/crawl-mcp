@@ -25,7 +25,12 @@ def register_crawl_tools(mcp, get_modules):
         fallback_reason: str, original_error: Optional[str],
         content_limit: int = 0, content_offset: int = 0
     ) -> dict:
-        """Execute fallback crawl with undetected browser and add diagnostics."""
+        """Execute fallback crawl with undetected browser and add diagnostics.
+
+        Note: content_offset is not passed to the core fallback function because
+        the fallback path (crawler_fallback.py) manages its own cache strategy.
+        Content slicing is applied post-hoc via _apply_content_slicing instead.
+        """
         web_crawling, _, _, _, _ = get_modules()
         fallback_result = await web_crawling.crawl_url_with_fallback(
             url=url, css_selector=css_selector, extract_media=extract_media,
@@ -87,7 +92,8 @@ def register_crawl_tools(mcp, get_modules):
                 take_screenshot=take_screenshot, generate_markdown=generate_markdown,
                 include_cleaned_html=include_cleaned_html,
                 wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
-                auto_summarize=auto_summarize, use_undetected_browser=use_undetected_browser
+                auto_summarize=auto_summarize, use_undetected_browser=use_undetected_browser,
+                content_offset=content_offset
             )
 
             result_dict = _convert_result_to_dict(result)

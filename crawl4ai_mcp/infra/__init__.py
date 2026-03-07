@@ -13,6 +13,7 @@ from .browser import (
 from .diagnostics import get_system_diagnostics
 from .session import SessionManager, get_session_manager, extract_cookies_from_result
 from .strategy_cache import StrategyCache, get_strategy_cache
+from .content_cache_policy import ContentCachePolicy, get_content_cache_policy
 from .fingerprint import FingerprintProfile, get_fingerprint_config
 
 __all__ = [
@@ -26,6 +27,8 @@ __all__ = [
     "extract_cookies_from_result",
     "StrategyCache",
     "get_strategy_cache",
+    "ContentCachePolicy",
+    "get_content_cache_policy",
     "FingerprintProfile",
     "get_fingerprint_config",
 ]

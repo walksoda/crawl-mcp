@@ -12,6 +12,7 @@ from .base import BaseRequest, BaseResponse
 class CrawlRequest(BaseRequest):
     """Request model for crawling operations."""
     url: str = Field(..., description="URL to crawl")
+    content_offset: int = Field(0, description="Content offset for pagination (used for cache policy)")
     css_selector: Optional[str] = Field(None, description="CSS selector for content extraction")
     extract_media: bool = Field(False, description="Whether to extract media files")
     take_screenshot: bool = Field(False, description="Whether to take a screenshot")

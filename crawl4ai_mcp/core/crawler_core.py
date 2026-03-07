@@ -102,12 +102,21 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 instructions=f"Filter content related to: {request.filter_query}"
             )
 
-        # Setup cache mode
-        cache_mode = CacheMode.ENABLED
-        if not request.enable_caching or request.cache_mode == "disabled":
-            cache_mode = CacheMode.DISABLED
-        elif request.cache_mode == "bypass":
-            cache_mode = CacheMode.BYPASS
+        # Setup cache mode with freshness policy
+        from ..infra.content_cache_policy import get_content_cache_policy
+        policy = get_content_cache_policy()
+        resolved_mode = policy.resolve_cache_mode(
+            url=request.url,
+            content_offset=request.content_offset,
+            requested_mode=request.cache_mode,
+            enable_caching=request.enable_caching,
+        )
+        cache_mode_map = {
+            "enabled": CacheMode.ENABLED,
+            "bypass": CacheMode.BYPASS,
+            "disabled": CacheMode.DISABLED,
+        }
+        cache_mode = cache_mode_map.get(resolved_mode, CacheMode.ENABLED)
 
         # Configure chunking if requested
         chunking_strategy = None
@@ -261,9 +270,9 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
 
         # Handle results
         if isinstance(result, list):
-            return await _handle_deep_crawl_list_result(result, request)
+            response = await _handle_deep_crawl_list_result(result, request)
         elif hasattr(result, 'success') and result.success:
-            return await _handle_single_or_deep_result(result, request, deep_crawl_strategy)
+            response = await _handle_single_or_deep_result(result, request, deep_crawl_strategy)
         else:
             error_msg = "Failed to crawl URL"
             if hasattr(result, 'error_message'):
@@ -272,8 +281,16 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 error_msg = f"Failed to crawl URL: {result.error}"
             else:
                 error_msg = f"Failed to crawl URL: Unknown error (result type: {type(result)})"
+            response = CrawlResponse(success=False, url=request.url, error=error_msg)
 
-            return CrawlResponse(success=False, url=request.url, error=error_msg)
+        # Record fresh fetch timestamp (BYPASS only, non-critical)
+        if response.success and cache_mode == CacheMode.BYPASS:
+            try:
+                policy.record_fresh_fetch(request.url)
+            except Exception:
+                pass
+
+        return response
 
     except Exception as e:
         import sys

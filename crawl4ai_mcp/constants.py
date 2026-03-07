@@ -145,3 +145,11 @@ DEFAULT_YOUTUBE_LANGUAGES = ["ja", "en"]
 
 # Maximum URLs for batch transcript extraction
 MAX_BATCH_YOUTUBE_URLS = 3
+
+# =============================================================================
+# Content Cache Policy Configuration
+# =============================================================================
+
+# Default TTL for content freshness in seconds (1 hour)
+# Set CRAWL4AI_CACHE_TTL_SECONDS=0 to disable TTL (infinite cache)
+DEFAULT_CRAWL_CACHE_TTL_SECONDS = 3600

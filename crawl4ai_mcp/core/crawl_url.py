@@ -47,7 +47,8 @@ async def crawl_url(
     max_content_tokens: int = 15000,
     summary_length: str = "medium",
     llm_provider: Optional[str] = None,
-    llm_model: Optional[str] = None
+    llm_model: Optional[str] = None,
+    content_offset: int = 0
 ) -> CrawlResponse:
     """
     Extract content from web pages with JavaScript support. Auto-detects PDFs and documents.
@@ -68,7 +69,8 @@ async def crawl_url(
         simulate_user=simulate_user, use_undetected_browser=use_undetected_browser,
         auth_token=auth_token, cookies=cookies,
         auto_summarize=auto_summarize, max_content_tokens=max_content_tokens,
-        summary_length=summary_length, llm_provider=llm_provider, llm_model=llm_model
+        summary_length=summary_length, llm_provider=llm_provider, llm_model=llm_model,
+        content_offset=content_offset
     )
     return await _internal_crawl_url(request)
 
