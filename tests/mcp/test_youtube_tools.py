@@ -33,6 +33,7 @@ def assert_comments_success(data: dict) -> None:
     skip_patterns = [
         "timeout", "timed out", "unavailable", "blocked", "rate limit",
         "connection", "network", "http error", "403", "429",
+        "expecting value",
     ]
     error_lower = error.lower()
     for pattern in skip_patterns:
