@@ -18,14 +18,13 @@ from ._shared import (
 def register_batch_tools(mcp, get_modules):
     """Register batch crawl and utility MCP tools."""
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool()
     async def batch_crawl(
         urls: Annotated[List[str], Field(description="URLs to crawl (max 3)")],
         base_timeout: Annotated[int, Field(description="Timeout per URL (default: 30)")] = 30,
         generate_markdown: Annotated[bool, Field(description="Generate markdown (default: True)")] = True,
         extract_media: Annotated[bool, Field(description="Extract media (default: False)")] = False,
-        wait_for_js: Annotated[bool, Field(description="Wait for JS (default: False)")] = False,
-        max_concurrent: Annotated[int, Field(description="Max concurrent (default: 3)")] = 3
+        wait_for_js: Annotated[bool, Field(description="Wait for JS (default: False)")] = False
     ) -> List[Dict[str, Any]]:
         """Crawl multiple URLs with fallback. Max 3 URLs per call."""
         # URL limit check (MCP best practice: bounded toolsets)
@@ -43,13 +42,12 @@ def register_batch_tools(mcp, get_modules):
                 "generate_markdown": generate_markdown,
                 "extract_media": extract_media,
                 "wait_for_js": wait_for_js,
-                "max_concurrent": max_concurrent,
                 "use_undetected_browser": False  # Default to False for batch
             }
 
-            # Add timeout handling - optimized for faster response
-            # Reduced timeout: base + 10s per URL (instead of base * URLs)
-            total_timeout = base_timeout + (len(urls) * 10) + 30  # More reasonable timeout
+            # Sequential execution: initial crawl + fallback per URL + global buffer
+            # Worst case: each URL uses base_timeout for crawl, then base_timeout for fallback
+            total_timeout = (base_timeout * 2 + 10) * len(urls) + 30
 
             result = await asyncio.wait_for(
                 utilities.batch_crawl(urls, config, base_timeout),

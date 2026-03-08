@@ -55,7 +55,7 @@ def register_crawl_tools(mcp, get_modules):
 
         return fallback_dict
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool()
     async def crawl_url(
         url: Annotated[str, Field(description="URL to crawl")],
         css_selector: Annotated[Optional[str], Field(description="CSS selector for extraction")] = None,

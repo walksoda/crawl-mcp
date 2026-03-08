@@ -72,8 +72,7 @@ class TestBatchCrawl:
             {
                 "urls": urls,
                 "generate_markdown": True,
-                "base_timeout": 30,
-                "max_concurrent": 2
+                "base_timeout": 30
             }
         )
 
