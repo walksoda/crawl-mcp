@@ -11,13 +11,14 @@ from ._shared import (
     apply_token_limit,
     _convert_result_to_dict,
     modules_unavailable_error,
+    READONLY_ANNOTATIONS,
 )
 
 
 def register_batch_tools(mcp, get_modules):
     """Register batch crawl and utility MCP tools."""
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def batch_crawl(
         urls: Annotated[List[str], Field(description="URLs to crawl (max 3)")],
         base_timeout: Annotated[int, Field(description="Timeout per URL (default: 30)")] = 30,
@@ -185,7 +186,7 @@ def register_batch_tools(mcp, get_modules):
                     "error": f"Batch crawl error: {str(e)}"
                 }]
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def multi_url_crawl(
         url_configurations: Annotated[Dict[str, Dict], Field(description="URL-config mapping (max 5 URLs). Example: {'https://site1.com': {'wait_for_js': true}}")],
         pattern_matching: Annotated[str, Field(description="Pattern: 'wildcard' or 'regex' (default: wildcard)")] = "wildcard",

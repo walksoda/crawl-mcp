@@ -20,6 +20,10 @@ from ..server_helpers import (
 )
 from ..validators import validate_crawl_url_params, validate_content_slicing_params
 
+# Tool annotations constants
+READONLY_ANNOTATIONS = {"readOnlyHint": True}
+READONLY_CLOSED_ANNOTATIONS = {"readOnlyHint": True, "openWorldHint": False}
+
 # Re-export for convenient access
 __all__ = [
     # typing
@@ -38,6 +42,9 @@ __all__ = [
     "validate_content_slicing_params",
     # utilities
     "modules_unavailable_error",
+    # annotations
+    "READONLY_ANNOTATIONS",
+    "READONLY_CLOSED_ANNOTATIONS",
 ]
 
 

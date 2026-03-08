@@ -8,13 +8,15 @@ from ._shared import (
     validate_content_slicing_params,
     _apply_content_slicing,
     modules_unavailable_error,
+    READONLY_ANNOTATIONS,
+    READONLY_CLOSED_ANNOTATIONS,
 )
 
 
 def register_file_tools(mcp, get_modules):
     """Register file processing MCP tools."""
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def process_file(
         url: Annotated[str, Field(description="File URL (PDF, Office, ZIP)")],
         max_size_mb: Annotated[int, Field(description="Max file size in MB")] = 100,
@@ -90,7 +92,7 @@ def register_file_tools(mcp, get_modules):
                 "error": f"File processing error: {str(e)}"
             }
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_CLOSED_ANNOTATIONS)
     async def get_supported_file_formats() -> dict:
         """Get supported file formats (PDF, Office, ZIP) and their capabilities."""
         modules = get_modules()
@@ -107,7 +109,7 @@ def register_file_tools(mcp, get_modules):
                 "error": f"Get supported formats error: {str(e)}"
             }
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def enhanced_process_large_content(
         url: Annotated[str, Field(description="URL to process")],
         chunking_strategy: Annotated[str, Field(description="'topic'|'sentence'|'overlap'|'regex'")] = "sentence",

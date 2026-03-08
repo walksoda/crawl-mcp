@@ -11,13 +11,15 @@ from ._shared import (
     _get_cached_search_result,
     _cache_search_result,
     modules_unavailable_error,
+    READONLY_ANNOTATIONS,
+    READONLY_CLOSED_ANNOTATIONS,
 )
 
 
 def register_search_tools(mcp, get_modules):
     """Register search-related MCP tools."""
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def search_google(
         request: Annotated[Dict[str, Any], Field(description="Dict with: query (required), num_results, search_genre, language, region, recent_days")]
     ) -> Dict[str, Any]:
@@ -86,7 +88,7 @@ def register_search_tools(mcp, get_modules):
                 "error": f"Google search error: {str(e)}"
             }
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def batch_search_google(
         request: Annotated[Dict[str, Any], Field(description="Dict with: queries (max 3), num_results_per_query, search_genre, recent_days")]
     ) -> Dict[str, Any]:
@@ -110,7 +112,7 @@ def register_search_tools(mcp, get_modules):
                 "error": f"Batch search error: {str(e)}"
             }
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def search_and_crawl(
         request: Annotated[Dict[str, Any], Field(description="Dict with: search_query (required), crawl_top_results, search_genre, recent_days")]
     ) -> Dict[str, Any]:
@@ -247,7 +249,7 @@ def register_search_tools(mcp, get_modules):
                 "error": f"Search and crawl error: {str(e)}"
             }
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_CLOSED_ANNOTATIONS)
     async def get_search_genres() -> Dict[str, Any]:
         """Get available search genres for targeted searching."""
         modules = get_modules()

@@ -8,13 +8,14 @@ from ._shared import (
     _apply_content_slicing,
     validate_content_slicing_params,
     modules_unavailable_error,
+    READONLY_ANNOTATIONS,
 )
 
 
 def register_youtube_tools(mcp, get_modules):
     """Register YouTube-related MCP tools."""
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def extract_youtube_transcript(
         url: Annotated[str, Field(description="YouTube video URL")],
         languages: Annotated[Optional[Union[List[str], str]], Field(description="Language codes in preference order")] = ["ja", "en"],
@@ -96,7 +97,7 @@ def register_youtube_tools(mcp, get_modules):
                 "error": f"YouTube transcript error: {str(e)}"
             }
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def batch_extract_youtube_transcripts(
         request: Annotated[Dict[str, Any], Field(description="Dict with: urls (max 3), languages, include_timestamps")]
     ) -> Dict[str, Any]:
@@ -130,7 +131,7 @@ def register_youtube_tools(mcp, get_modules):
                 "error": f"Batch YouTube extraction error: {str(e)}"
             }
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def get_youtube_video_info(
         video_url: Annotated[str, Field(description="YouTube video URL")],
         summarize_transcript: Annotated[bool, Field(description="Summarize transcript")] = False,
@@ -169,7 +170,7 @@ def register_youtube_tools(mcp, get_modules):
                 "error": f"YouTube video info error: {str(e)}"
             }
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def extract_youtube_comments(
         url: Annotated[str, Field(description="YouTube video URL")],
         sort_by: Annotated[str, Field(description="'popular'|'recent'")] = "popular",

@@ -7,13 +7,14 @@ from ._shared import (
     apply_token_limit,
     _convert_result_to_dict,
     modules_unavailable_error,
+    READONLY_ANNOTATIONS,
 )
 
 
 def register_extraction_tools(mcp, get_modules):
     """Register extraction-related MCP tools."""
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def intelligent_extract(
         url: Annotated[str, Field(description="Target URL")],
         extraction_goal: Annotated[str, Field(description="Data to extract")],
@@ -99,7 +100,7 @@ def register_extraction_tools(mcp, get_modules):
                 "error": f"Intelligent extraction error: {str(e)}"
             }
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def extract_entities(
         url: Annotated[str, Field(description="Target URL")],
         entity_types: Annotated[List[str], Field(description="Types: email, phone, url, date, ip, price")],
@@ -217,7 +218,7 @@ def register_extraction_tools(mcp, get_modules):
                 "error": f"Entity extraction error: {str(e)}"
             }
 
-    @mcp.tool()
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def extract_structured_data(
         url: Annotated[str, Field(description="Target URL")],
         extraction_type: Annotated[str, Field(description="'css'|'llm'|'table'")] = "css",
