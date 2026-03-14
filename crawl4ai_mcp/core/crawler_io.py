@@ -134,6 +134,8 @@ async def _build_json_extraction_response(
     max_content_tokens: int,
     llm_provider: Optional[str],
     llm_model: Optional[str],
+    content_limit: int = 0,
+    content_offset: int = 0,
     extract_content_keys: Optional[List[str]] = None
 ) -> CrawlResponse:
     """
@@ -170,6 +172,7 @@ async def _build_json_extraction_response(
     )
 
     response = await _finalize_fallback_response(
-        response, url, auto_summarize, max_content_tokens, llm_provider, llm_model
+        response, url, auto_summarize, max_content_tokens, llm_provider, llm_model,
+        content_limit=content_limit, content_offset=content_offset
     )
     return response

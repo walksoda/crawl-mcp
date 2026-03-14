@@ -127,6 +127,11 @@ async def _check_and_summarize_if_needed(
     if response.extracted_data and response.extracted_data.get("summarization_applied"):
         return response
 
+    # Skip summarization when pagination is active
+    # (content will be sliced in tool layer, then token-limited)
+    if request.pagination_active:
+        return response
+
     # Estimate total response size (content + markdown + metadata)
     total_chars = len(response.content or "") + len(response.markdown or "")
 
@@ -274,7 +279,9 @@ async def _finalize_fallback_response(
     auto_summarize: bool = False,
     max_content_tokens: int = 15000,
     llm_provider: Optional[str] = None,
-    llm_model: Optional[str] = None
+    llm_model: Optional[str] = None,
+    content_limit: int = 0,
+    content_offset: int = 0,
 ) -> CrawlResponse:
     """
     Apply size limit and summarization to fallback responses.
@@ -288,6 +295,8 @@ async def _finalize_fallback_response(
         auto_summarize=auto_summarize,
         max_content_tokens=max_content_tokens,
         llm_provider=llm_provider,
-        llm_model=llm_model
+        llm_model=llm_model,
+        content_limit=content_limit,
+        content_offset=content_offset,
     )
     return await _check_and_summarize_if_needed(response, dummy_request)

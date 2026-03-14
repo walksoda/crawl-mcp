@@ -38,7 +38,8 @@ def register_crawl_tools(mcp, get_modules):
             take_screenshot=take_screenshot, generate_markdown=generate_markdown,
             include_cleaned_html=include_cleaned_html,
             wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
-            auto_summarize=auto_summarize, use_undetected_browser=True
+            auto_summarize=auto_summarize, use_undetected_browser=True,
+            content_limit=content_limit, content_offset=content_offset
         )
 
         fallback_dict = _convert_result_to_dict(fallback_result)
@@ -94,7 +95,7 @@ def register_crawl_tools(mcp, get_modules):
                 include_cleaned_html=include_cleaned_html,
                 wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
                 auto_summarize=auto_summarize, use_undetected_browser=use_undetected_browser,
-                content_offset=content_offset
+                content_limit=content_limit, content_offset=content_offset
             )
 
             result_dict = _convert_result_to_dict(result)
@@ -290,7 +291,8 @@ def register_crawl_tools(mcp, get_modules):
                 url=url, css_selector=css_selector, extract_media=extract_media,
                 take_screenshot=take_screenshot, generate_markdown=generate_markdown,
                 wait_for_selector=wait_for_selector, timeout=timeout, wait_for_js=wait_for_js,
-                auto_summarize=auto_summarize
+                auto_summarize=auto_summarize,
+                content_limit=content_limit, content_offset=content_offset
             )
             # Convert to dict and apply content slicing
             result_dict = _convert_result_to_dict(result)

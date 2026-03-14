@@ -405,7 +405,7 @@ async def _handle_deep_crawl_object_result(result, request: CrawlRequest) -> Cra
     title_to_use = (result.metadata or {}).get("title", "")
     extracted_data = {"crawled_pages": len(result.crawled_pages)} if hasattr(result, 'crawled_pages') else {}
 
-    if request.auto_summarize and combined_content:
+    if request.auto_summarize and combined_content and not request.pagination_active:
         estimated_tokens = len(combined_content) // 4
         if estimated_tokens > request.max_content_tokens:
             try:
@@ -464,7 +464,7 @@ async def _handle_single_page_result(result, request: CrawlRequest) -> CrawlResp
     extracted_data = None
     title_to_use = (result.metadata or {}).get("title", "")
 
-    if request.auto_summarize and content_to_use:
+    if request.auto_summarize and content_to_use and not request.pagination_active:
         estimated_tokens = len(content_to_use) // 4
         if estimated_tokens > request.max_content_tokens:
             try:

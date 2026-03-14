@@ -48,6 +48,7 @@ async def crawl_url(
     summary_length: str = "medium",
     llm_provider: Optional[str] = None,
     llm_model: Optional[str] = None,
+    content_limit: int = 0,
     content_offset: int = 0
 ) -> CrawlResponse:
     """
@@ -70,7 +71,7 @@ async def crawl_url(
         auth_token=auth_token, cookies=cookies,
         auto_summarize=auto_summarize, max_content_tokens=max_content_tokens,
         summary_length=summary_length, llm_provider=llm_provider, llm_model=llm_model,
-        content_offset=content_offset
+        content_limit=content_limit, content_offset=content_offset
     )
     return await _internal_crawl_url(request)
 

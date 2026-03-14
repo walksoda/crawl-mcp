@@ -12,6 +12,7 @@ from .base import BaseRequest, BaseResponse
 class CrawlRequest(BaseRequest):
     """Request model for crawling operations."""
     url: str = Field(..., description="URL to crawl")
+    content_limit: int = Field(0, description="Content limit for pagination (0=unlimited)")
     content_offset: int = Field(0, description="Content offset for pagination (used for cache policy)")
     css_selector: Optional[str] = Field(None, description="CSS selector for content extraction")
     extract_media: bool = Field(False, description="Whether to extract media files")
@@ -59,6 +60,11 @@ class CrawlRequest(BaseRequest):
     summary_length: str = Field("medium", description="Summary length: 'short', 'medium', 'long'")
     llm_provider: Optional[str] = Field(None, description="LLM provider for summarization (auto-detected if not specified)")
     llm_model: Optional[str] = Field(None, description="Specific LLM model for summarization (auto-detected if not specified)")
+
+    @property
+    def pagination_active(self) -> bool:
+        """Check if pagination mode is active."""
+        return self.content_limit > 0 or self.content_offset > 0
 
 
 class CrawlResponse(BaseResponse):

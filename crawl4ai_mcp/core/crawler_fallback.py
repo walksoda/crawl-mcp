@@ -210,6 +210,7 @@ async def crawl_url_with_fallback(
     use_session: bool = False, save_session: bool = False, session_ttl_hours: int = 24,
     use_strategy_cache: bool = True, save_strategy: bool = True, strategy_ttl_days: int = 7,
     use_stealth_mode: bool = False, fingerprint_profile: Optional[str] = None,
+    content_limit: int = 0, content_offset: int = 0,
 ) -> CrawlResponse:
     """Crawl with multiple fallback strategies for anti-bot sites.
 
@@ -295,7 +296,8 @@ async def crawl_url_with_fallback(
                     json_data=json_data, json_source=json_source, url=url,
                     strategy_name="static_json_extraction", stage=1,
                     auto_summarize=auto_summarize, max_content_tokens=max_content_tokens,
-                    llm_provider=llm_provider, llm_model=llm_model)
+                    llm_provider=llm_provider, llm_model=llm_model,
+                    content_limit=content_limit, content_offset=content_offset)
                 return _save_session(json_response)
 
         spa_framework, spa_selector = _detect_spa_framework(static_html)
@@ -357,7 +359,8 @@ async def crawl_url_with_fallback(
         enable_caching=enable_caching, use_undetected_browser=use_undetected_browser,
         auth_token=auth_token, cookies=cookies, auto_summarize=auto_summarize,
         max_content_tokens=max_content_tokens, summary_length=summary_length,
-        llm_provider=llm_provider, llm_model=llm_model)
+        llm_provider=llm_provider, llm_model=llm_model,
+        content_limit=content_limit, content_offset=content_offset)
 
     for i, strategy in enumerate(strategies):
         try:
@@ -462,7 +465,8 @@ async def crawl_url_with_fallback(
                     extracted_data={"fallback_strategy_used": "rss_feed", "fallback_stage": 6,
                                     "feed_url": feed_url, "item_count": len(feed_items), "content_source": "rss"})
                 rss_response = await _finalize_fallback_response(
-                    rss_response, url, auto_summarize, max_content_tokens, llm_provider, llm_model)
+                    rss_response, url, auto_summarize, max_content_tokens, llm_provider, llm_model,
+                    content_limit=content_limit, content_offset=content_offset)
                 return _save_session(rss_response)
     except Exception as e:
         print(f"RSS fallback failed: {e}")
@@ -479,6 +483,7 @@ async def crawl_url_with_fallback(
                 strategy_name="json_extraction", stage=7,
                 auto_summarize=auto_summarize, max_content_tokens=max_content_tokens,
                 llm_provider=llm_provider, llm_model=llm_model,
+                content_limit=content_limit, content_offset=content_offset,
                 extract_content_keys=["props", "pageProps", "data", "content", "article", "post"])
             return _save_session(stage7_response)
 
