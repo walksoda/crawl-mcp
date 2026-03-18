@@ -207,10 +207,12 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
                 unsupported_params = list(all_params.keys())
 
         # Setup browser configuration
+        # Respect BROWSER env var (e.g., Docker sets BROWSER=chromium)
+        default_browser = os.getenv("BROWSER", "webkit")
         browser_config = {
             "headless": True,
             "verbose": False,
-            "browser_type": "webkit"
+            "browser_type": default_browser
         }
 
         if request.use_undetected_browser:
