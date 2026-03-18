@@ -319,14 +319,19 @@ class YouTubeProcessor(YouTubeProcessorBase):
 
         def _download_comments():
             downloader = YoutubeCommentDownloader()
-            generator = downloader.get_comments_from_url(url, sort_by=sort_constant)
+            try:
+                generator = downloader.get_comments_from_url(url, sort_by=sort_constant)
+            except Exception as gen_error:
+                raise RuntimeError(f"Failed to initialize comment download: {gen_error}")
 
             comments = []
             skipped = 0
             collected = 0
             has_more = False
+            total_seen = 0
 
             for raw_comment in generator:
+                total_seen += 1
                 is_reply = raw_comment.get('reply', False)
 
                 if not include_replies and is_reply:
@@ -352,6 +357,14 @@ class YouTubeProcessor(YouTubeProcessorBase):
                 }
                 comments.append(comment)
                 collected += 1
+
+            if total_seen == 0:
+                # Generator yielded nothing - likely a network/access issue
+                raise RuntimeError(
+                    "Comment downloader returned no data. This may indicate: "
+                    "comments are disabled on this video, the video is private/unavailable, "
+                    "or the downloader cannot reach YouTube (e.g., network restrictions in Docker)."
+                )
 
             return comments, has_more
 
