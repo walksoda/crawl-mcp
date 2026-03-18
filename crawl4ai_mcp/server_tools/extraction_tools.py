@@ -271,23 +271,25 @@ def register_extraction_tools(mcp, get_modules):
             if css_selectors and extraction_type == "css":
                 # Use basic crawling with CSS selector post-processing
                 try:
-                    # Basic crawl first
-                    crawl_result = await web_crawling.crawl_url(
+                    # Basic crawl first (include_cleaned_html needed for BeautifulSoup)
+                    crawl_result = _convert_result_to_dict(await web_crawling.crawl_url(
                         url=url,
                         generate_markdown=generate_markdown,
+                        include_cleaned_html=True,
                         wait_for_js=wait_for_js,
                         timeout=timeout
-                    )
+                    ))
 
                     # If initial crawl fails, try fallback
-                    if not crawl_result.get("success", False) or not crawl_result.get("content", "").strip():
-                        fallback_result = await web_crawling.crawl_url_with_fallback(
+                    if not crawl_result.get("success", False) or not (crawl_result.get("content") or crawl_result.get("markdown") or "").strip():
+                        fallback_result = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                             url=url,
                             generate_markdown=generate_markdown,
+                            include_cleaned_html=True,
                             wait_for_js=wait_for_js,
                             timeout=timeout,
                             use_undetected_browser=True
-                        )
+                        ))
 
                         if fallback_result.get("success", False):
                             crawl_result = fallback_result
@@ -298,7 +300,7 @@ def register_extraction_tools(mcp, get_modules):
                     # Enhanced CSS selector extraction with table detection
                     from bs4 import BeautifulSoup
 
-                    html_content = crawl_result.get("content", "")
+                    html_content = crawl_result.get("content") or crawl_result.get("markdown") or ""
                     soup = BeautifulSoup(html_content, 'html.parser')
 
                     extracted_data = {}
@@ -364,13 +366,13 @@ def register_extraction_tools(mcp, get_modules):
                 except ImportError:
                     # If BeautifulSoup not available, try fallback crawl
                     try:
-                        fallback_result = await web_crawling.crawl_url_with_fallback(
+                        fallback_result = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                             url=url,
                             generate_markdown=generate_markdown,
                             wait_for_js=wait_for_js,
                             timeout=timeout,
                             use_undetected_browser=True
-                        )
+                        ))
 
                         if fallback_result.get("success", False):
                             fallback_response = {
@@ -398,13 +400,13 @@ def register_extraction_tools(mcp, get_modules):
                 except Exception as e:
                     # Try fallback on CSS extraction error
                     try:
-                        fallback_result = await web_crawling.crawl_url_with_fallback(
+                        fallback_result = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                             url=url,
                             generate_markdown=generate_markdown,
                             wait_for_js=wait_for_js,
                             timeout=timeout,
                             use_undetected_browser=True
-                        )
+                        ))
 
                         if fallback_result.get("success", False):
                             fallback_response = {
@@ -431,22 +433,22 @@ def register_extraction_tools(mcp, get_modules):
 
             else:
                 # Fallback to basic crawling or LLM extraction
-                crawl_result = await web_crawling.crawl_url(
+                crawl_result = _convert_result_to_dict(await web_crawling.crawl_url(
                     url=url,
                     generate_markdown=generate_markdown,
                     wait_for_js=wait_for_js,
                     timeout=timeout
-                )
+                ))
 
                 # If basic crawl fails, try fallback
-                if not crawl_result.get("success", False) or not crawl_result.get("content", "").strip():
-                    fallback_result = await web_crawling.crawl_url_with_fallback(
+                if not crawl_result.get("success", False) or not (crawl_result.get("content") or crawl_result.get("markdown") or "").strip():
+                    fallback_result = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                         url=url,
                         generate_markdown=generate_markdown,
                         wait_for_js=wait_for_js,
                         timeout=timeout,
                         use_undetected_browser=True
-                    )
+                    ))
 
                     if fallback_result.get("success", False):
                         crawl_result = fallback_result
@@ -463,13 +465,13 @@ def register_extraction_tools(mcp, get_modules):
         except Exception as e:
             # Final fallback attempt
             try:
-                fallback_result = await web_crawling.crawl_url_with_fallback(
+                fallback_result = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                     url=url,
                     generate_markdown=generate_markdown,
                     wait_for_js=wait_for_js,
                     timeout=timeout,
                     use_undetected_browser=True
-                )
+                ))
 
                 if fallback_result.get("success", False):
                     fallback_response = {
