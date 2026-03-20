@@ -177,11 +177,11 @@ def register_crawl_tools(mcp, get_modules):
         web_crawling, _, _, _, _ = modules
 
         try:
-            result = await web_crawling.deep_crawl_site(
+            result = _convert_result_to_dict(await web_crawling.deep_crawl_site(
                 url=url, max_depth=max_depth, max_pages=max_pages, crawl_strategy=crawl_strategy,
                 include_external=include_external, url_pattern=url_pattern, score_threshold=score_threshold,
                 extract_media=extract_media, base_timeout=base_timeout
-            )
+            ))
 
             # Check if crawling was successful
             if result.get("success", True):
@@ -190,9 +190,9 @@ def register_crawl_tools(mcp, get_modules):
 
             # If deep crawl failed entirely, try with fallback strategy for the main URL
             try:
-                fallback_result = await web_crawling.crawl_url_with_fallback(
+                fallback_result = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                     url=url, generate_markdown=True, timeout=base_timeout
-                )
+                ))
 
                 if fallback_result.get("success", False):
                     # Convert single URL result to deep crawl format
@@ -226,9 +226,9 @@ def register_crawl_tools(mcp, get_modules):
         except Exception as e:
             # If deep crawl throws an exception, try single URL fallback
             try:
-                fallback_result = await web_crawling.crawl_url_with_fallback(
+                fallback_result = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                     url=url, generate_markdown=True, timeout=base_timeout
-                )
+                ))
 
                 if fallback_result.get("success", False):
                     fallback_response = {
