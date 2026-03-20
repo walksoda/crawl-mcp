@@ -7,6 +7,7 @@ from ._shared import (
     apply_token_limit,
     validate_content_slicing_params,
     _apply_content_slicing,
+    _convert_result_to_dict,
     modules_unavailable_error,
     READONLY_ANNOTATIONS,
     READONLY_CLOSED_ANNOTATIONS,
@@ -152,14 +153,14 @@ def register_file_tools(mcp, get_modules):
             # Always use fallback to basic crawling due to backend issues
             print(f"Processing URL with fallback method: {url}")
 
-            fallback_result = await asyncio.wait_for(
+            fallback_result = _convert_result_to_dict(await asyncio.wait_for(
                 web_crawling.crawl_url(
                     url=url,
                     generate_markdown=True,
                     timeout=10
                 ),
                 timeout=10.0
-            )
+            ))
 
             if fallback_result and fallback_result.get("success", False):
                 content = fallback_result.get("content", "")

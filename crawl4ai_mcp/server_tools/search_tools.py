@@ -10,6 +10,7 @@ from ._shared import (
     _get_search_cache_key,
     _get_cached_search_result,
     _cache_search_result,
+    _convert_result_to_dict,
     modules_unavailable_error,
     READONLY_ANNOTATIONS,
     READONLY_CLOSED_ANNOTATIONS,
@@ -157,11 +158,11 @@ def register_search_tools(mcp, get_modules):
                 for idx, url in failed_pages:
                     if url:
                         try:
-                            fallback_result = await web_crawling.crawl_url_with_fallback(
+                            fallback_result = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                                 url=url,
                                 generate_markdown=generate_markdown,
                                 timeout=30
-                            )
+                            ))
 
                             if fallback_result.get("success", False):
                                 fallback_result["fallback_used"] = True
@@ -203,11 +204,11 @@ def register_search_tools(mcp, get_modules):
 
                     for url in urls[:request.get('crawl_top_results', 2)]:
                         try:
-                            fallback_result = await web_crawling.crawl_url_with_fallback(
+                            fallback_result = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                                 url=url,
                                 generate_markdown=generate_markdown,
                                 timeout=30
-                            )
+                            ))
 
                             if fallback_result.get("success", False):
                                 fallback_result["fallback_used"] = True

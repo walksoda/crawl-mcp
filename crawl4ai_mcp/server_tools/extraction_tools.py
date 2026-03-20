@@ -45,9 +45,9 @@ def register_extraction_tools(mcp, get_modules):
 
             # If intelligent extraction failed, try with fallback crawling
             try:
-                fallback_crawl = await web_crawling.crawl_url_with_fallback(
+                fallback_crawl = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                     url=url, generate_markdown=True, timeout=60
-                )
+                ))
                 if fallback_crawl.get("success", False):
                     content = fallback_crawl.get("markdown", "") or fallback_crawl.get("content", "")
                     if content.strip():
@@ -73,9 +73,9 @@ def register_extraction_tools(mcp, get_modules):
         except Exception as e:
             # If intelligent extraction throws an exception, try basic fallback
             try:
-                fallback_crawl = await web_crawling.crawl_url_with_fallback(
+                fallback_crawl = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                     url=url, generate_markdown=True, timeout=60
-                )
+                ))
                 if fallback_crawl.get("success", False):
                     content = fallback_crawl.get("markdown", "") or fallback_crawl.get("content", "")
                     fallback_response = {
@@ -130,9 +130,9 @@ def register_extraction_tools(mcp, get_modules):
 
             # If entity extraction failed, try with fallback crawling
             try:
-                fallback_crawl = await web_crawling.crawl_url_with_fallback(
+                fallback_crawl = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                     url=url, generate_markdown=True, timeout=60
-                )
+                ))
                 if fallback_crawl.get("success", False):
                     content = fallback_crawl.get("content", "") or fallback_crawl.get("markdown", "")
                     # Basic regex-based entity extraction on fallback content
@@ -174,9 +174,9 @@ def register_extraction_tools(mcp, get_modules):
         except Exception as e:
             # If entity extraction throws an exception, try basic fallback
             try:
-                fallback_crawl = await web_crawling.crawl_url_with_fallback(
+                fallback_crawl = _convert_result_to_dict(await web_crawling.crawl_url_with_fallback(
                     url=url, generate_markdown=True, timeout=60
-                )
+                ))
                 if fallback_crawl.get("success", False):
                     content = fallback_crawl.get("content", "") or fallback_crawl.get("markdown", "")
                     # Basic regex-based entity extraction
@@ -240,7 +240,7 @@ def register_extraction_tools(mcp, get_modules):
             # NEW: LLM Table Extraction mode
             if extraction_type == "table" or use_llm_table_extraction:
                 try:
-                    result = await web_crawling.extract_structured_data(
+                    result = _convert_result_to_dict(await web_crawling.extract_structured_data(
                         url=url,
                         extraction_type="llm_table",
                         extraction_schema=extraction_schema,
@@ -248,7 +248,7 @@ def register_extraction_tools(mcp, get_modules):
                         wait_for_js=wait_for_js,
                         timeout=timeout,
                         chunking_strategy=table_chunking_strategy
-                    )
+                    ))
 
                     if result.get("success", False):
                         result["processing_method"] = "llm_table_extraction"
