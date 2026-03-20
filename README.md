@@ -12,7 +12,7 @@ A comprehensive Model Context Protocol (MCP) server that wraps the powerful craw
 - **🌐 Universal Content Extraction**: Web pages, PDFs, Word docs, Excel, PowerPoint, ZIP archives
 - **🤖 AI-Powered Summarization**: Smart token reduction (up to 88.5%) while preserving essential information
 - **🎬 YouTube Integration**: Extract video transcripts and summaries without API keys  
-- **⚡ Production Ready**: 13 specialized tools with comprehensive error handling
+- **⚡ Production Ready**: 19 specialized tools with comprehensive error handling
 
 ## 🚀 Quick Start
 
@@ -139,26 +139,36 @@ Add to your `claude_desktop_config.json`:
 
 ## 🛠️ Tool Overview
 
-### Web Crawling
-- `crawl_url` - Single page crawling with JavaScript support
-- `deep_crawl_site` - Multi-page site mapping and exploration
-- `crawl_url_with_fallback` - Robust crawling with retry strategies
-- `batch_crawl` - Process multiple URLs (max 5)
-- `multi_url_crawl` - Advanced multi-URL configuration
+### Web Crawling (3)
+- `crawl_url` - Extract web page content with JavaScript support
+- `deep_crawl_site` - Crawl multiple pages from a site with configurable depth
+- `crawl_url_with_fallback` - Crawl with fallback strategies for anti-bot sites
 
-### Search Integration
-- `search_google` - Genre-filtered Google search
-- `search_and_crawl` - Combined search and content extraction
-- `batch_search_google` - Multiple search queries (max 3)
+### Data Extraction (3)
+- `intelligent_extract` - Extract specific data from web pages using LLM
+- `extract_entities` - Extract entities (emails, phones, etc.) from web pages
+- `extract_structured_data` - Extract structured data using CSS selectors or LLM
 
-### Data Extraction
-- `extract_structured_data` - CSS/XPath/LLM-based structured extraction
+### YouTube (4)
+- `extract_youtube_transcript` - Extract YouTube transcripts with timestamps
+- `batch_extract_youtube_transcripts` - Extract transcripts from multiple YouTube videos (max 3)
+- `get_youtube_video_info` - Get YouTube video metadata and transcript availability
+- `extract_youtube_comments` - Extract YouTube video comments with pagination
 
-### Media Processing
-- `process_file` - PDF, Office, ZIP to markdown conversion
-- `extract_youtube_transcript` - Video transcript extraction
-- `batch_extract_youtube_transcripts` - Multiple videos (max 3)
-- `get_youtube_video_info` - Video metadata retrieval
+### Search (4)
+- `search_google` - Search Google with genre filtering
+- `batch_search_google` - Perform multiple Google searches (max 3)
+- `search_and_crawl` - Search Google and crawl top results
+- `get_search_genres` - Get available search genres
+
+### File Processing (3)
+- `process_file` - Convert PDF, Word, Excel, PowerPoint, ZIP to markdown
+- `get_supported_file_formats` - Get supported file formats and capabilities
+- `enhanced_process_large_content` - Process large content with chunking and BM25 filtering
+
+### Batch Operations (2)
+- `batch_crawl` - Crawl multiple URLs with fallback (max 3 URLs)
+- `multi_url_crawl` - Multi-URL crawl with pattern-based config (max 5 URL patterns)
 
 ## 🎯 Common Use Cases
 

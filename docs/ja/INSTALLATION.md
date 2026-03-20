@@ -69,7 +69,7 @@ scripts/prepare_for_uvx_playwright.ps1
 - **最小依存関係**: Playwrightに必要なシステムライブラリのみインストール
 - **UVX最適化**: UVX実行環境専用設計
 - **多言語対応**: 英語（デフォルト）+ 日本語（`CRAWL4AI_LANG=ja`）
-- **バージョン同期**: requirements.txtからPlaywrightバージョンを自動読み取り
+- **バージョン同期**: バージョンはpyproject.tomlで管理
 - **スマートインストール**: 手動インストール手順で正しい固定バージョンを使用
 - **強化されたエラー処理**: MCPクライアント向けChromiumバージョン互換性メッセージの改善
 
@@ -103,7 +103,7 @@ python -m crawl4ai_mcp.server
 ```bash
 # 上のシステム準備後
 pip install -r requirements.txt  # 推奨：固定バージョンを使用
-# 代替手段： pip install crawl4ai==0.7.4 playwright==1.55.0
+# 代替手段： pip install crawl4ai==0.7.8 playwright==1.55.0
 python -m playwright install chromium
 python -m crawl4ai_mcp.server
 ```
@@ -212,7 +212,7 @@ sudo apt-get install libnss3 libnspr4 libasound2 libatk-bridge2.0-0 libdrm2 libg
 
 インストールに失敗した場合：
 
-1. **Chromiumチェック**: `get_system_diagnostics`ツールで診断実行
+1. **Chromiumチェック**: 上のChromiumセットアップスクリプトを再実行
 2. **ブラウザの問題**: 上のChromiumセットアップスクリプトを再実行
 3. **権限**: スクリプトが適切な権限（sudo/管理者）で実行されていることを確認
 4. **代替方法**: UVXが失敗した場合は方法2（開発）または方法3（直接）を試行

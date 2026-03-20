@@ -1,6 +1,54 @@
 # Changelog
 
+## [0.2.0] - 2026-03-01
+
+### Added
+- New `extract_youtube_comments` MCP tool with pagination support
+- Batch tools restored as MCP tools: `batch_crawl`, `multi_url_crawl`, `batch_search_google`, `batch_extract_youtube_transcripts`
+- `readOnlyHint` annotations added to all MCP tools
+- Content pagination support via `content_offset` and `content_limit` parameters across tools
+- pytest-based test infrastructure for MCP tools
+
+### Changed
+- Architecture refactored: codebase modularized into `server_tools/`, `core/`, `infra/`, `middleware/`, `processors/` layers
+- `batch_crawl` switched to sequential execution with revised timeout design
+- LLM summarization skipped when pagination is active
+
+### Fixed
+- `deep_crawl_site`: convert CrawlResponse to dict before calling `.get()` (community PR #18)
+- `extract_structured_data`: convert CrawlResponse to dict and request HTML (community PR #16)
+- `batch_crawl`: wrap remaining CrawlResponse returns with `_convert_result_to_dict`
+- Content offset propagated through CrawlRequest for pagination cache protection
+- YouTube comment tests made resilient to CI environment and non-deterministic ordering
+
+---
+
+## [0.1.7] - 2026-01-12
+
+### Added
+- YouTube transcript fallback and metadata enrichment
+- Content-Type detection for URLs without file extension
+
+### Changed
+- Token counting improved using tiktoken for accurate counts
+- Tool descriptions reduced to lower token usage
+- Low-utility MCP tools hidden to reduce token usage
+- `batch_crawl` limit updated from 5 to 3
+
+### Fixed
+- ReDoS protection improved with multiprocessing timeout and strict size limits
+- Token limit handling improved to preserve more content
+- Partial transcript data preserved on token overflow
+- Missing `anthropic` dependency added
+
+### Updated
+- Dependencies updated to latest versions
+
+---
+
 ## [0.1.6] - 2025-10-18
+
+Note: Batch tools removed in 0.1.6 were restored in 0.2.0.
 
 ### 🔧 Improved
 - **Token Limit Optimization**: Increased response token limit from 20000 to 25000 for all crawling tools

@@ -9,44 +9,47 @@ Complete guide for developers contributing to and working with the Crawl4AI MCP 
 ```
 crawl-mcp/
 ├── crawl4ai_mcp/              # Main server implementation
-│   ├── server.py              # Primary MCP server
+│   ├── server.py              # Primary MCP server (FastMCP entry point)
 │   ├── config.py              # Configuration management
-│   ├── tools/                 # MCP tool implementations
-│   ├── prompts/               # MCP prompt definitions
-│   ├── models/                # Data models and schemas
-│   ├── file_processor.py      # File processing logic
-│   ├── youtube_processor.py   # YouTube integration
-│   ├── google_search_processor.py # Google search integration
-│   └── strategies.py          # Crawling strategies
+│   ├── server_tools/          # MCP tool registrations (public interface)
+│   │   ├── __init__.py        # Tool registration orchestrator
+│   │   ├── _shared.py         # Shared utilities and annotations
+│   │   ├── crawl_tools.py     # Web crawling tools
+│   │   ├── extraction_tools.py # Data extraction tools
+│   │   ├── youtube_tools.py   # YouTube tools
+│   │   ├── search_tools.py    # Search tools
+│   │   ├── file_tools.py      # File processing tools
+│   │   └── batch_tools.py     # Batch operation tools
+│   ├── tools/                 # Legacy facade (delegates to core/)
+│   ├── core/                  # Business logic implementations
+│   ├── infra/                 # Infrastructure (browser, config)
+│   ├── middleware/             # Request/response middleware
+│   └── processors/            # Content processors
+├── tests/                     # pytest test suite
 ├── Dockerfile                 # Docker container configuration
 ├── docker-compose.yml         # Docker Compose configuration
-├── .dockerignore              # Docker build exclusions
-├── scripts/                   # Setup and utility scripts
-├── configs/                   # Configuration examples
-├── examples/                  # Usage examples and tests
-├── docs/                      # Documentation
-├── requirements.txt           # Python dependencies
-├── pyproject.toml            # UVX packaging configuration
-└── CLAUDE.md                 # Developer instructions
+├── pyproject.toml             # Package config (source of truth for deps)
+└── CLAUDE.md                  # Developer instructions
 ```
 
 ### Key Components
 
 **Server Implementation:**
-- `server.py` - Main FastMCP server with all MCP tools
+- `server.py` - FastMCP entry point and server configuration
 - `config.py` - Environment and configuration management
-- `suppress_output.py` - Output suppression for clean execution
 
-**Core Processors:**
-- `file_processor.py` - Microsoft MarkItDown integration
-- `youtube_processor.py` - YouTube transcript extraction
-- `google_search_processor.py` - Google search integration
-- `strategies.py` - Crawling strategy implementations
+**MCP Public Interface:**
+- `server_tools/` - MCP tool registrations exposed to clients
+- `server_tools/_shared.py` - Shared utilities and readOnlyHint annotations
 
-**MCP Framework:**
-- `tools/` - Individual tool implementations
-- `prompts/` - Workflow prompt definitions
-- `models/` - Request/response schemas
+**Business Logic Layers:**
+- `core/` - Business logic implementations
+- `infra/` - Infrastructure (browser management, config)
+- `middleware/` - Request/response middleware
+- `processors/` - Content processors
+
+**Legacy:**
+- `tools/` - Legacy facade that delegates to `core/`
 
 ## 🔄 Development & Distribution
 
@@ -99,7 +102,7 @@ git push origin main --tags
 - **Tool descriptions** - Ensure LLM can properly select tools
 - **New features** - New MCP tools or parameters
 - **Bug fixes** - Security fixes and behavior improvements
-- **Dependencies** - requirements.txt updates
+- **Dependencies** - pyproject.toml updates (source of truth for dependencies)
 - **Configuration** - Default values and timeout adjustments
 - **Packaging** - pyproject.toml for UVX compatibility
 
@@ -134,7 +137,7 @@ cd crawl-mcp
 python -m venv venv
 source venv/bin/activate  # Linux/macOS
 # or venv\Scripts\activate.bat  # Windows
-pip install -r requirements.txt
+pip install -e .
 python -m playwright install chromium
 ```
 
@@ -319,21 +322,23 @@ git push origin v0.1.4
 **pyproject.toml Configuration:**
 ```toml
 [build-system]
-requires = ["setuptools>=45", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "crawl-mcp"
-version = "1.0.0"
+version = "0.2.0"
 dependencies = [
-    "crawl4ai>=0.7.2",
-    "playwright>=1.54.0",
-    "fastmcp>=0.2.0"
+    "crawl4ai==0.7.8",
+    "fastmcp>=2.14.2,<3",
+    "playwright==1.55.0",
 ]
 
 [project.scripts]
 crawl-mcp = "crawl4ai_mcp.server:main"
 ```
+
+Note: `pyproject.toml` is the source of truth for dependencies. There is no `requirements.txt`.
 
 ## 🔍 Debugging and Troubleshooting
 
@@ -348,7 +353,7 @@ source venv/bin/activate
 python -c "import sys; print('\\n'.join(sys.path))"
 
 # Install missing dependencies
-pip install -r requirements.txt
+pip install -e .
 ```
 
 **Browser Issues:**

@@ -12,7 +12,7 @@
 - **🌐 汎用コンテンツ抽出**: Webページ、PDF、Word文書、Excel、PowerPoint、ZIPアーカイブ
 - **🤖 AI搭載要約機能**: 重要情報を保持しながらスマートなトークン削減
 - **🎬 YouTube連携**: APIキー不要で動画内容・要約を抽出
-- **⚡ 本格運用対応**: 包括的エラーハンドリング付き13の専門ツール
+- **⚡ 本格運用対応**: 包括的エラーハンドリング付き19の専門ツール
 
 ## 🚀 クイックスタート
 
@@ -89,26 +89,36 @@ uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
 
 ## 🛠️ ツール概要
 
-### Webクローリング
-- `crawl_url` - JavaScript対応の単一ページクローリング
-- `deep_crawl_site` - 複数ページのサイトマッピングと探索
-- `crawl_url_with_fallback` - リトライ戦略付き堅牢なクローリング
-- `batch_crawl` - 複数URLの同時処理（最大5件）
-- `multi_url_crawl` - 高度な複数URL設定
+### Webクローリング (3)
+- `crawl_url` - JavaScript対応のWebページコンテンツ抽出
+- `deep_crawl_site` - 深度設定可能なサイト複数ページクローリング
+- `crawl_url_with_fallback` - アンチボットサイト向けフォールバック戦略付きクローリング
 
-### 検索統合
+### データ抽出 (3)
+- `intelligent_extract` - LLMを使用したWebページからの特定データ抽出
+- `extract_entities` - Webページからエンティティ（メール、電話番号等）を抽出
+- `extract_structured_data` - CSSセレクターまたはLLMを使用した構造化データ抽出
+
+### YouTube (4)
+- `extract_youtube_transcript` - タイムスタンプ付きYouTubeトランスクリプト抽出
+- `batch_extract_youtube_transcripts` - 複数YouTube動画のトランスクリプト抽出（最大3件）
+- `get_youtube_video_info` - YouTube動画メタデータとトランスクリプト可用性の取得
+- `extract_youtube_comments` - ページネーション付きYouTube動画コメント抽出
+
+### 検索 (4)
 - `search_google` - ジャンルフィルタ付きGoogle検索
-- `search_and_crawl` - 検索とコンテンツ抽出の組み合わせ
-- `batch_search_google` - 複数検索クエリ（最大3件）
+- `batch_search_google` - 複数Google検索の実行（最大3件）
+- `search_and_crawl` - Google検索と上位結果のクローリング
+- `get_search_genres` - 利用可能な検索ジャンルの取得
 
-### データ抽出
-- `extract_structured_data` - CSS/XPath/LLMベースの構造化データ抽出
+### ファイル処理 (3)
+- `process_file` - PDF、Word、Excel、PowerPoint、ZIPをMarkdownに変換
+- `get_supported_file_formats` - サポートされているファイル形式と機能の取得
+- `enhanced_process_large_content` - チャンキングとBM25フィルタリングによる大容量コンテンツ処理
 
-### メディア処理
-- `process_file` - PDF、Office、ZIPのMarkdown変換
-- `extract_youtube_transcript` - 動画トランスクリプト抽出
-- `batch_extract_youtube_transcripts` - 複数動画処理（最大3件）
-- `get_youtube_video_info` - 動画メタデータ取得
+### バッチ操作 (2)
+- `batch_crawl` - フォールバック付き複数URLクローリング（最大3件）
+- `multi_url_crawl` - パターンベース設定による複数URLクローリング（最大5URLパターン）
 
 ## 🎯 一般的な使用例
 

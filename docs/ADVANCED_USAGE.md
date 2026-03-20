@@ -13,9 +13,7 @@ Advanced patterns, techniques, and workflows for power users of the Crawl4AI MCP
   "max_depth": 3,
   "crawl_strategy": "best_first",
   "url_pattern": "*docs*",
-  "score_threshold": 0.7,
-  "content_filter": "bm25",
-  "filter_query": "API documentation tutorial guide"
+  "score_threshold": 0.7
 }
 ```
 
@@ -24,13 +22,8 @@ Advanced patterns, techniques, and workflows for power users of the Crawl4AI MCP
 {
   "url": "https://spa-application.com",
   "wait_for_js": true,
-  "simulate_user": true,
   "timeout": 60,
-  "wait_for_selector": ".content-loaded",
-  "execute_js": "window.scrollTo(0, document.body.scrollHeight); await new Promise(r => setTimeout(r, 2000));",
-  "headers": {
-    "User-Agent": "Mozilla/5.0 (compatible; CrawlBot/1.0)"
-  }
+  "wait_for_selector": ".content-loaded"
 }
 ```
 
@@ -40,16 +33,8 @@ Advanced patterns, techniques, and workflows for power users of the Crawl4AI MCP
 ```json
 {
   "url": "https://protected-site.com",
-  "cookies": {
-    "session_id": "your_session_cookie",
-    "auth_token": "bearer_token"
-  },
-  "headers": {
-    "Authorization": "Bearer your-api-key",
-    "Accept": "text/html,application/xhtml+xml"
-  },
-  "user_agent": "CustomBot/1.0",
-  "simulate_user": true,
+  "use_undetected_browser": true,
+  "wait_for_js": true,
   "timeout": 90
 }
 ```
@@ -265,9 +250,7 @@ batch_crawl: related URLs → auto-summarize → comparative analysis
 {
   "timeout": 120,
   "base_timeout": 45,
-  "wait_for_js": true,
-  "simulate_user": false,
-  "cache_mode": "enabled"
+  "wait_for_js": true
 }
 ```
 
@@ -408,7 +391,7 @@ async def robust_crawl_workflow(url: str, max_retries: int = 3) -> Optional[Dict
     strategies = [
         {"wait_for_js": True, "timeout": 60},
         {"wait_for_js": False, "timeout": 30},
-        {"simulate_user": False, "timeout": 15}
+        {"use_undetected_browser": True, "timeout": 15}
     ]
     
     for attempt, strategy in enumerate(strategies):
@@ -483,8 +466,7 @@ async function processUrlBatch(urls, options = {}) {
     "Accept-Encoding": "gzip, deflate",
     "Connection": "keep-alive"
   },
-  "cookies": {},
-  "simulate_user": true,
+  "use_undetected_browser": true,
   "timeout": 90
 }
 ```

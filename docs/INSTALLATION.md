@@ -69,7 +69,7 @@ scripts/prepare_for_uvx_playwright.ps1
 - **Minimal Dependencies**: Only installs essential Playwright system libraries
 - **UVX Optimized**: Designed specifically for UVX execution environment
 - **Multi-language**: English (default) + Japanese (`CRAWL4AI_LANG=ja`)
-- **Version Synchronization**: Automatically reads Playwright version from requirements.txt for consistency
+- **Version Synchronization**: Versions are managed in pyproject.toml
 - **Smart Installation**: Manual installation instructions use correct pinned versions
 - **Enhanced Error Handling**: Improved Chromium version compatibility messages for MCP clients
 
@@ -103,7 +103,7 @@ python -m crawl4ai_mcp.server
 ```bash
 # After system preparation above
 pip install -r requirements.txt  # Recommended: uses pinned versions
-# Alternative: pip install crawl4ai==0.7.4 playwright==1.55.0
+# Alternative: pip install crawl4ai==0.7.8 playwright==1.55.0
 python -m playwright install chromium
 python -m crawl4ai_mcp.server
 ```
@@ -212,7 +212,7 @@ Add to your `claude_desktop_config.json`:
 
 If installation fails:
 
-1. **Check Chromium**: Run diagnostics with `get_system_diagnostics` tool
+1. **Check Chromium**: Re-run the Chromium setup scripts above
 2. **Browser Issues**: Re-run the Chromium setup scripts above
 3. **Permissions**: Ensure scripts run with proper privileges (sudo/Administrator)
 4. **Alternative Methods**: Try Method 2 (Development) or Method 3 (Direct) if UVX fails

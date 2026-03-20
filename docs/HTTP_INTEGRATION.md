@@ -177,7 +177,6 @@ Once running, the HTTP API provides:
 - **Base URL**: `http://127.0.0.1:8000`
 - **OpenAPI Documentation**: `http://127.0.0.1:8000/docs`
 - **Tool Endpoints**: `http://127.0.0.1:8000/tools/{tool_name}`
-- **Resource Endpoints**: `http://127.0.0.1:8000/resources/{resource_uri}`
 
 All MCP tools (crawl_url, extract_structured_data, process_file, etc.) are accessible via HTTP POST requests with JSON payloads matching the tool parameters.
 
@@ -199,7 +198,6 @@ curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
   -d '{
     "url": "https://spa-example.com",
     "wait_for_js": true,
-    "simulate_user": true,
     "timeout": 30
   }'
 ```

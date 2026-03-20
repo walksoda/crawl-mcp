@@ -177,7 +177,6 @@ docker run -p 8000:8000 crawl4ai-mcp --transport http --port 8000
 - **ベース URL**: `http://127.0.0.1:8000`
 - **OpenAPI ドキュメント**: `http://127.0.0.1:8000/docs`
 - **ツールエンドポイント**: `http://127.0.0.1:8000/tools/{tool_name}`
-- **リソースエンドポイント**: `http://127.0.0.1:8000/resources/{resource_uri}`
 
 すべてのMCPツール（crawl_url、extract_structured_data、process_file等）は、ツールパラメータと一致するJSONペイロードを持つHTTP POSTリクエストでアクセス可能です。
 
@@ -199,7 +198,6 @@ curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
   -d '{
     "url": "https://spa-example.com",
     "wait_for_js": true,
-    "simulate_user": true,
     "timeout": 30
   }'
 ```
