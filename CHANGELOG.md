@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- File persistence option for information-gathering MCP tools. Supply `output_path` (plus optional `include_content_in_response` and `overwrite`) to have the tool write full fetched content to disk as markdown or JSON and return a slim metadata-only response that bypasses the 25000-token cap. Supported on: `crawl_url`, `crawl_url_with_fallback`, `deep_crawl_site`, `batch_crawl`, `multi_url_crawl`, `process_file`, `enhanced_process_large_content`, `extract_youtube_transcript`, `batch_extract_youtube_transcripts`, `get_youtube_video_info`, `extract_youtube_comments`, `intelligent_extract`, `extract_entities`, `extract_structured_data`, `search_google`, `batch_search_google`, `search_and_crawl`. Single-file tools accept a file path (auto-determined `.md`/`.json` extension when omitted); batch tools accept a directory path and emit per-URL files plus `index.json`.
+- `validate_output_path` validator: absolute path required, NUL rejection, optional existing-file guard for single-file tools.
+- New `crawl4ai_mcp/middleware/file_persistence.py` module with atomic writes (`tempfile` + `os.replace`) and nested-path field stripping.
+
+### Changed
+- `crawl_url`: persistence happens BEFORE `_apply_content_slicing`, so the on-disk copy holds the full unsliced content even when the caller also supplies `content_limit`/`content_offset`. The `_should_trigger_fallback` check is now evaluated against the unsliced markdown, which prevents a large `content_offset` from spuriously triggering the undetected-browser fallback.
+- `batch_crawl` / `multi_url_crawl` preserve their historical `list` return shape when `output_path` is set — each successful item simply gains an `output_file` key. An aggregate `index.json` is written in the target directory.
+- Request-dict tools (`search_google`, `batch_search_google`, `search_and_crawl`, `batch_extract_youtube_transcripts`) read persistence options (`output_path`, `include_content_in_response`, `overwrite`) directly from the request dict.
+- Batch tools (`deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`, `batch_crawl`, `multi_url_crawl`) now accept any non-existent `output_path` as a directory, including names containing `.` (`/tmp/run.v1`). The previous `Path.suffix`-based rejection is gone. Existing regular files are still rejected.
+- Batch-dict tools (`deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`) skip per-item persistence for items that report `success=False`; failed items still appear in `index.json` with `file: null` so callers can reason about the attempt list. This matches the existing `batch_crawl` / `multi_url_crawl` behavior.
+- `finalize_tool_response` treats `output_path=""` as a no-op, matching `validate_output_path`'s empty-string acceptance.
+
+### Known caveats
+- Tools with `readOnlyHint` annotation keep that hint even when `output_path` is supplied and the tool writes to disk. Callers should treat `output_path` as an explicit opt-in to filesystem writes.
+- `overwrite=False` is checked with `Path.exists()` immediately before the atomic rename, which protects against most accidental overwrites but is not TOCTOU-race-safe against a concurrent writer. The atomic `os.replace` call itself is still atomic at the filesystem level. For stricter single-writer guarantees, pair this feature with a lock at the caller level.
+- Batch persistence is per-file atomic but not transactional across items. A failure partway through will leave a partial directory (some `.md` files present, `index.json` potentially missing).
+
+---
+
 ## [0.2.0] - 2026-03-01
 
 ### Added

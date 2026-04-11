@@ -170,6 +170,55 @@ Add to your `claude_desktop_config.json`:
 - `batch_crawl` - Crawl multiple URLs with fallback (max 3 URLs)
 - `multi_url_crawl` - Multi-URL crawl with pattern-based config (max 5 URL patterns)
 
+## 💾 Persist Large Results to Disk (token-saver)
+
+All information-gathering tools accept an optional `output_path` parameter that writes the full fetched content straight to disk and returns a slim metadata-only response. This lets an LLM fetch huge pages, long YouTube transcripts, or whole batches without blowing its context budget — read from the saved file only when needed.
+
+**How it works:**
+- Single-file tools (e.g. `crawl_url`, `extract_youtube_transcript`) write one `.md` (or `.json` for JSON-kind tools) — pass an absolute file path; the extension is auto-added if omitted. An existing regular file at that path is rejected unless `overwrite=true`.
+- Batch tools (`batch_crawl`, `multi_url_crawl`, `deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`) expect an absolute **directory** path and write one `.md` per URL plus `index.json`. Any non-existent path is treated as a directory and created — including names containing dots such as `/tmp/run.v1`. If the path already exists as a regular file, the call is rejected. `batch_crawl` / `multi_url_crawl` keep their `list` return shape and embed an `output_file` key on each success item.
+- Request-dict tools (`search_google`, `batch_search_google`, `search_and_crawl`, `batch_extract_youtube_transcripts`) read the persistence keys directly from their request dict.
+- Common parameters: `output_path` (absolute; `None` or `""` skips persistence), `include_content_in_response` (default `false` — when `true`, content is included in the response too, **still subject to any `content_limit`/`content_offset`/`max_content_per_page` slicing**), `overwrite` (default `false`).
+- Writes are atomic per file (temp file + `os.replace`); parent directories are auto-created; the full unsliced payload is persisted **before** any slicing or tool-internal truncation so the on-disk copy is always complete even when the response is sliced.
+- Batch dict tools (`deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`) skip per-item persistence for items that report `success=false`; these still appear in `index.json` with `file: null` so callers can reason about the attempt list.
+
+**Markdown single-file example:**
+```json
+{
+  "tool": "crawl_url",
+  "arguments": {
+    "url": "https://example.com/long-article",
+    "output_path": "/tmp/crawl_out/article.md"
+  }
+}
+```
+
+**JSON structured extraction (extension auto-added):**
+```json
+{
+  "tool": "extract_structured_data",
+  "arguments": {
+    "url": "https://example.com/products",
+    "extraction_type": "css",
+    "css_selectors": {"price": ".price", "name": "h1"},
+    "output_path": "/tmp/crawl_out/products"
+  }
+}
+```
+
+**Batch directory mode:**
+```json
+{
+  "tool": "batch_crawl",
+  "arguments": {
+    "urls": ["https://a.example", "https://b.example"],
+    "output_path": "/tmp/crawl_out/batch_run1"
+  }
+}
+```
+
+Each persisted markdown file begins with a YAML frontmatter block containing `url`, `title`, `fetched_at`, and `source_tool` so the artifact is self-describing.
+
 ## 🎯 Common Use Cases
 
 **Content Research:**

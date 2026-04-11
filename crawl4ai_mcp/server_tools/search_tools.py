@@ -6,15 +6,28 @@ from ._shared import (
     Annotated, Dict, Field, Any,
     apply_token_limit,
     validate_content_slicing_params,
+    validate_output_path,
     _apply_search_content_slicing,
     _get_search_cache_key,
     _get_cached_search_result,
     _cache_search_result,
     _convert_result_to_dict,
+    finalize_tool_response,
+    KIND_SEARCH_JSON,
+    KIND_MARKDOWN_BATCH_DICT,
     modules_unavailable_error,
     READONLY_ANNOTATIONS,
     READONLY_CLOSED_ANNOTATIONS,
 )
+
+
+def _extract_persist_opts(request: Dict[str, Any]):
+    """Pull (output_path, include_content_in_response, overwrite) from a request dict."""
+    return (
+        request.get('output_path'),
+        bool(request.get('include_content_in_response', False)),
+        bool(request.get('overwrite', False)),
+    )
 
 
 def register_search_tools(mcp, get_modules):
@@ -22,13 +35,31 @@ def register_search_tools(mcp, get_modules):
 
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def search_google(
-        request: Annotated[Dict[str, Any], Field(description="Dict with: query (required), num_results, search_genre, language, region, recent_days")]
+        request: Annotated[Dict[str, Any], Field(description="Dict with: query (required), num_results, search_genre, language, region, recent_days, content_limit (int), content_offset (int). Optional persistence keys: output_path (absolute file path, auto .json extension — full unsliced results written to disk BEFORE content_limit/content_offset slicing), include_content_in_response (bool, default False — when True keeps results in the response too, still subject to slicing), overwrite (bool, default False).")]
     ) -> Dict[str, Any]:
-        """Search Google with genre filtering. Genres: academic, news, technical, commercial, social."""
+        """Search Google with genre filtering. Genres: academic, news, technical, commercial, social. Supply output_path in the request to persist the full unsliced result set to disk as JSON and receive a slim response."""
+        # Output path validation (Guard A)
+        output_path, include_content_in_response, overwrite = _extract_persist_opts(request)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
+
         modules = get_modules()
         if not modules:
             return modules_unavailable_error()
         web_crawling, search, youtube, file_processing, utilities = modules
+
+        def _persist(r: Dict[str, Any]) -> Dict[str, Any]:
+            if not output_path:
+                return r
+            return finalize_tool_response(
+                r,
+                output_path=output_path,
+                include_content_in_response=include_content_in_response,
+                overwrite=overwrite,
+                tool_kind=KIND_SEARCH_JSON,
+                source_tool="search_google",
+            )
 
         try:
             # Extract parameters from request
@@ -61,6 +92,8 @@ def register_search_tools(mcp, get_modules):
                     # Apply slicing to cached result
                     import copy
                     result_copy = copy.deepcopy(cached)
+                    # Persist BEFORE slicing so disk holds the full result.
+                    result_copy = _persist(result_copy)
                     result_copy = _apply_search_content_slicing(result_copy, content_limit, content_offset)
                     result_copy['cache_hit'] = True
                     return apply_token_limit(result_copy, max_tokens=25000)
@@ -72,6 +105,10 @@ def register_search_tools(mcp, get_modules):
             if result.get('success') and cache_key:
                 import copy
                 _cache_search_result(cache_key, copy.deepcopy(result))
+
+            # Guard B: persist full (pre-slice/pre-truncate) results BEFORE
+            # any slicing so disk holds the complete result set.
+            result = _persist(result)
 
             # Apply content slicing if requested
             if content_limit != 0 or content_offset != 0:
@@ -91,13 +128,19 @@ def register_search_tools(mcp, get_modules):
 
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def batch_search_google(
-        request: Annotated[Dict[str, Any], Field(description="Dict with: queries (max 3), num_results_per_query, search_genre, recent_days")]
+        request: Annotated[Dict[str, Any], Field(description="Dict with: queries (max 3), num_results_per_query, search_genre, recent_days. Optional persistence keys: output_path (absolute file path, auto .json extension — full result set written to disk), include_content_in_response (bool, default False — when True keeps results in the response too), overwrite (bool, default False).")]
     ) -> Dict[str, Any]:
-        """Perform multiple Google searches. Max 3 queries per call."""
+        """Perform multiple Google searches. Max 3 queries per call. Supply output_path in the request to persist the full result set to disk as JSON and receive a slim response."""
         # Query limit check (MCP best practice: bounded toolsets)
         queries = request.get('queries', [])
         if len(queries) > 3:
             return {"success": False, "error": "Maximum 3 queries allowed per batch. Split into multiple calls."}
+
+        # Output path validation (Guard A)
+        output_path, include_content_in_response, overwrite = _extract_persist_opts(request)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
 
         modules = get_modules()
         if not modules:
@@ -106,6 +149,15 @@ def register_search_tools(mcp, get_modules):
 
         try:
             result = await search.batch_search_google(request)
+            if output_path:
+                result = finalize_tool_response(
+                    result,
+                    output_path=output_path,
+                    include_content_in_response=include_content_in_response,
+                    overwrite=overwrite,
+                    tool_kind=KIND_SEARCH_JSON,
+                    source_tool="batch_search_google",
+                )
             return apply_token_limit(result, max_tokens=25000)
         except Exception as e:
             return {
@@ -115,13 +167,31 @@ def register_search_tools(mcp, get_modules):
 
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def search_and_crawl(
-        request: Annotated[Dict[str, Any], Field(description="Dict with: search_query (required), crawl_top_results, search_genre, recent_days")]
+        request: Annotated[Dict[str, Any], Field(description="Dict with: search_query (required), crawl_top_results, search_genre, recent_days, generate_markdown, max_content_per_page. Optional persistence keys: output_path (absolute directory — per-page .md files + index.json, the full page bodies are written BEFORE max_content_per_page truncation; dot-containing dir names are fine), include_content_in_response (bool, default False — when True keeps crawled_pages in the response too, still subject to max_content_per_page truncation), overwrite (bool, default False). Failed pages appear in index.json with file=null.")]
     ) -> Dict[str, Any]:
-        """Search Google and crawl top results. Combines search with full content extraction."""
+        """Search Google and crawl top results. Combines search with full content extraction. Supply output_path (directory) in the request to persist per-page markdown (unsliced) + index.json and receive a slim response."""
+        # Output path validation (Guard A)
+        output_path, include_content_in_response, overwrite = _extract_persist_opts(request)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
+
         modules = get_modules()
         if not modules:
             return modules_unavailable_error()
         web_crawling, search, youtube, file_processing, utilities = modules
+
+        def _persist(r: Dict[str, Any]) -> Dict[str, Any]:
+            if not output_path:
+                return r
+            return finalize_tool_response(
+                r,
+                output_path=output_path,
+                include_content_in_response=include_content_in_response,
+                overwrite=overwrite,
+                tool_kind=KIND_MARKDOWN_BATCH_DICT,
+                source_tool="search_and_crawl",
+            )
 
         try:
             # Extract parameters from request
@@ -171,6 +241,10 @@ def register_search_tools(mcp, get_modules):
 
                         except Exception as fallback_error:
                             result["crawled_pages"][idx]["fallback_error"] = str(fallback_error)
+
+            # Guard B: persist BEFORE the max_content_per_page truncation
+            # so disk holds the full page bodies.
+            result = _persist(result)
 
             # Truncate content if too large
             if result and isinstance(result, dict):
@@ -238,6 +312,10 @@ def register_search_tools(mcp, get_modules):
                         "fallback_used": True,
                         "original_error": str(e)
                     }
+
+                    # Guard B: persist even the fallback response so disk
+                    # holds full per-page bodies.
+                    fallback_response = _persist(fallback_response)
 
                     # Apply token limit fallback before returning
                     return apply_token_limit(fallback_response, max_tokens=25000)

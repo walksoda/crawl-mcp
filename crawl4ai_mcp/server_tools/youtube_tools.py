@@ -7,6 +7,11 @@ from ._shared import (
     apply_token_limit,
     _apply_content_slicing,
     validate_content_slicing_params,
+    validate_output_path,
+    finalize_tool_response,
+    KIND_MARKDOWN_SINGLE,
+    KIND_MARKDOWN_BATCH_DICT,
+    KIND_YOUTUBE_COMMENTS,
     modules_unavailable_error,
     READONLY_ANNOTATIONS,
 )
@@ -33,8 +38,11 @@ def register_youtube_tools(mcp, get_modules):
         enrich_metadata: Annotated[bool, Field(description="Enrich metadata (upload_date, view_count) via page crawl")] = True,
         content_offset: Annotated[int, Field(description="Start position for content (0-indexed)")] = 0,
         content_limit: Annotated[int, Field(description="Max characters to return (0=unlimited)")] = 0,
+        output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .md extension) to persist the full unsliced transcript. When set, the response is slimmed to metadata+file path. content_limit/content_offset still affect the response copy but not the on-disk file.")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), keep the transcript in the response too. Note: the response copy is still subject to content_limit/content_offset slicing; only the on-disk file holds the full transcript. Defaults to False.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
     ) -> dict:
-        """Extract YouTube transcripts with timestamps. Works with public captioned videos. Supports fallback to page crawl."""
+        """Extract YouTube transcripts with timestamps. Works with public captioned videos. Supports fallback to page crawl. Use output_path to persist the full unsliced transcript to disk as markdown."""
         modules = get_modules()
         if not modules:
             return {"success": False, "error": "Tool modules not available"}
@@ -58,6 +66,11 @@ def register_youtube_tools(mcp, get_modules):
         if slicing_error:
             return slicing_error
 
+        # Output path validation (Guard A)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
+
         try:
             result = await youtube.extract_youtube_transcript(
                 url=url, languages=languages, translate_to=translate_to,
@@ -68,6 +81,17 @@ def register_youtube_tools(mcp, get_modules):
                 enable_crawl_fallback=enable_crawl_fallback, fallback_timeout=fallback_timeout,
                 enrich_metadata=enrich_metadata
             )
+
+            # Guard B: persist BEFORE slicing/truncation so disk holds full transcript.
+            if output_path:
+                result = finalize_tool_response(
+                    result,
+                    output_path=output_path,
+                    include_content_in_response=include_content_in_response,
+                    overwrite=overwrite,
+                    tool_kind=KIND_MARKDOWN_SINGLE,
+                    source_tool="extract_youtube_transcript",
+                )
 
             # Apply content slicing if requested
             if content_limit > 0 or content_offset > 0:
@@ -99,13 +123,23 @@ def register_youtube_tools(mcp, get_modules):
 
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def batch_extract_youtube_transcripts(
-        request: Annotated[Dict[str, Any], Field(description="Dict with: urls (max 3), languages, include_timestamps")]
+        request: Annotated[Dict[str, Any], Field(description="Dict with: urls (max 3), languages, include_timestamps. Optional persistence keys: output_path (absolute directory — per-video .md files + index.json; dot-containing dir names are fine), include_content_in_response (bool; default False — when True, per-video transcripts stay in the response as well), overwrite (bool; default False — existing files rejected). Failed items (success=False) are recorded in index.json with file=null but no .md is written.")]
     ) -> Dict[str, Any]:
-        """Extract transcripts from multiple YouTube videos. Max 3 URLs per call."""
+        """Extract transcripts from multiple YouTube videos. Max 3 URLs per call. Supply output_path (directory) in the request to persist per-video markdown files + index.json and receive a slim response."""
         # URL limit check (MCP best practice: bounded toolsets)
         urls = request.get('urls', [])
         if len(urls) > 3:
             return {"success": False, "error": "Maximum 3 YouTube URLs allowed per batch. Split into multiple calls."}
+
+        # Read persistence options from request dict.
+        output_path = request.get('output_path')
+        include_content_in_response = bool(request.get('include_content_in_response', False))
+        overwrite = bool(request.get('overwrite', False))
+
+        # Output path validation (Guard A)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
 
         modules = get_modules()
         if not modules:
@@ -114,6 +148,17 @@ def register_youtube_tools(mcp, get_modules):
 
         try:
             result = await youtube.batch_extract_youtube_transcripts(request)
+
+            # Guard B: persist BEFORE apply_token_limit so disk holds full data.
+            if output_path:
+                result = finalize_tool_response(
+                    result,
+                    output_path=output_path,
+                    include_content_in_response=include_content_in_response,
+                    overwrite=overwrite,
+                    tool_kind=KIND_MARKDOWN_BATCH_DICT,
+                    source_tool="batch_extract_youtube_transcripts",
+                )
 
             # Apply token limit fallback to prevent MCP errors
             result_with_fallback = apply_token_limit(result, max_tokens=25000)
@@ -139,9 +184,17 @@ def register_youtube_tools(mcp, get_modules):
         llm_provider: Annotated[Optional[str], Field(description="LLM provider")] = None,
         llm_model: Annotated[Optional[str], Field(description="LLM model")] = None,
         summary_length: Annotated[str, Field(description="'short'|'medium'|'long'")] = "medium",
-        include_timestamps: Annotated[bool, Field(description="Include timestamps")] = True
+        include_timestamps: Annotated[bool, Field(description="Include timestamps")] = True,
+        output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .md extension) to persist the full video info + transcript as markdown. When set, the response is slimmed to metadata+file path.")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), also include the full transcript in the response. Defaults to False.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
     ) -> Dict[str, Any]:
-        """Get YouTube video metadata and transcript availability."""
+        """Get YouTube video metadata and transcript availability. Use output_path to persist the full transcript to disk as markdown and receive a slim response."""
+        # Output path validation (Guard A)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
+
         modules = get_modules()
         if not modules:
             return {"success": False, "error": "Tool modules not available"}
@@ -153,6 +206,17 @@ def register_youtube_tools(mcp, get_modules):
                 max_tokens=max_tokens, llm_provider=llm_provider, llm_model=llm_model,
                 summary_length=summary_length, include_timestamps=include_timestamps
             )
+
+            # Guard B: persist BEFORE apply_token_limit.
+            if output_path:
+                result = finalize_tool_response(
+                    result,
+                    output_path=output_path,
+                    include_content_in_response=include_content_in_response,
+                    overwrite=overwrite,
+                    tool_kind=KIND_MARKDOWN_SINGLE,
+                    source_tool="get_youtube_video_info",
+                )
 
             # Apply token limit fallback to prevent MCP errors
             result_with_fallback = apply_token_limit(result, max_tokens=25000)
@@ -179,8 +243,11 @@ def register_youtube_tools(mcp, get_modules):
         include_replies: Annotated[bool, Field(description="Include reply comments")] = True,
         content_offset: Annotated[int, Field(description="Start position for content (0-indexed)")] = 0,
         content_limit: Annotated[int, Field(description="Max characters to return (0=unlimited)")] = 0,
+        output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .json extension) to persist the full unsliced/untruncated comment list. When set, the complete comment array is written to disk BEFORE the internal token-limit reduction, and the response is slimmed (extracted_data.comments removed but comment_count etc. kept).")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), keep the comment list in the response too. Note: the response copy is still subject to content_limit/content_offset slicing and the token-limit comment-array reduction; only the on-disk file holds the full list. Defaults to False.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
     ) -> dict:
-        """Extract YouTube video comments. Supports pagination via comment_offset."""
+        """Extract YouTube video comments. Supports pagination via comment_offset. Use output_path to persist the full unsliced comment list to disk as JSON; the response is then slimmed to metadata only."""
         modules = get_modules()
         if not modules:
             return {"success": False, "error": "Tool modules not available"}
@@ -191,11 +258,29 @@ def register_youtube_tools(mcp, get_modules):
         if slicing_error:
             return slicing_error
 
+        # Output path validation (Guard A)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
+
         try:
             result = await youtube.extract_youtube_comments(
                 url=url, sort_by=sort_by, max_comments=max_comments,
                 include_replies=include_replies, comment_offset=comment_offset,
             )
+
+            # Guard B: persist BEFORE any internal truncation so disk holds the
+            # full comment list. Slicing and the comments-array shrink below
+            # only affect the response copy.
+            if output_path:
+                result = finalize_tool_response(
+                    result,
+                    output_path=output_path,
+                    include_content_in_response=include_content_in_response,
+                    overwrite=overwrite,
+                    tool_kind=KIND_YOUTUBE_COMMENTS,
+                    source_tool="extract_youtube_comments",
+                )
 
             # Apply content slicing if requested
             if content_limit > 0 or content_offset > 0:

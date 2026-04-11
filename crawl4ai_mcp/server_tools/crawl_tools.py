@@ -7,10 +7,14 @@ from ._shared import (
     apply_token_limit,
     validate_crawl_url_params,
     validate_content_slicing_params,
+    validate_output_path,
     _convert_result_to_dict,
     _process_content_fields,
     _should_trigger_fallback,
     _apply_content_slicing,
+    finalize_tool_response,
+    KIND_MARKDOWN_SINGLE,
+    KIND_MARKDOWN_BATCH_DICT,
     modules_unavailable_error,
     READONLY_ANNOTATIONS,
 )
@@ -28,9 +32,15 @@ def register_crawl_tools(mcp, get_modules):
     ) -> dict:
         """Execute fallback crawl with undetected browser and add diagnostics.
 
-        Note: content_offset is not passed to the core fallback function because
-        the fallback path (crawler_fallback.py) manages its own cache strategy.
-        Content slicing is applied post-hoc via _apply_content_slicing instead.
+        Returns the fallback result WITHOUT applying content_limit /
+        content_offset slicing. The caller is responsible for running
+        :func:`_apply_content_slicing` after the persist hook, so that the
+        on-disk copy holds the full unsliced payload.
+
+        Note: content_limit / content_offset are still forwarded to the core
+        fallback because it manages its own cache strategy keyed on the
+        offset; that is independent of the response-copy slicing applied
+        later in the caller.
         """
         web_crawling, _, _, _, _ = get_modules()
         fallback_result = await web_crawling.crawl_url_with_fallback(
@@ -44,7 +54,8 @@ def register_crawl_tools(mcp, get_modules):
 
         fallback_dict = _convert_result_to_dict(fallback_result)
         fallback_dict = _process_content_fields(fallback_dict, include_cleaned_html, generate_markdown)
-        fallback_dict = _apply_content_slicing(fallback_dict, content_limit, content_offset)
+        # NOTE: slicing intentionally deferred to the caller so the persist
+        # hook can capture the full unsliced payload to disk.
 
         # Always add fallback diagnostics
         fallback_dict["fallback_used"] = True
@@ -71,8 +82,11 @@ def register_crawl_tools(mcp, get_modules):
         use_undetected_browser: Annotated[bool, Field(description="Bypass bot detection")] = False,
         content_limit: Annotated[int, Field(description="Max characters to return (0=unlimited)")] = 0,
         content_offset: Annotated[int, Field(description="Start position for content (0-indexed)")] = 0,
+        output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .md extension) to persist the full unsliced markdown. When set, the response is slimmed to metadata+file path to save tokens. content_limit/content_offset still affect the response copy but not the on-disk file.")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), keep markdown/content in the response too. Note: the response copy is still subject to content_limit/content_offset slicing; only the on-disk file holds the full unsliced payload. Defaults to False.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False (existing files are rejected before any fetch).")] = False,
     ) -> dict:
-        """Extract web page content with JavaScript support. Use wait_for_js=true for SPAs. Use content_offset/content_limit for pagination."""
+        """Extract web page content with JavaScript support. Use wait_for_js=true for SPAs. Use content_offset/content_limit to paginate the response. Use output_path to persist the full unsliced content to disk as markdown and receive a slim metadata-only response."""
         # Input validation
         validation_error = validate_crawl_url_params(url, timeout)
         if validation_error:
@@ -82,6 +96,11 @@ def register_crawl_tools(mcp, get_modules):
         slicing_error = validate_content_slicing_params(content_limit, content_offset)
         if slicing_error:
             return slicing_error
+
+        # Output path validation (Guard A) — reject before any external fetch.
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
 
         modules = get_modules()
         if not modules:
@@ -100,19 +119,32 @@ def register_crawl_tools(mcp, get_modules):
 
             result_dict = _convert_result_to_dict(result)
             result_dict = _process_content_fields(result_dict, include_cleaned_html, generate_markdown)
-            result_dict = _apply_content_slicing(result_dict, content_limit, content_offset)
+            # NOTE: slicing intentionally deferred until AFTER the persist
+            # hook so the on-disk copy holds the full, unsliced content.
 
             # Record if undetected browser was used in initial request
             if use_undetected_browser:
                 result_dict["undetected_browser_used"] = True
 
-            # Check if fallback is needed
+            # Check if fallback is needed (evaluated against unsliced content
+            # so a large content_offset can't spuriously trigger it).
             should_fallback, fallback_reason = _should_trigger_fallback(result_dict, generate_markdown)
 
             if not should_fallback:
+                # Guard B: persist FIRST (pre-slice, pre-token-limit).
+                result_dict = finalize_tool_response(
+                    result_dict,
+                    output_path=output_path,
+                    include_content_in_response=include_content_in_response,
+                    overwrite=overwrite,
+                    tool_kind=KIND_MARKDOWN_SINGLE,
+                    source_tool="crawl_url",
+                )
+                # Then slice the response copy for the caller.
+                result_dict = _apply_content_slicing(result_dict, content_limit, content_offset)
                 return apply_token_limit(result_dict, max_tokens=25000)
 
-            # Try fallback with undetected browser
+            # Try fallback with undetected browser (returns UNSLICED content).
             fallback_dict = await _execute_fallback(
                 url=url, css_selector=css_selector, extract_media=extract_media,
                 take_screenshot=take_screenshot, generate_markdown=generate_markdown,
@@ -122,6 +154,15 @@ def register_crawl_tools(mcp, get_modules):
                 content_limit=content_limit, content_offset=content_offset
             )
 
+            fallback_dict = finalize_tool_response(
+                fallback_dict,
+                output_path=output_path,
+                include_content_in_response=include_content_in_response,
+                overwrite=overwrite,
+                tool_kind=KIND_MARKDOWN_SINGLE,
+                source_tool="crawl_url",
+            )
+            fallback_dict = _apply_content_slicing(fallback_dict, content_limit, content_offset)
             return apply_token_limit(fallback_dict, max_tokens=25000)
 
         except Exception as e:
@@ -140,6 +181,15 @@ def register_crawl_tools(mcp, get_modules):
                     content_limit=content_limit, content_offset=content_offset
                 )
 
+                fallback_dict = finalize_tool_response(
+                    fallback_dict,
+                    output_path=output_path,
+                    include_content_in_response=include_content_in_response,
+                    overwrite=overwrite,
+                    tool_kind=KIND_MARKDOWN_SINGLE,
+                    source_tool="crawl_url",
+                )
+                fallback_dict = _apply_content_slicing(fallback_dict, content_limit, content_offset)
                 return apply_token_limit(fallback_dict, max_tokens=25000)
 
             except Exception as fallback_error:
@@ -168,9 +218,17 @@ def register_crawl_tools(mcp, get_modules):
         url_pattern: Annotated[Optional[str], Field(description="URL filter pattern")] = None,
         score_threshold: Annotated[float, Field(description="Min relevance 0-1")] = 0.0,
         extract_media: Annotated[bool, Field(description="Extract media")] = False,
-        base_timeout: Annotated[int, Field(description="Timeout per page")] = 60
+        base_timeout: Annotated[int, Field(description="Timeout per page")] = 60,
+        output_path: Annotated[Optional[str], Field(description="Absolute directory path to persist per-URL markdown files + index.json. Existing regular files at this path are rejected; otherwise the directory is created if missing (dot-containing names like /tmp/run.v1 are fine). When set, the response is slimmed to metadata+file paths. Failed items (success=False) are NOT written as .md but still recorded in index.json with file=null.")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), also include per-page content/markdown in the response items. Defaults to False so the response stays token-efficient.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite existing per-URL files inside output_path. Defaults to False (existing files cause an output_path_exists error).")] = False,
     ) -> Dict[str, Any]:
-        """Crawl multiple pages from a site with configurable depth."""
+        """Crawl multiple pages from a site with configurable depth. Use output_path (directory) to persist per-URL markdown files + index.json; the response is then slimmed to metadata only."""
+        # Output path validation (Guard A)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
+
         modules = get_modules()
         if not modules:
             return modules_unavailable_error()
@@ -185,6 +243,14 @@ def register_crawl_tools(mcp, get_modules):
 
             # Check if crawling was successful
             if result.get("success", True):
+                result = finalize_tool_response(
+                    result,
+                    output_path=output_path,
+                    include_content_in_response=include_content_in_response,
+                    overwrite=overwrite,
+                    tool_kind=KIND_MARKDOWN_BATCH_DICT,
+                    source_tool="deep_crawl_site",
+                )
                 # Apply token limit fallback before returning
                 return apply_token_limit(result, max_tokens=25000)
 
@@ -215,6 +281,14 @@ def register_crawl_tools(mcp, get_modules):
                         "original_error": result.get("error", "Deep crawl failed")
                     }
 
+                    fallback_response = finalize_tool_response(
+                        fallback_response,
+                        output_path=output_path,
+                        include_content_in_response=include_content_in_response,
+                        overwrite=overwrite,
+                        tool_kind=KIND_MARKDOWN_BATCH_DICT,
+                        source_tool="deep_crawl_site",
+                    )
                     # Apply token limit fallback before returning
                     return apply_token_limit(fallback_response, max_tokens=25000)
 
@@ -250,6 +324,14 @@ def register_crawl_tools(mcp, get_modules):
                         "original_error": str(e)
                     }
 
+                    fallback_response = finalize_tool_response(
+                        fallback_response,
+                        output_path=output_path,
+                        include_content_in_response=include_content_in_response,
+                        overwrite=overwrite,
+                        tool_kind=KIND_MARKDOWN_BATCH_DICT,
+                        source_tool="deep_crawl_site",
+                    )
                     # Apply token limit fallback before returning
                     return apply_token_limit(fallback_response, max_tokens=25000)
 
@@ -274,12 +356,20 @@ def register_crawl_tools(mcp, get_modules):
         auto_summarize: Annotated[bool, Field(description="Auto-summarize content")] = False,
         content_limit: Annotated[int, Field(description="Max characters to return (0=unlimited)")] = 0,
         content_offset: Annotated[int, Field(description="Start position for content (0-indexed)")] = 0,
+        output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .md extension) to persist the full unsliced markdown. When set, the response is slimmed to metadata+file path. content_limit/content_offset still affect the response copy but not the on-disk file.")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), keep markdown/content in the response too. Note: the response copy is still subject to content_limit/content_offset slicing; only the on-disk file holds the full unsliced payload.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False (existing files rejected before any fetch).")] = False,
     ) -> dict:
-        """Crawl with fallback strategies for anti-bot sites. Use content_offset/content_limit for pagination."""
+        """Crawl with fallback strategies for anti-bot sites. Use content_offset/content_limit to paginate the response. Use output_path to persist the full unsliced content to disk as markdown and receive a slim response."""
         # Content slicing validation
         slicing_error = validate_content_slicing_params(content_limit, content_offset)
         if slicing_error:
             return slicing_error
+
+        # Output path validation (Guard A)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
 
         modules = get_modules()
         if not modules:
@@ -296,6 +386,16 @@ def register_crawl_tools(mcp, get_modules):
             )
             # Convert to dict and apply content slicing
             result_dict = _convert_result_to_dict(result)
+            # Guard B: persist BEFORE slicing so disk holds full content.
+            if output_path:
+                result_dict = finalize_tool_response(
+                    result_dict,
+                    output_path=output_path,
+                    include_content_in_response=include_content_in_response,
+                    overwrite=overwrite,
+                    tool_kind=KIND_MARKDOWN_SINGLE,
+                    source_tool="crawl_url_with_fallback",
+                )
             result_dict = _apply_content_slicing(result_dict, content_limit, content_offset)
             return result_dict
         except Exception as e:

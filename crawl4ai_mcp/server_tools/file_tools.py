@@ -6,8 +6,12 @@ from ._shared import (
     Annotated, Dict, Field, Optional, Any,
     apply_token_limit,
     validate_content_slicing_params,
+    validate_output_path,
     _apply_content_slicing,
     _convert_result_to_dict,
+    finalize_tool_response,
+    KIND_MARKDOWN_SINGLE,
+    KIND_STRUCTURED_JSON,
     modules_unavailable_error,
     READONLY_ANNOTATIONS,
     READONLY_CLOSED_ANNOTATIONS,
@@ -29,9 +33,17 @@ def register_file_tools(mcp, get_modules):
         llm_provider: Annotated[Optional[str], Field(description="LLM provider")] = None,
         llm_model: Annotated[Optional[str], Field(description="LLM model")] = None,
         content_limit: Annotated[int, Field(description="Max characters to return (0=unlimited)")] = 0,
-        content_offset: Annotated[int, Field(description="Start position for content (0-indexed)")] = 0
+        content_offset: Annotated[int, Field(description="Start position for content (0-indexed)")] = 0,
+        output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .md extension) to persist the full unsliced converted markdown. When set, the response is slimmed to metadata+file path. content_limit/content_offset still affect the response copy but not the on-disk file.")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), keep content in the response too. Note: the response copy is still subject to content_limit/content_offset slicing; only the on-disk file holds the full unsliced payload. Defaults to False.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
     ) -> dict:
-        """Convert PDF, Word, Excel, PowerPoint, ZIP to markdown."""
+        """Convert PDF, Word, Excel, PowerPoint, ZIP to markdown. Use output_path to persist the full unsliced converted markdown to disk and receive a slim response."""
+        # Output path validation (Guard A)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
+
         modules = get_modules()
         if not modules:
             return {"success": False, "error": "Tool modules not available"}
@@ -72,6 +84,17 @@ def register_file_tools(mcp, get_modules):
                     'error': getattr(result, 'error', None),
                     'processing_time': getattr(result, 'processing_time', None)
                 }
+
+            # Guard B: persist BEFORE slicing/truncation so disk holds full content.
+            if output_path:
+                result_dict = finalize_tool_response(
+                    result_dict,
+                    output_path=output_path,
+                    include_content_in_response=include_content_in_response,
+                    overwrite=overwrite,
+                    tool_kind=KIND_MARKDOWN_SINGLE,
+                    source_tool="process_file",
+                )
 
             # Apply content slicing if requested
             if content_limit != 0 or content_offset != 0:
@@ -122,9 +145,17 @@ def register_file_tools(mcp, get_modules):
         similarity_threshold: Annotated[float, Field(description="Min similarity 0-1")] = 0.5,
         summarize_chunks: Annotated[bool, Field(description="Summarize chunks")] = False,
         merge_strategy: Annotated[str, Field(description="'hierarchical'|'linear'")] = "linear",
-        final_summary_length: Annotated[str, Field(description="'short'|'medium'|'long'")] = "short"
+        final_summary_length: Annotated[str, Field(description="'short'|'medium'|'long'")] = "short",
+        output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .json extension) to persist the full chunks + summaries as JSON. When set, the response is slimmed to metadata+file path (chunks, chunk_summaries, merged_summary, final_summary removed).")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), also include chunks/summaries in the response. Defaults to False.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
     ) -> Dict[str, Any]:
-        """Process large content with chunking and BM25 filtering."""
+        """Process large content with chunking and BM25 filtering. Use output_path to persist chunks + summaries to disk as JSON and receive a slim response."""
+        # Output path validation (Guard A)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
+
         modules = get_modules()
         if not modules:
             return {
@@ -191,7 +222,7 @@ def register_file_tools(mcp, get_modules):
                 else:
                     final_summary = content[:300] + "..." if len(content) > 300 else content
 
-                return {
+                success_response = {
                     "success": True,
                     "error": "Enhanced processing unavailable, used basic crawl with chunking",
                     "processing_time": 10,
@@ -209,6 +240,17 @@ def register_file_tools(mcp, get_modules):
                     "merged_summary": None,
                     "final_summary": final_summary
                 }
+                # Guard B: persist chunks + summary as JSON.
+                if output_path:
+                    success_response = finalize_tool_response(
+                        success_response,
+                        output_path=output_path,
+                        include_content_in_response=include_content_in_response,
+                        overwrite=overwrite,
+                        tool_kind=KIND_STRUCTURED_JSON,
+                        source_tool="enhanced_process_large_content",
+                    )
+                return success_response
             else:
                 raise Exception("Fallback crawling also failed")
 

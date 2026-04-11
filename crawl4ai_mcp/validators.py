@@ -4,6 +4,7 @@ This module provides validation functions for various input parameters
 used in MCP tools.
 """
 
+from pathlib import Path
 from typing import Any, Optional, Dict, List
 from urllib.parse import urlparse
 
@@ -351,5 +352,60 @@ def validate_content_slicing_params(
             "success": False,
             "error": f"content_offset must be non-negative. Got: {content_offset}",
             "error_code": "invalid_content_offset"
+        }
+    return None
+
+
+def validate_output_path(
+    path: Optional[str],
+    overwrite: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Validate an ``output_path`` parameter for file persistence.
+
+    Returns an error dict to short-circuit the tool, or ``None`` if the path
+    is acceptable (or not supplied at all).
+
+    Rules:
+    - ``None``/``""`` → no persistence requested, pass through.
+    - Must be a ``str`` containing no NUL bytes.
+    - Must be an absolute path after ``~`` expansion.
+    - If the path already exists as a regular file and ``overwrite=False``,
+      reject immediately so we don't run an expensive fetch only to fail at
+      the write step. Directory existence is allowed (batch tools write into
+      directories) and handled lower in the stack.
+    """
+    if path is None or path == "":
+        return None
+    if not isinstance(path, str):
+        return {
+            "success": False,
+            "error_code": "invalid_output_path_type",
+            "error": f"output_path must be a string, got {type(path).__name__}",
+        }
+    if "\x00" in path:
+        return {
+            "success": False,
+            "error_code": "invalid_output_path_chars",
+            "error": "output_path contains NUL character",
+        }
+    try:
+        p = Path(path).expanduser()
+    except Exception as e:  # pragma: no cover - Path() almost never raises
+        return {
+            "success": False,
+            "error_code": "invalid_output_path",
+            "error": f"Invalid output_path: {e}",
+        }
+    if not p.is_absolute():
+        return {
+            "success": False,
+            "error_code": "output_path_not_absolute",
+            "error": f"output_path must be absolute. Got: {path}",
+        }
+    if p.exists() and p.is_file() and not overwrite:
+        return {
+            "success": False,
+            "error_code": "output_path_exists",
+            "error": f"Output file exists and overwrite=False: {path}",
         }
     return None

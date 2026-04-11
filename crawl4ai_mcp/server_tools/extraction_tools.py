@@ -5,10 +5,39 @@ Extraction tool registrations: intelligent_extract, extract_entities, extract_st
 from ._shared import (
     Annotated, Dict, Field, List, Optional, Any,
     apply_token_limit,
+    validate_output_path,
     _convert_result_to_dict,
+    finalize_tool_response,
+    KIND_STRUCTURED_JSON,
     modules_unavailable_error,
     READONLY_ANNOTATIONS,
 )
+
+
+def _maybe_persist(
+    result: Dict[str, Any],
+    *,
+    output_path: Optional[str],
+    include_content_in_response: bool,
+    overwrite: bool,
+    source_tool: str,
+) -> Dict[str, Any]:
+    """Apply finalize_tool_response only when output_path is set.
+
+    Helper to keep extraction tools' many success return points tidy. All
+    extraction tools share KIND_STRUCTURED_JSON so this wrapper is hard-coded
+    to that kind.
+    """
+    if not output_path:
+        return result
+    return finalize_tool_response(
+        result,
+        output_path=output_path,
+        include_content_in_response=include_content_in_response,
+        overwrite=overwrite,
+        tool_kind=KIND_STRUCTURED_JSON,
+        source_tool=source_tool,
+    )
 
 
 def register_extraction_tools(mcp, get_modules):
@@ -24,13 +53,31 @@ def register_extraction_tools(mcp, get_modules):
         use_llm: Annotated[bool, Field(description="Enable LLM")] = True,
         llm_provider: Annotated[Optional[str], Field(description="LLM provider")] = None,
         llm_model: Annotated[Optional[str], Field(description="LLM model")] = None,
-        custom_instructions: Annotated[Optional[str], Field(description="LLM instructions")] = None
+        custom_instructions: Annotated[Optional[str], Field(description="LLM instructions")] = None,
+        output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .json extension) to persist the full extracted data + content as JSON. When set, the response is slimmed to metadata+file path (extracted_data.raw_content, content, markdown, table_data removed).")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), also keep extracted_data/content in the response. Defaults to False.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
     ) -> Dict[str, Any]:
-        """Extract specific data from web pages using LLM."""
+        """Extract specific data from web pages using LLM. Use output_path to persist the full extraction output to disk as JSON and receive a slim response."""
+        # Output path validation (Guard A)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
+
         modules = get_modules()
         if not modules:
             return modules_unavailable_error()
         web_crawling, search, youtube, file_processing, utilities = modules
+
+        # Bind the persist-options tuple to a local helper for brevity.
+        def _persist(r: Dict[str, Any]) -> Dict[str, Any]:
+            return _maybe_persist(
+                r,
+                output_path=output_path,
+                include_content_in_response=include_content_in_response,
+                overwrite=overwrite,
+                source_tool="intelligent_extract",
+            )
 
         try:
             result = await web_crawling.intelligent_extract(
@@ -41,7 +88,7 @@ def register_extraction_tools(mcp, get_modules):
 
             # Check if extraction was successful
             if result.get("success", True):
-                return apply_token_limit(result, max_tokens=25000)
+                return apply_token_limit(_persist(result), max_tokens=25000)
 
             # If intelligent extraction failed, try with fallback crawling
             try:
@@ -64,7 +111,7 @@ def register_extraction_tools(mcp, get_modules):
                             "fallback_used": True,
                             "original_error": result.get("error", "Intelligent extraction failed")
                         }
-                        return apply_token_limit(fallback_response, max_tokens=25000)
+                        return apply_token_limit(_persist(fallback_response), max_tokens=25000)
 
             except Exception as fallback_error:
                 result["fallback_error"] = str(fallback_error)
@@ -91,7 +138,7 @@ def register_extraction_tools(mcp, get_modules):
                         "fallback_used": True,
                         "original_error": str(e)
                     }
-                    return apply_token_limit(fallback_response, max_tokens=25000)
+                    return apply_token_limit(_persist(fallback_response), max_tokens=25000)
 
             except Exception as fallback_error:
                 pass
@@ -109,13 +156,30 @@ def register_extraction_tools(mcp, get_modules):
         deduplicate: Annotated[bool, Field(description="Remove duplicates")] = True,
         use_llm: Annotated[bool, Field(description="Use LLM for NER")] = False,
         llm_provider: Annotated[Optional[str], Field(description="LLM provider")] = None,
-        llm_model: Annotated[Optional[str], Field(description="LLM model")] = None
+        llm_model: Annotated[Optional[str], Field(description="LLM model")] = None,
+        output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .json extension) to persist the full entity extraction as JSON. When set, the response is slimmed (content, markdown, extracted_data.raw_content removed).")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), also keep the entity data in the response. Defaults to False.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
     ) -> Dict[str, Any]:
-        """Extract entities (emails, phones, etc.) from web pages."""
+        """Extract entities (emails, phones, etc.) from web pages. Use output_path to persist the full entity extraction output to disk as JSON and receive a slim response."""
+        # Output path validation (Guard A)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
+
         modules = get_modules()
         if not modules:
             return modules_unavailable_error()
         web_crawling, search, youtube, file_processing, utilities = modules
+
+        def _persist(r: Dict[str, Any]) -> Dict[str, Any]:
+            return _maybe_persist(
+                r,
+                output_path=output_path,
+                include_content_in_response=include_content_in_response,
+                overwrite=overwrite,
+                source_tool="extract_entities",
+            )
 
         try:
             result = await web_crawling.extract_entities(
@@ -126,7 +190,7 @@ def register_extraction_tools(mcp, get_modules):
 
             # Check if entity extraction was successful
             if result.get("success", True):
-                return apply_token_limit(result, max_tokens=25000)
+                return apply_token_limit(_persist(result), max_tokens=25000)
 
             # If entity extraction failed, try with fallback crawling
             try:
@@ -165,7 +229,7 @@ def register_extraction_tools(mcp, get_modules):
                         "note": "Basic regex extraction used - some entity types may not be fully supported",
                         "original_error": result.get("error", "Entity extraction failed")
                     }
-                    return apply_token_limit(fallback_response, max_tokens=25000)
+                    return apply_token_limit(_persist(fallback_response), max_tokens=25000)
 
             except Exception as fallback_error:
                 result["fallback_error"] = str(fallback_error)
@@ -209,7 +273,7 @@ def register_extraction_tools(mcp, get_modules):
                         "note": "Basic regex extraction used - some entity types may not be fully supported",
                         "original_error": str(e)
                     }
-                    return apply_token_limit(fallback_response, max_tokens=25000)
+                    return apply_token_limit(_persist(fallback_response), max_tokens=25000)
 
             except Exception as fallback_error:
                 pass
@@ -228,13 +292,30 @@ def register_extraction_tools(mcp, get_modules):
         wait_for_js: Annotated[bool, Field(description="Wait for JavaScript")] = False,
         timeout: Annotated[int, Field(description="Timeout in seconds")] = 30,
         use_llm_table_extraction: Annotated[bool, Field(description="Use LLM table extraction")] = False,
-        table_chunking_strategy: Annotated[str, Field(description="'intelligent'|'fixed'|'semantic'")] = "intelligent"
+        table_chunking_strategy: Annotated[str, Field(description="'intelligent'|'fixed'|'semantic'")] = "intelligent",
+        output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .json extension) to persist the full extracted_data + table_data as JSON. When set, the response is slimmed (content, markdown, table_data, extracted_data.raw_content removed).")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), also keep extracted_data/table_data/content in the response. Defaults to False.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
     ) -> Dict[str, Any]:
-        """Extract structured data using CSS selectors or LLM."""
+        """Extract structured data using CSS selectors or LLM. Use output_path to persist the full extraction (including table_data) to disk as JSON and receive a slim response."""
+        # Output path validation (Guard A)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return output_error
+
         modules = get_modules()
         if not modules:
             return modules_unavailable_error()
         web_crawling, search, youtube, file_processing, utilities = modules
+
+        def _persist(r: Dict[str, Any]) -> Dict[str, Any]:
+            return _maybe_persist(
+                r,
+                output_path=output_path,
+                include_content_in_response=include_content_in_response,
+                overwrite=overwrite,
+                source_tool="extract_structured_data",
+            )
 
         try:
             # NEW: LLM Table Extraction mode
@@ -254,7 +335,7 @@ def register_extraction_tools(mcp, get_modules):
                         result["processing_method"] = "llm_table_extraction"
                         result["features_used"] = ["intelligent_chunking", "massive_table_support"]
                         # Apply token limit fallback before returning
-                        return apply_token_limit(result, max_tokens=25000)
+                        return apply_token_limit(_persist(result), max_tokens=25000)
 
                 except Exception as table_error:
                     # Fallback to CSS extraction if table extraction fails
@@ -361,7 +442,7 @@ def register_extraction_tools(mcp, get_modules):
                         result["fallback_used"] = True
 
                     # Apply token limit fallback before returning
-                    return apply_token_limit(result, max_tokens=25000)
+                    return apply_token_limit(_persist(result), max_tokens=25000)
 
                 except ImportError:
                     # If BeautifulSoup not available, try fallback crawl
@@ -387,7 +468,7 @@ def register_extraction_tools(mcp, get_modules):
                             }
 
                             # Apply token limit fallback before returning
-                            return apply_token_limit(fallback_response, max_tokens=25000)
+                            return apply_token_limit(_persist(fallback_response), max_tokens=25000)
 
                     except Exception:
                         pass
@@ -421,7 +502,7 @@ def register_extraction_tools(mcp, get_modules):
                             }
 
                             # Apply token limit fallback before returning
-                            return apply_token_limit(fallback_response, max_tokens=25000)
+                            return apply_token_limit(_persist(fallback_response), max_tokens=25000)
 
                     except Exception:
                         pass
@@ -460,7 +541,7 @@ def register_extraction_tools(mcp, get_modules):
                     crawl_result["extracted_data"] = {"raw_content": crawl_result.get("content", "")[:500] + "..."}
 
                 # Apply token limit fallback before returning
-                return apply_token_limit(crawl_result, max_tokens=25000)
+                return apply_token_limit(_persist(crawl_result), max_tokens=25000)
 
         except Exception as e:
             # Final fallback attempt
@@ -486,7 +567,7 @@ def register_extraction_tools(mcp, get_modules):
                     }
 
                     # Apply token limit fallback before returning
-                    return apply_token_limit(fallback_response, max_tokens=25000)
+                    return apply_token_limit(_persist(fallback_response), max_tokens=25000)
 
             except Exception:
                 pass

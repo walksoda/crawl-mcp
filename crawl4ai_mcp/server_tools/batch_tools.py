@@ -9,7 +9,10 @@ import fnmatch
 from ._shared import (
     Annotated, Dict, Field, List, Optional, Any,
     apply_token_limit,
+    validate_output_path,
     _convert_result_to_dict,
+    finalize_tool_response,
+    KIND_MARKDOWN_BATCH_LIST,
     modules_unavailable_error,
     READONLY_ANNOTATIONS,
 )
@@ -24,12 +27,21 @@ def register_batch_tools(mcp, get_modules):
         base_timeout: Annotated[int, Field(description="Timeout per URL (default: 30)")] = 30,
         generate_markdown: Annotated[bool, Field(description="Generate markdown (default: True)")] = True,
         extract_media: Annotated[bool, Field(description="Extract media (default: False)")] = False,
-        wait_for_js: Annotated[bool, Field(description="Wait for JS (default: False)")] = False
+        wait_for_js: Annotated[bool, Field(description="Wait for JS (default: False)")] = False,
+        output_path: Annotated[Optional[str], Field(description="Absolute directory path to persist per-URL markdown files + index.json. Existing regular files at this path are rejected; otherwise the directory is created if missing (dot-containing names like /tmp/run.v1 are fine). The list return shape is preserved; each successful item gains an 'output_file' key. Failed items (success=False) are NOT written as .md but still appear in index.json with file=null.")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path), keep full markdown/content in each list item. Defaults to False so the response stays token-efficient.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite existing per-URL files inside output_path. Defaults to False (existing files cause an output_path_exists error, returned as a single-element list).")] = False,
     ) -> List[Dict[str, Any]]:
-        """Crawl multiple URLs with fallback. Max 3 URLs per call."""
+        """Crawl multiple URLs with fallback. Max 3 URLs per call. Use output_path (directory) to persist full per-URL markdown + index.json; the return shape stays a list, each success item gets an output_file key."""
         # URL limit check (MCP best practice: bounded toolsets)
         if len(urls) > 3:
             return [{"success": False, "error": "Maximum 3 URLs allowed per batch. Split into multiple calls."}]
+
+        # Output path validation (Guard A). On error we must return a dict
+        # rather than the tool's normal list, to signal to the caller.
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return [output_error]
 
         modules = get_modules()
         if not modules:
@@ -118,6 +130,17 @@ def register_batch_tools(mcp, get_modules):
                     # Already a dictionary
                     dict_results.append(crawl_result)
 
+            # Guard B: persist BEFORE apply_token_limit so disk holds full content.
+            # finalize_tool_response mutates dict_results in place to add output_file.
+            dict_results = finalize_tool_response(
+                dict_results,
+                output_path=output_path,
+                include_content_in_response=include_content_in_response,
+                overwrite=overwrite,
+                tool_kind=KIND_MARKDOWN_BATCH_LIST,
+                source_tool="batch_crawl",
+            )
+
             # Apply token limit fallback to the entire batch result
             batch_response = {"batch_results": dict_results, "total_urls": len(urls)}
             final_result = apply_token_limit(batch_response, max_tokens=25000)
@@ -173,6 +196,16 @@ def register_batch_tools(mcp, get_modules):
                             "original_batch_error": str(e)
                         })
 
+                # Guard B: persist emergency fallback results too.
+                fallback_results = finalize_tool_response(
+                    fallback_results,
+                    output_path=output_path,
+                    include_content_in_response=include_content_in_response,
+                    overwrite=overwrite,
+                    tool_kind=KIND_MARKDOWN_BATCH_LIST,
+                    source_tool="batch_crawl",
+                )
+
                 # Apply token limit fallback to emergency results
                 batch_response = {"batch_results": fallback_results, "total_urls": len(urls)}
                 final_result = apply_token_limit(batch_response, max_tokens=25000)
@@ -190,12 +223,20 @@ def register_batch_tools(mcp, get_modules):
         pattern_matching: Annotated[str, Field(description="Pattern: 'wildcard' or 'regex' (default: wildcard)")] = "wildcard",
         default_config: Annotated[Optional[Dict], Field(description="Default config")] = None,
         base_timeout: Annotated[int, Field(description="Timeout per URL (default: 30)")] = 30,
-        max_concurrent: Annotated[int, Field(description="Max concurrent (default: 3)")] = 3
+        max_concurrent: Annotated[int, Field(description="Max concurrent (default: 3)")] = 3,
+        output_path: Annotated[Optional[str], Field(description="Absolute directory path to persist per-URL markdown files + index.json. Existing regular files at this path are rejected; otherwise the directory is created if missing (dot-containing names are fine). The list return shape is preserved; each successful item gains an 'output_file' key. Failed items (success=False) are NOT written as .md but still appear in index.json with file=null.")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path), keep full markdown/content in each list item. Defaults to False.")] = False,
+        overwrite: Annotated[bool, Field(description="Overwrite existing per-URL files inside output_path. Defaults to False.")] = False,
     ) -> List[Dict[str, Any]]:
-        """Multi-URL crawl with pattern-based config. Max 5 URL patterns per call."""
+        """Multi-URL crawl with pattern-based config. Max 5 URL patterns per call. Use output_path (directory) to persist full per-URL markdown + index.json; the return shape stays a list, each success item gets an output_file key."""
         # URL limit check (MCP best practice: bounded toolsets)
         if len(url_configurations) > 5:
             return [{"success": False, "error": "Maximum 5 URL configurations allowed per batch. Split into multiple calls."}]
+
+        # Output path validation (Guard A)
+        output_error = validate_output_path(output_path, overwrite)
+        if output_error:
+            return [output_error]
 
         modules = get_modules()
         if not modules:
@@ -309,6 +350,16 @@ def register_batch_tools(mcp, get_modules):
                         "multi_url_config_used": True
                     }
                     results.append(error_result)
+
+            # Guard B: persist BEFORE apply_token_limit so disk holds full content.
+            results = finalize_tool_response(
+                results,
+                output_path=output_path,
+                include_content_in_response=include_content_in_response,
+                overwrite=overwrite,
+                tool_kind=KIND_MARKDOWN_BATCH_LIST,
+                source_tool="multi_url_crawl",
+            )
 
             # Apply token limit fallback to the entire multi-URL result
             batch_response = {"multi_url_results": results, "total_urls": len(all_urls)}
