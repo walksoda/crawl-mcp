@@ -239,7 +239,11 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
             if request.use_undetected_browser:
                 browsers_to_try = ["chromium"]
             else:
-                browsers_to_try = ["webkit", "chromium"]
+                env_browser = os.getenv("CRAWL4AI_BROWSER_TYPE")
+                if env_browser and env_browser in ("webkit", "chromium", "firefox"):
+                    browsers_to_try = [env_browser]
+                else:
+                    browsers_to_try = ["webkit", "chromium"]
 
             for browser_type in browsers_to_try:
                 try:
