@@ -23,7 +23,7 @@ def register_file_tools(mcp, get_modules):
 
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def process_file(
-        url: Annotated[str, Field(description="File URL (PDF, Office, ZIP)")],
+        url: Annotated[str, Field(description="File URL or local path (PDF, Office, ZIP). Supports http/https URLs, file:// URIs, and absolute paths.")],
         max_size_mb: Annotated[int, Field(description="Max file size in MB")] = 100,
         extract_all_from_zip: Annotated[bool, Field(description="Extract ZIP contents")] = True,
         include_metadata: Annotated[bool, Field(description="Include metadata")] = True,

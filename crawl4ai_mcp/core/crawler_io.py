@@ -80,7 +80,23 @@ async def _handle_file_url(request: CrawlRequest) -> Optional[CrawlResponse]:
     Handle file URL detection and processing via MarkItDown.
 
     Returns CrawlResponse if URL is a supported file, None otherwise.
+    For local files (file:// URI or absolute path), returns an error
+    instead of None when the extension is unsupported.
     """
+    from ..validators import is_file_uri, is_local_path
+
+    is_local = is_file_uri(request.url) or is_local_path(request.url)
+
+    if is_local and not file_processor.is_supported_file(request.url):
+        return CrawlResponse(
+            success=False,
+            url=request.url,
+            error=(
+                "Local files only support document formats. "
+                f"Supported: {', '.join(file_processor.supported_extensions.keys())}"
+            )
+        )
+
     if not file_processor.is_supported_file(request.url):
         return None
 

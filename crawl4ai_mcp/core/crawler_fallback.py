@@ -216,6 +216,24 @@ async def crawl_url_with_fallback(
 
     7-stage fallback with session persistence, strategy caching, and fingerprint evasion.
     """
+    from ..validators import is_file_uri, is_local_path
+    if is_file_uri(url) or is_local_path(url):
+        from .crawler_io import _handle_file_url
+        from ..models import CrawlRequest
+        request = CrawlRequest(
+            url=url,
+            include_cleaned_html=include_cleaned_html,
+            generate_markdown=generate_markdown,
+            content_limit=content_limit,
+            content_offset=content_offset,
+        )
+        result = await _handle_file_url(request)
+        if result is not None:
+            return result
+        return CrawlResponse(
+            success=False, url=url, error="Local file processing failed"
+        )
+
     domain = urlparse(url).netloc.lower()
     is_hn = "ycombinator.com" in domain
     is_social_media = any(s in domain for s in ["twitter.com", "facebook.com", "linkedin.com"])

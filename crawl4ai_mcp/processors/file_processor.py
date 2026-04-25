@@ -17,6 +17,8 @@ from urllib.parse import urlparse, unquote
 import logging
 import re
 
+from ..validators import is_file_uri, is_local_path, file_uri_to_local_path
+
 # Content-Type to file extension mapping for URLs without extension
 CONTENT_TYPE_TO_EXT = {
     'application/pdf': '.pdf',
@@ -89,6 +91,31 @@ class FileProcessor:
                 return ext
         return None
 
+    def _resolve_local_path(self, file_path_or_url: str) -> Optional[str]:
+        if is_file_uri(file_path_or_url):
+            return file_uri_to_local_path(file_path_or_url)
+        if is_local_path(file_path_or_url):
+            return file_path_or_url.strip()
+        return None
+
+    async def _read_local_file(self, file_path: str, max_size_mb: int = 100) -> tuple:
+        path = Path(file_path).resolve()
+        if not path.exists():
+            raise ValueError(f"File not found: {file_path}")
+        if not path.is_file():
+            raise ValueError(f"Not a regular file: {file_path}")
+        resolved_ext = path.suffix.lower()
+        if resolved_ext not in self.supported_extensions:
+            raise ValueError(
+                f"Resolved file has unsupported extension: {resolved_ext}. "
+                f"Supported: {', '.join(self.supported_extensions.keys())}"
+            )
+        size_mb = path.stat().st_size / (1024 * 1024)
+        if size_mb > max_size_mb:
+            raise ValueError(f"File too large: {size_mb:.1f}MB (max: {max_size_mb}MB)")
+        content = path.read_bytes()
+        return content, None
+
     def is_supported_file(self, file_path_or_url: str, content_type: Optional[str] = None) -> bool:
         """Check if file format is supported
 
@@ -96,6 +123,11 @@ class FileProcessor:
         Content-Type based detection after download.
         """
         try:
+            local = self._resolve_local_path(file_path_or_url)
+            if local is not None:
+                ext = Path(local).suffix.lower()
+                return ext in self.supported_extensions
+
             if file_path_or_url.startswith('http'):
                 parsed = urlparse(file_path_or_url)
                 path = unquote(parsed.path)
@@ -139,7 +171,10 @@ class FileProcessor:
     def get_file_type(self, file_path_or_url: str) -> Optional[str]:
         """Get human-readable file type description"""
         try:
-            if file_path_or_url.startswith('http'):
+            local = self._resolve_local_path(file_path_or_url)
+            if local is not None:
+                path = local
+            elif file_path_or_url.startswith('http'):
                 parsed = urlparse(file_path_or_url)
                 path = unquote(parsed.path)
             else:
@@ -174,6 +209,11 @@ class FileProcessor:
         4. Empty string (fallback)
         """
         try:
+            local = self._resolve_local_path(url)
+            if local is not None:
+                ext = Path(local).suffix.lower()
+                return ext if ext in self.supported_extensions else ''
+
             # 1. Try URL extension first
             parsed = urlparse(url)
             path = unquote(parsed.path)
@@ -197,12 +237,16 @@ class FileProcessor:
         except Exception:
             return ''
 
-    async def download_file(self, url: str, max_size_mb: int = 100) -> tuple[bytes, Optional[str]]:
-        """Download file from URL with size limit
+    async def download_file(self, url: str, max_size_mb: int = 100) -> tuple:
+        """Download file from URL or read local file with size limit
 
         Returns:
             tuple: (content_bytes, content_type or None)
         """
+        local_path = self._resolve_local_path(url)
+        if local_path is not None:
+            return await self._read_local_file(local_path, max_size_mb)
+
         try:
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()

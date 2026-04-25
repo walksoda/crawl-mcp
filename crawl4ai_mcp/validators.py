@@ -4,9 +4,45 @@ This module provides validation functions for various input parameters
 used in MCP tools.
 """
 
+import re
 from pathlib import Path
 from typing import Any, Optional, Dict, List
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
+
+
+def is_file_uri(url: str) -> bool:
+    return url.strip().lower().startswith('file://')
+
+
+def is_local_path(url: str) -> bool:
+    s = url.strip()
+    if s.startswith('//') or s.startswith('\\\\'):
+        return False
+    if s.startswith('/'):
+        return True
+    if re.match(r'^[A-Za-z]:[/\\]', s):
+        return True
+    return False
+
+
+def file_uri_to_local_path(uri: str) -> str:
+    parsed = urlparse(uri)
+    if parsed.netloc and parsed.netloc.lower() != 'localhost':
+        raise ValueError(
+            f"UNC file URIs are not supported: {uri}. "
+            "Use file:///path/to/file for local files."
+        )
+    path = unquote(parsed.path)
+    if not path or path == '/':
+        raise ValueError(f"Empty file path in URI: {uri}")
+    if path.startswith('//'):
+        raise ValueError(
+            f"UNC file URIs are not supported: {uri}. "
+            "Use file:///path/to/file for local files."
+        )
+    if re.match(r'^/[A-Za-z]:/', path):
+        path = path[1:]
+    return path
 
 
 def validate_url(url: str) -> Optional[Dict[str, Any]]:
@@ -27,10 +63,28 @@ def validate_url(url: str) -> Optional[Dict[str, Any]]:
         }
 
     url_stripped = url.strip()
+
+    if is_file_uri(url_stripped):
+        try:
+            file_uri_to_local_path(url_stripped)
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "error_code": "unsupported_file_uri"
+            }
+        return None
+
+    if is_local_path(url_stripped):
+        return None
+
     if not url_stripped.startswith(('http://', 'https://')):
         return {
             "success": False,
-            "error": f"Invalid URL scheme. URL must start with http:// or https://. Got: {url_stripped[:50]}",
+            "error": (
+                "Invalid URL. Use http://, https://, file://, "
+                f"or an absolute file path. Got: {url_stripped[:50]}"
+            ),
             "error_code": "invalid_url_scheme"
         }
 
