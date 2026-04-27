@@ -399,8 +399,9 @@ class YouTubeProcessor(YouTubeProcessorBase):
                 response['warning'] = (
                     "No comments were retrieved. Possible reasons: "
                     "comments are disabled on this video, no comments exist, "
-                    "the video is private/unavailable, comment_offset exceeds available comments, "
-                    "or the downloader cannot reach YouTube (e.g., network restrictions in Docker)."
+                    "the video is private/unavailable, "
+                    "or the downloader cannot reach YouTube "
+                    "(e.g., network restrictions in Docker)."
                 )
             return response
 
