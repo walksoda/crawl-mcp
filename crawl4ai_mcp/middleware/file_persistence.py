@@ -31,6 +31,8 @@ successful item rather than wrapping the list in a dict.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import copy
 import datetime
 import hashlib
@@ -264,6 +266,46 @@ def _atomic_write_text(path: Path, data: str, overwrite: bool) -> int:
                 pass
 
     return len(data.encode("utf-8"))
+
+
+def _atomic_write_bytes(path: Path, data: bytes, overwrite: bool) -> int:
+    """Write ``data`` to ``path`` atomically, honoring ``overwrite``.
+
+    Binary counterpart to :func:`_atomic_write_text`. Used for
+    base64-decoded screenshot blobs.
+
+    Returns the number of bytes written.
+
+    Raises :class:`FileExistsError` if ``path`` already exists and
+    ``overwrite=False``.
+    """
+    if path.exists() and not overwrite:
+        raise FileExistsError(str(path))
+
+    parent = str(path.parent)
+    tmp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp.write(data)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp_path = tmp.name
+        os.replace(tmp_path, path)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    return len(data)
 
 
 # ---------------------------------------------------------------------------
@@ -596,6 +638,126 @@ def _write_batch_list(
     }
     written.append(_write_json_single(index_path, index_doc, overwrite))
     return written, []
+
+
+# ---------------------------------------------------------------------------
+# Screenshot persistence
+# ---------------------------------------------------------------------------
+
+
+def handle_screenshot_persistence(
+    result: Dict[str, Any],
+    *,
+    output_path: Optional[str],
+    overwrite: bool,
+    source_tool: str,
+) -> Dict[str, Any]:
+    """Move a base64 screenshot out of the response and onto disk (or drop).
+
+    The base64 PNG blob in ``result["screenshot"]`` can be ~50k tokens on
+    its own, which would either exceed the apply_token_limit budget or
+    force special-casing inside it. Instead, this helper converts the
+    blob into either a sibling file plus a ``screenshot_path`` reference
+    (when ``output_path`` is set) or removes the blob entirely with a
+    warning explaining how to retrieve it (when ``output_path`` is not
+    set). Either way, the response copy returned to the caller never
+    carries the base64, so the token-limit guarantee is preserved.
+
+    The sibling file is written next to the main ``output_path`` artifact
+    with the same stem and a ``_screenshot.png`` suffix (e.g.
+    ``/tmp/run.json`` → ``/tmp/run_screenshot.png``). If the caller
+    omitted the extension on ``output_path``, the screenshot is still
+    written next to the inferred main artifact.
+
+    Mutates and returns ``result``. A no-op when no screenshot is
+    present (None, empty string, or absent).
+    """
+    screenshot_b64 = result.get("screenshot")
+    if not screenshot_b64:
+        return result
+
+    if not output_path:
+        # No persistence target — drop the blob and surface a warning so
+        # the caller knows the screenshot was generated but not returned.
+        result.pop("screenshot", None)
+        warnings = result.get("warnings")
+        if not isinstance(warnings, list):
+            warnings = [warnings] if warnings else []
+        warnings.append(
+            "Screenshot was generated but omitted from the response to "
+            "stay within the MCP token limit. Re-issue the call with "
+            "`output_path` set to persist the screenshot to disk; the "
+            "response will then include `screenshot_path`."
+        )
+        result["warnings"] = warnings
+        return result
+
+    try:
+        main_path = _validate_absolute_path(output_path)
+    except ValueError:
+        # Bad output_path — let finalize_tool_response report it via its
+        # own validation path. Drop the blob defensively so we never
+        # leak the base64 into the response.
+        result.pop("screenshot", None)
+        return result
+
+    # Build sibling path: <stem>_screenshot.png alongside the main artifact.
+    if main_path.suffix == "":
+        # Caller omitted extension; finalize_tool_response will add one
+        # later. The screenshot still lives next to the main file by
+        # stem, so use the path as-is for stem derivation.
+        screenshot_path = main_path.with_name(main_path.name + "_screenshot.png")
+    else:
+        screenshot_path = main_path.with_name(main_path.stem + "_screenshot.png")
+
+    try:
+        # validate=True rejects junk characters; default (False) silently
+        # strips them and would let a clearly-malformed input through.
+        png_bytes = base64.b64decode(screenshot_b64, validate=True)
+    except (binascii.Error, ValueError):
+        # Malformed base64 — drop the blob, warn, don't raise.
+        result.pop("screenshot", None)
+        warnings = result.get("warnings")
+        if not isinstance(warnings, list):
+            warnings = [warnings] if warnings else []
+        warnings.append(
+            "Screenshot field was not valid base64; omitted from response."
+        )
+        result["warnings"] = warnings
+        return result
+
+    try:
+        _ensure_parent_dir(screenshot_path)
+        bytes_written = _atomic_write_bytes(screenshot_path, png_bytes, overwrite=overwrite)
+    except FileExistsError:
+        result.pop("screenshot", None)
+        warnings = result.get("warnings")
+        if not isinstance(warnings, list):
+            warnings = [warnings] if warnings else []
+        warnings.append(
+            f"Screenshot file already exists at {screenshot_path} and "
+            f"overwrite=False; not overwritten. The base64 has been "
+            f"omitted from the response."
+        )
+        result["warnings"] = warnings
+        return result
+    except OSError as exc:
+        result.pop("screenshot", None)
+        warnings = result.get("warnings")
+        if not isinstance(warnings, list):
+            warnings = [warnings] if warnings else []
+        warnings.append(f"Screenshot write failed: {exc}")
+        result["warnings"] = warnings
+        return result
+
+    # Replace the blob with a path reference.
+    result.pop("screenshot", None)
+    result["screenshot_path"] = str(screenshot_path)
+    result["screenshot_bytes"] = bytes_written
+    # Tag the source tool so multi-step pipelines can attribute the file.
+    if source_tool:
+        result.setdefault("screenshot_source_tool", source_tool)
+    return result
 
 
 # ---------------------------------------------------------------------------
