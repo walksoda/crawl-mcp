@@ -124,7 +124,10 @@ async def extract_youtube_comments(
             markdown=markdown_text,
             extracted_data=extracted_data,
         )
-        return response.model_dump()
+        result_dict = response.model_dump()
+        if warning:
+            result_dict.setdefault("warnings", []).append(warning)
+        return result_dict
 
     except Exception as e:
         return YouTubeCommentsResponse(

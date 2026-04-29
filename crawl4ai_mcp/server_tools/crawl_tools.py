@@ -418,15 +418,13 @@ def register_crawl_tools(mcp, get_modules):
                     tool_kind=KIND_MARKDOWN_SINGLE,
                     source_tool="crawl_url_with_fallback",
                 )
-            # Persist screenshot to disk (or drop with warning) regardless
-            # of output_path, so the base64 blob never reaches the caller
-            # via this tool either.
-            result_dict = handle_screenshot_persistence(
-                result_dict,
-                output_path=output_path,
-                overwrite=overwrite,
-                source_tool="crawl_url_with_fallback",
-            )
+            if output_path:
+                result_dict = handle_screenshot_persistence(
+                    result_dict,
+                    output_path=output_path,
+                    overwrite=overwrite,
+                    source_tool="crawl_url_with_fallback",
+                )
             result_dict = _apply_content_slicing(result_dict, content_limit, content_offset)
             return result_dict
         except Exception as e:

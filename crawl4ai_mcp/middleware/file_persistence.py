@@ -641,6 +641,20 @@ def _write_batch_list(
 
 
 # ---------------------------------------------------------------------------
+# Warnings helper
+# ---------------------------------------------------------------------------
+
+
+def _append_warning(result: Dict[str, Any], message: str) -> None:
+    """Append ``message`` to ``result["warnings"]``, normalizing the field."""
+    warnings = result.get("warnings")
+    if not isinstance(warnings, list):
+        warnings = [warnings] if warnings else []
+    warnings.append(message)
+    result["warnings"] = warnings
+
+
+# ---------------------------------------------------------------------------
 # Screenshot persistence
 # ---------------------------------------------------------------------------
 
@@ -680,16 +694,13 @@ def handle_screenshot_persistence(
         # No persistence target — drop the blob and surface a warning so
         # the caller knows the screenshot was generated but not returned.
         result.pop("screenshot", None)
-        warnings = result.get("warnings")
-        if not isinstance(warnings, list):
-            warnings = [warnings] if warnings else []
-        warnings.append(
+        _append_warning(
+            result,
             "Screenshot was generated but omitted from the response to "
             "stay within the MCP token limit. Re-issue the call with "
             "`output_path` set to persist the screenshot to disk; the "
-            "response will then include `screenshot_path`."
+            "response will then include `screenshot_path`.",
         )
-        result["warnings"] = warnings
         return result
 
     try:
@@ -717,13 +728,10 @@ def handle_screenshot_persistence(
     except (binascii.Error, ValueError):
         # Malformed base64 — drop the blob, warn, don't raise.
         result.pop("screenshot", None)
-        warnings = result.get("warnings")
-        if not isinstance(warnings, list):
-            warnings = [warnings] if warnings else []
-        warnings.append(
-            "Screenshot field was not valid base64; omitted from response."
+        _append_warning(
+            result,
+            "Screenshot field was not valid base64; omitted from response.",
         )
-        result["warnings"] = warnings
         return result
 
     try:
@@ -731,23 +739,16 @@ def handle_screenshot_persistence(
         bytes_written = _atomic_write_bytes(screenshot_path, png_bytes, overwrite=overwrite)
     except FileExistsError:
         result.pop("screenshot", None)
-        warnings = result.get("warnings")
-        if not isinstance(warnings, list):
-            warnings = [warnings] if warnings else []
-        warnings.append(
+        _append_warning(
+            result,
             f"Screenshot file already exists at {screenshot_path} and "
             f"overwrite=False; not overwritten. The base64 has been "
-            f"omitted from the response."
+            f"omitted from the response.",
         )
-        result["warnings"] = warnings
         return result
     except OSError as exc:
         result.pop("screenshot", None)
-        warnings = result.get("warnings")
-        if not isinstance(warnings, list):
-            warnings = [warnings] if warnings else []
-        warnings.append(f"Screenshot write failed: {exc}")
-        result["warnings"] = warnings
+        _append_warning(result, f"Screenshot write failed: {exc}")
         return result
 
     # Replace the blob with a path reference.
@@ -914,10 +915,6 @@ def finalize_tool_response(
             "content_included_in_response": include_content_in_response,
         }
     )
-    if warnings:
-        existing = response.get("warnings") or []
-        if isinstance(existing, list):
-            response["warnings"] = existing + warnings
-        else:
-            response["warnings"] = warnings
+    for w in warnings:
+        _append_warning(response, w)
     return response
