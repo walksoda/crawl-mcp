@@ -325,8 +325,10 @@ class YouTubeProcessor(YouTubeProcessorBase):
             skipped = 0
             collected = 0
             has_more = False
+            total_seen = 0
 
             for raw_comment in generator:
+                total_seen += 1
                 is_reply = raw_comment.get('reply', False)
 
                 if not include_replies and is_reply:
@@ -353,10 +355,10 @@ class YouTubeProcessor(YouTubeProcessorBase):
                 comments.append(comment)
                 collected += 1
 
-            return comments, has_more
+            return comments, has_more, total_seen
 
         try:
-            comments, has_more = await asyncio.wait_for(
+            comments, has_more, total_seen = await asyncio.wait_for(
                 asyncio.to_thread(_download_comments),
                 timeout=120
             )
@@ -381,7 +383,7 @@ class YouTubeProcessor(YouTubeProcessorBase):
             }
 
         if not comments:
-            return {
+            response = {
                 'success': True,
                 'video_id': video_id,
                 'comments': [],
@@ -393,6 +395,15 @@ class YouTubeProcessor(YouTubeProcessorBase):
                     'unique_authors': 0
                 }
             }
+            if total_seen == 0:
+                response['warning'] = (
+                    "No comments were retrieved. Possible reasons: "
+                    "comments are disabled on this video, no comments exist, "
+                    "the video is private/unavailable, "
+                    "or the downloader cannot reach YouTube "
+                    "(e.g., network restrictions in Docker)."
+                )
+            return response
 
         top_level = [c for c in comments if not c['is_reply']]
         reply_comments = [c for c in comments if c['is_reply']]

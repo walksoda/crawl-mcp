@@ -81,6 +81,7 @@ async def extract_youtube_comments(
         comments = result['comments']
         has_more = result['has_more']
         comment_stats = result['comment_stats']
+        warning = result.get('warning')
 
         # Build markdown with escaped user-generated content
         lines = []
@@ -101,6 +102,19 @@ async def extract_youtube_comments(
         markdown_text = "\n".join(lines)
 
         title = f"Comments for YouTube video {video_id}"
+        extracted_data = {
+            "video_id": video_id,
+            "processing_method": "youtube_comment_downloader",
+            "comment_stats": comment_stats,
+            "sort_by": sort_by,
+            "include_replies": include_replies,
+            "comment_offset": comment_offset,
+            "has_more": has_more,
+            "comments": comments,
+        }
+        if warning:
+            extracted_data["warning"] = warning
+
         response = YouTubeCommentsResponse(
             success=True,
             url=url,
@@ -108,16 +122,7 @@ async def extract_youtube_comments(
             title=title,
             content=markdown_text,
             markdown=markdown_text,
-            extracted_data={
-                "video_id": video_id,
-                "processing_method": "youtube_comment_downloader",
-                "comment_stats": comment_stats,
-                "sort_by": sort_by,
-                "include_replies": include_replies,
-                "comment_offset": comment_offset,
-                "has_more": has_more,
-                "comments": comments,
-            }
+            extracted_data=extracted_data,
         )
         return response.model_dump()
 
