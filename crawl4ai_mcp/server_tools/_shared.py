@@ -25,6 +25,7 @@ from ..validators import (
 )
 from ..middleware.file_persistence import (
     finalize_tool_response,
+    handle_screenshot_persistence,
     KIND_MARKDOWN_SINGLE,
     KIND_MARKDOWN_BATCH_DICT,
     KIND_MARKDOWN_BATCH_LIST,
@@ -56,6 +57,7 @@ __all__ = [
     "validate_output_path",
     # file persistence
     "finalize_tool_response",
+    "handle_screenshot_persistence",
     "KIND_MARKDOWN_SINGLE",
     "KIND_MARKDOWN_BATCH_DICT",
     "KIND_MARKDOWN_BATCH_LIST",
