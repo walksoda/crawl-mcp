@@ -370,14 +370,6 @@ class YouTubeProcessor(YouTubeProcessorBase):
             }
         except Exception as e:
             error_msg = str(e)
-            # YouTube Restricted Mode: when a network-level DNS resolver
-            # rewrites www.youtube.com to restrictmoderate.youtube.com
-            # (router-level family-safe DNS, Pi-hole, OpenDNS Family Shield,
-            # Cloudflare for Families, etc.), the page lacks the
-            # sortFilterSubMenuRenderer and youtube-comment-downloader raises
-            # RuntimeError('Failed to set sorting'). Surface as a known
-            # condition: same response shape as the zero-yield case from
-            # PR #17, with a structured `warning` explaining the cause.
             if 'failed to set sorting' in error_msg.lower():
                 return {
                     'success': True,
@@ -391,12 +383,12 @@ class YouTubeProcessor(YouTubeProcessorBase):
                         'unique_authors': 0,
                     },
                     'warning': (
-                        "Comments unavailable: YouTube is serving Restricted "
-                        "Mode for this network. The local DNS resolver is "
-                        "rewriting www.youtube.com to restrictmoderate.youtube.com, "
-                        "which hides the sort sub-menu that "
-                        "youtube-comment-downloader needs. Verify with: "
-                        "getent hosts www.youtube.com"
+                        "Comments unavailable: youtube-comment-downloader could not "
+                        "access YouTube's comment sorting UI. This is often caused by "
+                        "Restricted Mode or network/DNS filtering (e.g. "
+                        "restrictmoderate.youtube.com), but can also result from "
+                        "YouTube page changes or other access restrictions. "
+                        "Verify DNS with: getent hosts www.youtube.com"
                     ),
                 }
             if "disable" in error_msg.lower() or "unavailable" in error_msg.lower():
