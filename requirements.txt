@@ -1,5 +1,5 @@
 # Fixed versions to prevent unintended behavior changes
-crawl4ai==0.7.8
+crawl4ai>=0.8.0,<0.9
 litellm>=1.83.7,!=1.82.7,!=1.82.8
 fastmcp>=2.14.2,<3
 pydantic>=2.0.0
@@ -15,7 +15,7 @@ numpy>=1.24.0
 # pdfplumber 0.11.9 itself hard-pins pdfminer-six==20251230, so we let
 # the [pdf] extra resolve pdfminer-six rather than pinning it ourselves.
 markitdown[pdf]>=0.1.5,<0.2
-mammoth>=1.9.1
+mammoth>=1.11.0
 openpyxl>=3.1.5
 python-pptx==1.0.2
 xlrd>=2.0.1
