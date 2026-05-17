@@ -41,3 +41,6 @@ tiktoken>=0.5.0
 
 # Anthropic SDK for LLM-based content processing
 anthropic>=0.40.0
+
+# Security: urllib3 2.6.x has known CVEs (CVE-2026-44431, CVE-2026-44432)
+urllib3>=2.7.0

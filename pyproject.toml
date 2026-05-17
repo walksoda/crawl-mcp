@@ -43,6 +43,7 @@ dependencies = [
     "playwright==1.55.0",
     "python-dateutil>=2.9.0.post0",
     "tiktoken>=0.5.0",
+    "urllib3>=2.7.0",
 ]
 
 [project.optional-dependencies]
