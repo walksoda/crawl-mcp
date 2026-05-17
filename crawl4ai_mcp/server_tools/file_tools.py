@@ -194,7 +194,15 @@ def register_file_tools(mcp, get_modules):
             ))
 
             if fallback_result and fallback_result.get("success", False):
-                content = fallback_result.get("content", "")
+                # crawl_url populates `markdown` and leaves `content=None` for
+                # the markdown-rendering path; dict.get(key, default) returns
+                # None (not the default) when the key exists with a None
+                # value, so the legacy `.get("content", "")` would return None
+                # and the next len() call crashed every invocation. Read
+                # markdown first, then content, defaulting to "".
+                content = (fallback_result.get("markdown")
+                           or fallback_result.get("content")
+                           or "")
 
                 # Simple truncation as processing
                 max_content = max_chunk_tokens * extract_top_chunks
@@ -228,7 +236,11 @@ def register_file_tools(mcp, get_modules):
                     "processing_time": 10,
                     "metadata": {"fallback_used": True, "processing_type": "basic_chunking"},
                     "url": url,
-                    "original_content_length": len(fallback_result.get("content", "")),
+                    "original_content_length": len(
+                        fallback_result.get("markdown")
+                        or fallback_result.get("content")
+                        or ""
+                    ),
                     "filtered_content_length": len(content),
                     "total_chunks": len(chunks),
                     "relevant_chunks": len(top_chunks),

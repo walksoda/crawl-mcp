@@ -9,9 +9,12 @@ python-dotenv>=1.0.0
 scikit-learn>=1.3.0
 numpy>=1.24.0
 
-# File processing - explicit dependencies to avoid conflicts
-markitdown==0.1.3
-pdfminer-six==20250506
+# File processing - explicit dependencies to avoid conflicts.
+# markitdown[pdf] pulls pdfplumber+pdfminer-six; 0.1.5 made pdfplumber
+# mandatory for PDF conversion (pdfminer-six alone no longer works), and
+# pdfplumber 0.11.9 itself hard-pins pdfminer-six==20251230, so we let
+# the [pdf] extra resolve pdfminer-six rather than pinning it ourselves.
+markitdown[pdf]>=0.1.5
 mammoth>=1.9.1
 openpyxl>=3.1.5
 python-pptx==1.0.2
