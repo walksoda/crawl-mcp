@@ -57,7 +57,7 @@ def _process_content_fields(
     # Handle content field based on include_cleaned_html flag
     if not include_cleaned_html and 'content' in result_dict:
         # Only remove if markdown is available or generate_markdown is True
-        if generate_markdown and result_dict.get("markdown", "").strip():
+        if generate_markdown and (result_dict.get("markdown") or "").strip():
             del result_dict['content']
             warnings.append(
                 "HTML content removed to save tokens. Use include_cleaned_html=true to include it."

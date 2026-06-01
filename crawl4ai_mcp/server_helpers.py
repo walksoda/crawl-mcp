@@ -54,9 +54,9 @@ def _should_trigger_fallback(
         return True, f"Initial crawl failed: {error_msg}"
 
     # Check for meaningful content based on what was requested
-    has_markdown = bool(result_dict.get("markdown", "").strip())
-    has_content = bool(result_dict.get("content", "").strip())
-    has_raw_content = bool(result_dict.get("raw_content", "").strip())
+    has_markdown = bool((result_dict.get("markdown") or "").strip())
+    has_content = bool((result_dict.get("content") or "").strip())
+    has_raw_content = bool((result_dict.get("raw_content") or "").strip())
 
     # If markdown was requested but is empty, and no other content exists
     if generate_markdown and not has_markdown:
