@@ -221,7 +221,7 @@ def register_search_tools(mcp, get_modules):
                 failed_pages = []
                 for i, page in enumerate(result["crawled_pages"]):
                     if isinstance(page, dict):
-                        if not page.get("success", True) or not page.get("content", "").strip():
+                        if not page.get("success", True) or not (page.get("content") or page.get("markdown") or "").strip():
                             failed_pages.append((i, page.get("url", "")))
 
                 # Apply fallback to failed pages
@@ -251,9 +251,9 @@ def register_search_tools(mcp, get_modules):
                 if "crawled_pages" in result:
                     for page in result["crawled_pages"]:
                         if isinstance(page, dict):
-                            if "content" in page and len(page["content"]) > max_content_per_page:
+                            if page.get("content") and len(page["content"]) > max_content_per_page:
                                 page["content"] = page["content"][:max_content_per_page] + "... [truncated for size limit]"
-                            if "markdown" in page and len(page["markdown"]) > max_content_per_page:
+                            if page.get("markdown") and len(page["markdown"]) > max_content_per_page:
                                 page["markdown"] = page["markdown"][:max_content_per_page] + "... [truncated for size limit]"
 
             # Apply token limit fallback before returning
@@ -289,9 +289,9 @@ def register_search_tools(mcp, get_modules):
                                 fallback_result["original_search_crawl_error"] = str(e)
 
                                 # Truncate if needed
-                                if "content" in fallback_result and len(fallback_result["content"]) > max_content_per_page:
+                                if fallback_result.get("content") and len(fallback_result["content"]) > max_content_per_page:
                                     fallback_result["content"] = fallback_result["content"][:max_content_per_page] + "... [truncated for size limit]"
-                                if "markdown" in fallback_result and len(fallback_result["markdown"]) > max_content_per_page:
+                                if fallback_result.get("markdown") and len(fallback_result["markdown"]) > max_content_per_page:
                                     fallback_result["markdown"] = fallback_result["markdown"][:max_content_per_page] + "... [truncated for size limit]"
 
                             crawled_pages.append(fallback_result)
