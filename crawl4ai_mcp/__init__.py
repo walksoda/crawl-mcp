@@ -10,7 +10,35 @@ This MCP wrapper: https://github.com/walksoda/crawl-mcp by walksoda
 This is NOT an official crawl4ai project.
 """
 
-__version__ = "0.1.2"
+def _detect_version() -> str:
+    """Resolve the package version from a single source of truth.
+
+    Prefer pyproject.toml, which is present in a source checkout or editable
+    install and always reflects the current value. Fall back to installed
+    package metadata for built distributions (UVX/PyPI/Docker wheels), where
+    pyproject.toml is not shipped but the metadata is set at build time.
+    """
+    from pathlib import Path
+
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    if pyproject.is_file():
+        try:
+            import tomllib
+
+            with pyproject.open("rb") as f:
+                return tomllib.load(f)["project"]["version"]
+        except Exception:
+            pass
+
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        return version("crawl-mcp")
+    except PackageNotFoundError:
+        return "0.0.0+unknown"
+
+
+__version__ = _detect_version()
 __author__ = "walksoda"
 __email__ = "walksoda@users.noreply.github.com"
 __original_lib__ = "crawl4ai"
