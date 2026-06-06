@@ -312,9 +312,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "crawl-mcp"
-version = "0.2.0"
+version = "0.3.3"
 dependencies = [
-    "crawl4ai==0.7.8",
+    "crawl4ai>=0.8.0,<0.9",
     "fastmcp>=2.14.2,<3",
     "playwright==1.55.0",
 ]

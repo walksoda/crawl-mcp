@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.3.3] - 2026-06-06
+
+### Fixed
+- Fix `AttributeError: 'NoneType' object has no attribute 'strip'` when crawl4ai returns content fields whose value is `None`. `(value or "")` is now used before `.strip()` in `middleware/response_transform.py` and `server_helpers.py` (#24, #25).
+- Harden `search_and_crawl` in `server_tools/search_tools.py`: failed-page detection no longer crashes on `None` content and now accepts markdown-only pages instead of treating them as failures; content truncation guards `len()` against `None` in both the main and fallback paths.
+
+### Internal
+- Resolve `__version__` dynamically from `pyproject.toml` (with `importlib.metadata` fallback for built wheels) so the reported version no longer drifts from the released one.
+
+## [0.3.2] - 2026-05-17
+
+### Fixed
+- Fix `enhanced_process_large_content` crash when `content` is `None` (read the `markdown` field first).
+- Surface YouTube Restricted Mode as `success=True` with a structured warning instead of a cryptic error.
+
+### Changed
+- Add an upper bound to the markitdown dependency (`<0.2`).
+
+### Security
+- Pin `urllib3>=2.7.0` to resolve CVE-2026-44431 and CVE-2026-44432.
+
+### Dependencies
+- Bump markitdown to 0.1.5 with the `[pdf]` extra (replaces the separate pdfminer-six pin).
+- Bump crawl4ai to `>=0.8.0,<0.9` (vulnerability fix).
+- Bump mammoth to `>=1.11.0` (vulnerability fix).
+- Sync `requirements.txt` with `pyproject.toml`.
+
+## [0.3.1] - 2026-04-29
+
+### Added
+- Support local file processing via `file://` URIs and absolute paths.
+- Add `is_file_uri`, `is_local_path`, and `file_uri_to_local_path` validators.
+- `process_file` now accepts local file paths in addition to URLs.
+
+### Fixed
+- Normalize the `CRAWL4AI_BROWSER_TYPE` env var with `strip().lower()` and use it to override the default browser list.
+
+### Security
+- Add a minimum version constraint for litellm (`>=1.83.7`) and exclude the compromised v1.82.7 / v1.82.8 releases.
+- Resolve known critical vulnerabilities: CVE-2026-35029, CVE-2026-35030, GHSA-69x8-hrgq-fjj8.
+
 ## [0.3.0] - 2026-04-11
 
 ### Added

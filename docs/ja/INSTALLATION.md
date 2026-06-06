@@ -103,7 +103,7 @@ python -m crawl4ai_mcp.server
 ```bash
 # 上のシステム準備後
 pip install -r requirements.txt  # 推奨：固定バージョンを使用
-# 代替手段： pip install crawl4ai==0.7.8 playwright==1.55.0
+# 代替手段： pip install "crawl4ai>=0.8.0,<0.9" playwright==1.55.0
 python -m playwright install chromium
 python -m crawl4ai_mcp.server
 ```

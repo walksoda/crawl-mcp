@@ -18,7 +18,7 @@ A comprehensive Model Context Protocol (MCP) server that wraps the powerful craw
 
 ### Prerequisites (Required First)
 
-- Python 3.11 以上（FastMCP が Python 3.11+ を要求）
+- Python 3.11 or later (FastMCP requires Python 3.11+)
 
 **Install system dependencies for Playwright:**
 

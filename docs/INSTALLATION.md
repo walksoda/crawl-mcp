@@ -103,7 +103,7 @@ python -m crawl4ai_mcp.server
 ```bash
 # After system preparation above
 pip install -r requirements.txt  # Recommended: uses pinned versions
-# Alternative: pip install crawl4ai==0.7.8 playwright==1.55.0
+# Alternative: pip install "crawl4ai>=0.8.0,<0.9" playwright==1.55.0
 python -m playwright install chromium
 python -m crawl4ai_mcp.server
 ```
