@@ -32,9 +32,14 @@ async def extract_youtube_transcript(
     llm_model: Optional[str] = None,
     enable_crawl_fallback: bool = True,
     fallback_timeout: int = 60,
-    enrich_metadata: bool = True
+    enrich_metadata: bool = True,
+    timezone: str = "UTC"
 ) -> Dict[str, Any]:
     """Extract YouTube video transcripts with timestamps and optional AI summarization.
+
+    When metadata enrichment succeeds, the video's publish timestamp is converted
+    to ``timezone`` (any IANA name, e.g. "Asia/Tokyo"; defaults to "UTC") and stored
+    under ``metadata.published_at``.
 
     Returns a dict with content/markdown/extracted_data format (CrawlResponse-compatible).
     """
@@ -136,10 +141,16 @@ async def extract_youtube_transcript(
 
                 if enrichment_result['success']:
                     enriched_metadata = enrichment_result.get('metadata', {})
-                    enrichment_fields = ['title', 'upload_date', 'view_count', 'duration', 'like_count', 'channel_name']
+                    enrichment_fields = ['title', 'upload_date', 'published_at', 'view_count', 'duration', 'like_count', 'channel_name']
                     for field in enrichment_fields:
                         if enriched_metadata.get(field) and not metadata.get(field):
                             metadata[field] = enriched_metadata[field]
+
+                    # Convert the publish timestamp to the requested timezone
+                    if isinstance(metadata.get('published_at'), str):
+                        metadata['published_at'] = convert_timestamp_to_timezone(
+                            metadata['published_at'], timezone
+                        )
 
                     metadata['metadata_enriched'] = True
                     metadata['enrichment_source'] = 'page_crawl'
@@ -269,6 +280,7 @@ async def batch_extract_youtube_transcripts(
         translate_to = request.get('translate_to')
         preserve_formatting = request.get('preserve_formatting', True)
         include_metadata = request.get('include_metadata', True)
+        timezone = request.get('timezone', 'UTC')
 
         if not urls:
             return YouTubeBatchResponse(
@@ -296,7 +308,8 @@ async def batch_extract_youtube_transcripts(
                     translate_to=translate_to,
                     include_timestamps=include_timestamps,
                     preserve_formatting=preserve_formatting,
-                    include_metadata=include_metadata
+                    include_metadata=include_metadata,
+                    timezone=timezone
                 )
 
         # Process all URLs concurrently
