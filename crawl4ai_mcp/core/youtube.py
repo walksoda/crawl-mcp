@@ -12,7 +12,7 @@ from ..models import (
 )
 
 from ..processors.youtube_processor import YouTubeProcessor
-from .youtube_helpers import _crawl_youtube_page_fallback
+from .youtube_helpers import _crawl_youtube_page_fallback, convert_timestamp_to_timezone
 
 # Initialize YouTube processor
 youtube_processor = YouTubeProcessor()
@@ -354,13 +354,17 @@ async def get_youtube_video_info(
     llm_provider: Optional[str] = None,
     llm_model: Optional[str] = None,
     summary_length: str = "medium",
-    include_timestamps: bool = True
+    include_timestamps: bool = True,
+    timezone: str = "UTC"
 ) -> Dict[str, Any]:
     """
     Get YouTube video information with optional transcript summarization.
 
     Retrieves basic video information and transcript availability using youtube-transcript-api.
     No authentication required for public videos.
+
+    The video's publish timestamp is converted to ``timezone`` (any IANA name,
+    e.g. "Asia/Tokyo"; defaults to "UTC") and returned under ``published_at``.
 
     Note: Automatic transcription may contain errors.
     """
@@ -398,6 +402,11 @@ async def get_youtube_video_info(
             pass
 
         title = metadata.get('title') or f"YouTube: {video_id}"
+
+        # Convert the publish timestamp to the requested timezone
+        published_at = convert_timestamp_to_timezone(
+            metadata.get('published_at'), timezone
+        )
 
         # Try to get transcript information
         transcript_info = {}
@@ -448,6 +457,7 @@ async def get_youtube_video_info(
             "title": title,
             "video_info": video_info,
             "metadata": metadata,
+            "published_at": published_at,
             "transcript_info": transcript_info,
             "processing_method": "youtube_video_info_api"
         }

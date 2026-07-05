@@ -185,6 +185,7 @@ def register_youtube_tools(mcp, get_modules):
         llm_model: Annotated[Optional[str], Field(description="LLM model")] = None,
         summary_length: Annotated[str, Field(description="'short'|'medium'|'long'")] = "medium",
         include_timestamps: Annotated[bool, Field(description="Include timestamps")] = True,
+        timezone: Annotated[str, Field(description="IANA timezone name (e.g. 'Asia/Tokyo', 'America/New_York') used to convert the video's publish time, returned under 'published_at'. When unspecified, defaults to 'UTC' (the original YouTube offset is always kept in published_at.original).")] = "UTC",
         output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .md extension) to persist the full video info + transcript as markdown. When set, the response is slimmed to metadata+file path.")] = None,
         include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), also include the full transcript in the response. Defaults to False.")] = False,
         overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
@@ -204,7 +205,8 @@ def register_youtube_tools(mcp, get_modules):
             result = await youtube.get_youtube_video_info(
                 video_url=video_url, summarize_transcript=summarize_transcript,
                 max_tokens=max_tokens, llm_provider=llm_provider, llm_model=llm_model,
-                summary_length=summary_length, include_timestamps=include_timestamps
+                summary_length=summary_length, include_timestamps=include_timestamps,
+                timezone=timezone
             )
 
             # Guard B: persist BEFORE apply_token_limit.

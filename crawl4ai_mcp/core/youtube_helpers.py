@@ -5,12 +5,54 @@ import re
 import os
 import contextlib
 import sys
+from datetime import datetime
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+
+def convert_timestamp_to_timezone(iso_timestamp: str, tz_name: str) -> Dict[str, Any]:
+    """
+    Convert an ISO 8601 timestamp to the given IANA timezone.
+
+    Args:
+        iso_timestamp: ISO 8601 timestamp, ideally with an offset
+            (e.g. "2005-04-23T20:31:52-07:00" as provided by YouTube).
+        tz_name: IANA timezone name (e.g. "Asia/Tokyo", "UTC").
+
+    Returns:
+        Dict with:
+            - 'timezone': the requested timezone name
+            - 'datetime': the timestamp converted to that timezone (ISO 8601)
+            - 'original': the original timestamp string
+        or, on failure, an 'error' key describing the problem.
+    """
+    if not iso_timestamp:
+        return {'error': 'No timestamp available'}
+    try:
+        dt = datetime.fromisoformat(iso_timestamp)
+    except ValueError:
+        return {'original': iso_timestamp, 'error': f'Unparseable timestamp: {iso_timestamp}'}
+    try:
+        target = ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return {'original': iso_timestamp, 'error': f'Unknown timezone: {tz_name}'}
+
+    # Naive timestamps (no offset) are assumed UTC before conversion.
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo('UTC'))
+
+    converted = dt.astimezone(target)
+    return {
+        'timezone': tz_name,
+        'datetime': converted.isoformat(),
+        'original': iso_timestamp,
+    }
 
 
 def _extract_youtube_metadata_from_html(
     markdown_content: str,
-    html_content: Optional[str] = None
+    html_content: Optional[str] = None,
+    raw_html: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Parse YouTube page content to extract metadata.
@@ -34,10 +76,22 @@ def _extract_youtube_metadata_from_html(
         'channel_name': None,
         'view_count': None,
         'upload_date': None,
+        'published_at': None,
         'duration': None,
         'like_count': None,
         'extraction_source': 'page_crawl'
     }
+
+    # Extract the full publish timestamp (ISO 8601 with timezone offset) from
+    # the raw HTML. YouTube embeds this in ytInitialPlayerResponse as
+    # publishDate/uploadDate; it is stripped from crawl4ai's cleaned_html.
+    if raw_html:
+        ts_match = re.search(
+            r'"(?:publishDate|uploadDate)"\s*:\s*"([^"]*T[^"]+)"',
+            raw_html
+        )
+        if ts_match:
+            metadata['published_at'] = ts_match.group(1)
 
     # Extract from HTML title tag (this is preserved in crawl4ai cleaned_html)
     if html_content:
@@ -277,6 +331,7 @@ async def _crawl_youtube_page_fallback(
         # Extract content
         markdown_content = result.markdown if hasattr(result, 'markdown') else ''
         html_content = result.cleaned_html if hasattr(result, 'cleaned_html') else ''
+        raw_html = result.html if hasattr(result, 'html') else ''
 
         if not markdown_content and not html_content:
             return {
@@ -287,7 +342,8 @@ async def _crawl_youtube_page_fallback(
         # Extract metadata from crawled content
         metadata = _extract_youtube_metadata_from_html(
             markdown_content=markdown_content,
-            html_content=html_content
+            html_content=html_content,
+            raw_html=raw_html
         )
 
         # Add video_id to metadata
