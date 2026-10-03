@@ -48,6 +48,12 @@ def _should_trigger_fallback(
     Returns:
         Tuple of (should_trigger, reason_message)
     """
+    # Document files are converted without a browser, and every fallback
+    # stage would route the same URL back into file processing.
+    extracted = result_dict.get("extracted_data")
+    if isinstance(extracted, dict) and extracted.get("processing_method") == "markitdown":
+        return False, ""
+
     # Check explicit failure
     if not result_dict.get("success", True):
         error_msg = result_dict.get("error", "Unknown error")

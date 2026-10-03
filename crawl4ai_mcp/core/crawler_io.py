@@ -79,7 +79,8 @@ async def _handle_file_url(request: CrawlRequest) -> Optional[CrawlResponse]:
     """
     Handle file URL detection and processing via MarkItDown.
 
-    Returns CrawlResponse if URL is a supported file, None otherwise.
+    Returns CrawlResponse if URL is a supported local file or a remote
+    document (see FileProcessor.is_document_url), None otherwise.
     For local files (file:// URI or absolute path), returns an error
     instead of None when the extension is unsupported.
     """
@@ -97,7 +98,8 @@ async def _handle_file_url(request: CrawlRequest) -> Optional[CrawlResponse]:
             )
         )
 
-    if not file_processor.is_supported_file(request.url):
+    if not is_local and not file_processor.is_document_url(request.url):
+        # Web pages (including .html URLs) are rendered in the browser
         return None
 
     from .crawler_summarizer import _check_and_summarize_if_needed
@@ -130,13 +132,15 @@ async def _handle_file_url(request: CrawlRequest) -> Optional[CrawlResponse]:
             return CrawlResponse(
                 success=False,
                 url=request.url,
-                error=f"File processing failed: {file_result.get('error')}"
+                error=f"File processing failed: {file_result.get('error')}",
+                extracted_data={"processing_method": "markitdown"}
             )
     except Exception as e:
         return CrawlResponse(
             success=False,
             url=request.url,
-            error=f"File processing error: {str(e)}"
+            error=f"File processing error: {str(e)}",
+            extracted_data={"processing_method": "markitdown"}
         )
 
 

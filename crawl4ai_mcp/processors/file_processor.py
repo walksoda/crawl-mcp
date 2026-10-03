@@ -44,6 +44,10 @@ DOWNLOAD_HEADERS = {
     'Accept-Language': 'en-US,en;q=0.9',
 }
 
+# Extensions that denote web pages rather than downloadable documents.
+# Crawl tools render these in a browser instead of converting them as files.
+WEB_PAGE_EXTENSIONS = {'.html', '.htm'}
+
 # Known URL patterns that serve files without standard extensions
 _KNOWN_FILE_URL_PATTERNS = [
     # arXiv PDF: https://arxiv.org/pdf/XXXX.XXXXX or XXXX.XXXXXvN
@@ -193,6 +197,22 @@ class FileProcessor:
                 # Local file: check extension
                 ext = Path(file_path_or_url).suffix.lower()
                 return ext in self.supported_extensions
+        except Exception:
+            return False
+
+    def is_document_url(self, url: str) -> bool:
+        """Check if a remote URL points to a document file rather than a web page.
+
+        Narrower than is_supported_file: web page extensions (.html, .htm) and
+        the substring heuristics are excluded so that crawl tools load those
+        URLs in a browser.
+        """
+        try:
+            ext = Path(unquote(urlparse(url).path)).suffix.lower()
+            if self._is_valid_extension(ext) and ext in self.supported_extensions:
+                return ext not in WEB_PAGE_EXTENSIONS
+            known_ext = self._match_known_file_url_pattern(url)
+            return known_ext is not None and known_ext in self.supported_extensions
         except Exception:
             return False
 

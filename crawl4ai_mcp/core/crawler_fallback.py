@@ -236,6 +236,26 @@ async def crawl_url_with_fallback(
             success=False, url=url, error="Local file processing failed"
         )
 
+    # Remote documents (PDF, Office, plain text, ...) are converted without a
+    # browser. Browser stages would route the URL back into file processing,
+    # so process it once and return the result as-is.
+    from .crawler_io import _handle_file_url, file_processor
+    if file_processor.is_document_url(url):
+        from ..models import CrawlRequest
+        request = CrawlRequest(
+            url=url,
+            include_cleaned_html=include_cleaned_html,
+            generate_markdown=generate_markdown,
+            content_limit=content_limit,
+            content_offset=content_offset,
+            auto_summarize=auto_summarize,
+            max_content_tokens=max_content_tokens,
+            summary_length=summary_length,
+            llm_provider=llm_provider,
+            llm_model=llm_model,
+        )
+        return await _handle_file_url(request)
+
     domain = urlparse(url).netloc.lower()
     is_hn = "ycombinator.com" in domain
     is_social_media = any(s in domain for s in ["twitter.com", "facebook.com", "linkedin.com"])
