@@ -87,6 +87,31 @@ async def static_fetch_content(url: str, headers: dict = None, timeout: int = 30
         return False, "", f"Static fetch error: {error_msg}"
 
 
+def static_html_to_markdown(html_content: str, url: str) -> Tuple[str, str]:
+    """
+    Convert statically fetched HTML to markdown without launching a browser.
+
+    Uses crawl4ai's own scraping and markdown generation so the output matches
+    browser-based crawls as closely as possible (minus JS-rendered content).
+
+    Args:
+        html_content: Raw HTML from static_fetch_content
+        url: Page URL, used to resolve relative links
+
+    Returns:
+        Tuple of (markdown, cleaned_html)
+    """
+    from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
+    from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
+
+    scraped = LXMLWebScrapingStrategy().scrap(url, html_content)
+    cleaned_html = scraped.cleaned_html or ""
+    md_result = DefaultMarkdownGenerator().generate_markdown(
+        input_html=cleaned_html, base_url=url, citations=False
+    )
+    return md_result.raw_markdown or "", cleaned_html
+
+
 def extract_spa_json_data(html_content: str) -> Tuple[bool, dict, str]:
     """
     Stage 6: Extract JSON data from SPA frameworks.

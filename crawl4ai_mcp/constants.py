@@ -52,19 +52,35 @@ SUMMARY_LENGTH_CONFIGS: Dict[str, Dict[str, Any]] = {
 # Minimum content length to consider meaningful
 FALLBACK_MIN_CONTENT_LENGTH = 200
 
-# Block page indicators (lowercase patterns)
+# Block page indicators (lowercase phrases), matched against visible text only.
+# Keep these specific: single words like "robot" or "cloudflare" also appear
+# in normal articles and in page markup (e.g. <meta name="robots">).
 BLOCK_INDICATORS = [
     "access denied",
     "403 forbidden",
     "captcha",
-    "please verify",
+    "please verify you are",
+    "verify you are human",
+    "verifying you are human",
+    "verifying your access",
     "security check",
-    "blocked",
-    "rate limit",
-    "robot",
-    "cloudflare",
-    "ddos protection",
+    "not a robot",
+    "are you a robot",
+    "you have been blocked",
+    "you've been blocked",
+    "request blocked",
+    "rate limit exceeded",
+    "too many requests",
+    "just a moment...",
+    "checking your browser",
+    "enable javascript and cookies to continue",
+    "attention required! | cloudflare",
+    "ddos protection by",
 ]
+
+# Block/challenge pages are short. Visible text longer than this is treated
+# as real content even if it mentions a block indicator phrase.
+BLOCK_PAGE_MAX_TEXT_LENGTH = 2000
 
 # =============================================================================
 # Content Field Configurations for Token Limiting

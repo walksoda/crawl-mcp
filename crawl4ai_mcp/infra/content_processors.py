@@ -4,9 +4,11 @@ This module provides utilities for validating, converting, and processing
 crawl content.
 """
 
+import html
+import re
 from typing import Any, Dict, List, Tuple, Optional
 
-from ..constants import BLOCK_INDICATORS
+from ..constants import BLOCK_INDICATORS, BLOCK_PAGE_MAX_TEXT_LENGTH
 
 
 def convert_media_to_list(media: Any) -> List[Dict[str, Any]]:
@@ -79,20 +81,55 @@ def has_meaningful_content(result, min_length: int = 100) -> Tuple[bool, str]:
     return False, ""
 
 
+_SCRIPT_STYLE_RE = re.compile(r"<(script|style)\b.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _visible_text(content: str) -> str:
+    """Strip scripts, styles, comments and tags so only human-visible text remains."""
+    text = _SCRIPT_STYLE_RE.sub(" ", content)
+    text = _HTML_COMMENT_RE.sub(" ", text)
+    text = _HTML_TAG_RE.sub(" ", text)
+    return _WHITESPACE_RE.sub(" ", html.unescape(text)).strip()
+
+
 def is_block_page(content: str) -> bool:
     """
-    Check if content appears to be a block/error page.
+    Check if content appears to be a block/challenge page.
+
+    Only the visible text is inspected (markup such as ``<meta name="robots">``
+    or CDN script URLs is ignored), and long pages are never treated as block
+    pages because real challenge pages carry very little text.
 
     Args:
-        content: Text content to check (should be lowercased or will be lowercased)
+        content: HTML, markdown or plain text
 
     Returns:
-        True if block indicators are found, False otherwise
+        True if the page looks like a block page, False otherwise
     """
     if not content:
         return False
-    content_lower = content.lower() if not content.islower() else content
-    return any(indicator in content_lower for indicator in BLOCK_INDICATORS)
+    text = _visible_text(content)
+    if not text or len(text) > BLOCK_PAGE_MAX_TEXT_LENGTH:
+        return False
+    text_lower = text.lower()
+    return any(indicator in text_lower for indicator in BLOCK_INDICATORS)
+
+
+def is_block_result(result) -> bool:
+    """
+    Check if a crawl result is a block page.
+
+    Uses a single representative field (markdown, then cleaned HTML, then raw
+    HTML) so the length check is not inflated by concatenating duplicates.
+    """
+    for field in ("markdown", "content", "raw_content"):
+        value = result.get(field) if isinstance(result, dict) else getattr(result, field, None)
+        if value and str(value).strip():
+            return is_block_page(str(value))
+    return False
 
 
 def get_content_length(result) -> int:

@@ -28,9 +28,11 @@ from ..infra.fallback_strategies import (
     extract_spa_json_data as _extract_spa_json_data,
     build_amp_url as _build_amp_url,
     try_fetch_rss_feed as _try_fetch_rss_feed,
+    static_html_to_markdown as _static_html_to_markdown,
 )
 from ..infra.content_processors import (
     is_block_page as _is_block_page,
+    is_block_result as _is_block_result,
     has_meaningful_content as _has_meaningful_content,
 )
 from ..constants import FALLBACK_MIN_CONTENT_LENGTH
@@ -331,8 +333,7 @@ async def crawl_url_with_fallback(
                     wait_for_js=False, cache_mode="enabled")
                 has_content, content_source = _has_meaningful_content(result, min_length=100)
                 if has_content:
-                    ct = " ".join([result.markdown or "", result.content or "", getattr(result, "raw_content", None) or ""])
-                    if _is_block_page(ct):
+                    if _is_block_result(result):
                         print("  Block page detected in static fast path, skipping")
                     else:
                         _rec_success(1, "static_fast_path")
@@ -409,8 +410,7 @@ async def crawl_url_with_fallback(
 
             has_content, content_source = _has_meaningful_content(result, min_length=FALLBACK_MIN_CONTENT_LENGTH)
             if has_content:
-                ct = " ".join([result.markdown or "", result.content or "", getattr(result, "raw_content", None) or ""]).lower()
-                if _is_block_page(ct):
+                if _is_block_result(result):
                     has_content = False
                     print(f"  Block page detected, skipping strategy {strategy['name']}")
                     _rec_failure(stage_num, strategy["name"], "block_page_detected")
@@ -446,8 +446,7 @@ async def crawl_url_with_fallback(
                 include_cleaned_html=include_cleaned_html, timeout=min(timeout, 20), wait_for_js=False)
             has_content, content_source = _has_meaningful_content(amp_result, min_length=100)
             if has_content:
-                act = " ".join([amp_result.markdown or "", amp_result.content or "", getattr(amp_result, "raw_content", None) or ""])
-                if _is_block_page(act):
+                if _is_block_result(amp_result):
                     print("  Block page detected in AMP result, skipping")
                 else:
                     _rec_success(6, "amp_page")
@@ -507,8 +506,31 @@ async def crawl_url_with_fallback(
 
     if static_success and static_html:
         _rec_failure(7, "json_extraction", "no_json_data")
+
+        # Last resort: use the statically fetched HTML as-is (no JS rendering).
+        # Browser-based stages can be blocked or time out on sites that still
+        # serve their full HTML to a plain HTTP GET.
+        if _is_block_page(static_html):
+            _rec_failure(7, "static_html_markdown", "block_page_detected")
+        else:
+            try:
+                static_md, static_cleaned = _static_html_to_markdown(static_html, url)
+                if len(static_md.strip()) > FALLBACK_MIN_CONTENT_LENGTH:
+                    _rec_success(7, "static_html_markdown")
+                    static_response = CrawlResponse(
+                        success=True, url=url, markdown=static_md, content=static_cleaned,
+                        extracted_data={"fallback_strategy_used": "static_html_markdown", "fallback_stage": 7,
+                                        "content_source": "static_html", "javascript_rendered": False})
+                    static_response = await _finalize_fallback_response(
+                        static_response, url, auto_summarize, max_content_tokens, llm_provider, llm_model,
+                        content_limit=content_limit, content_offset=content_offset)
+                    return _save_session(static_response)
+                _rec_failure(7, "static_html_markdown", "no_meaningful_content")
+            except Exception as e:
+                print(f"Static HTML conversion failed: {e}")
+                _rec_failure(7, "static_html_markdown", str(e))
     # All strategies failed
-    all_strats = ["static_fast_path"] + [s["name"] for s in strategies] + ["amp_page", "rss_feed", "json_extraction"]
+    all_strats = ["static_fast_path"] + [s["name"] for s in strategies] + ["amp_page", "rss_feed", "json_extraction", "static_html_markdown"]
     return CrawlResponse(
         success=False, url=url,
         error=(f"All {total_stages} fallback stages failed. Last error: {last_error}. "
