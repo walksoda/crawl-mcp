@@ -105,6 +105,41 @@ def _get_modules():
 register_all_tools(mcp, _get_modules)
 
 
+class _StdoutRedirectedToStderr:
+    """sys.stdout replacement for the stdio transport.
+
+    Text writes (print and friends) go to stderr, while ``.buffer`` is the
+    real stdout pipe, which the MCP stdio transport wraps for its messages.
+    """
+
+    def __init__(self, protocol_buffer, text_sink):
+        self.buffer = protocol_buffer
+        self._sink = text_sink
+
+    def write(self, text):
+        return self._sink.write(text)
+
+    def flush(self):
+        self._sink.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._sink, name)
+
+
+def _isolate_stdout_for_stdio() -> None:
+    """Reserve stdout for MCP messages when serving over stdio.
+
+    Any other output on stdout (print calls in tool code, libraries, C
+    extensions or child processes writing to fd 1) would be read by the
+    client as malformed JSON-RPC. Keep a private duplicate of the stdout
+    pipe for the protocol and point fd 1 and sys.stdout text writes at stderr.
+    """
+    sys.stdout.flush()
+    protocol_buffer = os.fdopen(os.dup(1), "wb")
+    os.dup2(2, 1)
+    sys.stdout = _StdoutRedirectedToStderr(protocol_buffer, sys.stderr)
+
+
 def main():
     """Clean main entry point - FastMCP 2.0 with no banner issues"""
     if len(sys.argv) > 1 and sys.argv[1] == "--help":
@@ -136,6 +171,7 @@ def main():
     # Run server - clean FastMCP 2.0 execution
     try:
         if transport == "stdio":
+            _isolate_stdout_for_stdio()
             mcp.run()
         elif transport in ("streamable-http", "http"):
             mcp.run(transport="streamable-http", host=host, port=port)
