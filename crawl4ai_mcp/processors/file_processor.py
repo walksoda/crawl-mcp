@@ -11,7 +11,7 @@ import zipfile
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import requests
-from markitdown import MarkItDown
+from markitdown import MarkItDown, StreamInfo
 import base64
 from urllib.parse import urlparse, unquote
 import logging
@@ -34,6 +34,14 @@ CONTENT_TYPE_TO_EXT = {
     'text/csv': '.csv',
     'application/rtf': '.rtf',
     'application/epub+zip': '.epub',
+}
+
+# Browser-like headers for file downloads. Some sites reject the default
+# python-requests User-Agent with 403.
+DOWNLOAD_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': '*/*',
+    'Accept-Language': 'en-US,en;q=0.9',
 }
 
 # Known URL patterns that serve files without standard extensions
@@ -69,6 +77,26 @@ class FileProcessor:
             '.rtf': 'Rich Text Format',
             '.epub': 'EPUB eBook'
         }
+
+    def _convert(self, path: str, data: bytes):
+        """Convert a file with MarkItDown, declaring UTF-8 when the bytes are valid UTF-8.
+
+        MarkItDown guesses the charset from the start of the file, so a text
+        file whose first non-ASCII byte comes late is mis-detected as ASCII.
+        """
+        try:
+            data.decode('utf-8')
+        except UnicodeDecodeError:
+            result = self.markitdown.convert(path)
+        else:
+            result = self.markitdown.convert(path, stream_info=StreamInfo(charset='utf-8'))
+
+        if path.lower().endswith('.pdf') and not (result.text_content or '').strip():
+            raise ValueError(
+                "PDF has no extractable text layer (likely scanned images). "
+                "OCR is not supported."
+            )
+        return result
 
     def _is_valid_extension(self, ext: str) -> bool:
         """Check if extension looks like a real file extension (not numeric ID like arXiv)"""
@@ -248,7 +276,7 @@ class FileProcessor:
             return await self._read_local_file(local_path, max_size_mb)
 
         try:
-            response = requests.get(url, stream=True, timeout=30)
+            response = requests.get(url, stream=True, timeout=30, headers=DOWNLOAD_HEADERS)
             response.raise_for_status()
 
             # Get Content-Type header
@@ -313,7 +341,7 @@ class FileProcessor:
 
                                 try:
                                     # Convert to markdown
-                                    result = self.markitdown.convert(temp_file.name)
+                                    result = self._convert(temp_file.name, file_content)
                                     extracted_files.append({
                                         'name': file_name,
                                         'type': self.get_file_type(file_name),
@@ -397,7 +425,7 @@ class FileProcessor:
                 temp_file.flush()
 
                 try:
-                    result = self.markitdown.convert(temp_file.name)
+                    result = self._convert(temp_file.name, file_data)
                     return {
                         'success': True,
                         'url': url,
@@ -456,7 +484,7 @@ class FileProcessor:
                 temp_file.flush()
 
                 try:
-                    result = self.markitdown.convert(temp_file.name)
+                    result = self._convert(temp_file.name, file_data)
                     return {
                         'success': True,
                         'filename': filename,
