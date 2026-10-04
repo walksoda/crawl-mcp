@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `result_type` request key for `search_web`, `batch_search_web` and `search_and_crawl`: `web` (default) or `discussions`. `discussions` returns forum posts from Brave's discussions results with `forum_name`, `num_answers`, `score`, `question` and `top_comment`. Only the `brave` engine supports it (`auto` uses Brave alone; other engines return `unsupported_result_type`), and Brave returns these posts for some queries only.
 - Web search through the Brave Search API (`BRAVE_SEARCH_API_KEY`) and Exa (`EXA_API_KEY`), alongside the Google Custom Search JSON API (`GOOGLE_SEARCH_API_KEY`, `GOOGLE_SEARCH_ENGINE_ID`).
 - `SEARCH_ENGINE` (`auto`, `google_custom`, `brave`, `exa`; default `auto`) picks the default engine, and the `engine` request key of `search_web`, `batch_search_web` and `search_and_crawl` overrides it for one call. `auto` tries the engines that have API keys in the order of `SEARCH_ENGINE_ORDER` (default `google_custom,brave,exa`) and moves to the next one on errors, not on zero results. Responses carry `engine`, and `fallback_info.attempts` when an engine was skipped.
 - `search_web` and `batch_search_web` tools. `search_google` and `batch_search_google` remain as deprecated aliases with the same request keys and results.

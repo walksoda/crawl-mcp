@@ -368,6 +368,7 @@ Web検索を実行し、タイトル、スニペット、URL、メタデータ�
   - `num_results` (int): 返す結果数 1-100（デフォルト: 10）
   - `search_genre` (Optional[str]): ジャンルフィルタ。`pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` のいずれか（デフォルト: None）
   - `engine` (Optional[str]): `auto`、`google_custom`、`brave`、`exa` のいずれか（デフォルト: `SEARCH_ENGINE` の設定）
+  - `result_type` (str): `web` か `discussions`（デフォルト: "web"）。下記を参照
   - `language` (str): 検索言語（デフォルト: "en"）
   - `region` (str): 検索地域（デフォルト: "us"）
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
@@ -382,10 +383,11 @@ Web検索を実行し、タイトル、スニペット、URL、メタデータ�
 - `search_genre` は大文字と小文字を区別せずに照合する。一覧にない値を渡すと、通信を始める前に `success: false` と `error_code: invalid_search_genre` を返し、`valid_genres` に指定できる値を並べる。`batch_search_web` と `search_and_crawl` も `search_genre` と `engine` を同じように検査する
 - エンジンが0件を返したときは、短くしたクエリの候補を `alternative_queries` に入れる
 - セーフサーチはデフォルトで有効
+- `result_type: "discussions"` を指定すると、Web の結果の代わりに Brave の discussions（掲示板の投稿のまとまり）を返す。返せるのは `brave` だけなので、`auto` では Brave だけを使い、`google_custom` か `exa` を名指しすると `error_code: unsupported_result_type` を返す。各結果には `forum_name`、`num_answers`、`score`、`question`、`top_comment` が付く（HTML は除き、`question` と `top_comment` は1,000文字で切る）。Brave がこのまとまりを返すのは一部のクエリだけで、多くても十数件にとどまり、`num_results` では減らすことしかできない。まとまりのないクエリでは `success: false` になり、言い換えるか `web` を使うよう案内する。ほかの値を渡すと、通信の前に `error_code: invalid_result_type` を返す
 
 ### `search_google`
 
-`search_web` の非推奨エイリアスです。`request` 辞書で受け付けるキー（`query`、`num_results`、`search_genre`、`engine`、`language`、`region`、`recent_days`、`content_limit`、`content_offset`、`output_path`、`include_content_in_response`、`overwrite`）も結果も `search_web` と同じです。エンジンも `search_web` と同じ規則で選ぶため、Google に限りません。既存のクライアントが動き続けるように残しています。
+`search_web` の非推奨エイリアスです。`request` 辞書で受け付けるキー（`query`、`num_results`、`search_genre`、`engine`、`result_type`、`language`、`region`、`recent_days`、`content_limit`、`content_offset`、`output_path`、`include_content_in_response`、`overwrite`）も結果も `search_web` と同じです。エンジンも `search_web` と同じ規則で選ぶため、Google に限りません。既存のクライアントが動き続けるように残しています。
 
 ### `search_and_crawl`
 
@@ -397,6 +399,7 @@ Web検索を実行し、上位の結果をそのままクロールします。
   - `crawl_top_results` (int): クロール対象の上位結果数、最大3（デフォルト: 2）
   - `search_genre` (Optional[str]): ジャンルフィルタ。値は `search_web` と同じ（デフォルト: None）
   - `engine` (Optional[str]): 検索エンジン。値は `search_web` と同じ（デフォルト: `SEARCH_ENGINE` の設定）
+  - `result_type` (str): `web` か `discussions` で、扱いは `search_web` と同じ（デフォルト: "web"）。`discussions` を指定すると、掲示板のスレッドをクロールする
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
   - `generate_markdown` (bool): クロールしたページからMarkdownを生成（デフォルト: True）
   - `max_content_per_page` (int): レスポンス内のページごとの最大文字数（デフォルト: 5000）
@@ -417,6 +420,7 @@ Web検索を実行し、上位の結果をそのままクロールします。
   - `num_results_per_query` (int): クエリごとの結果数 1-100（デフォルト: 10）
   - `search_genre` (Optional[str]): 全クエリに適用するジャンルフィルタ。値は `search_web` と同じ（デフォルト: None）
   - `engine` (Optional[str]): 全クエリに使う検索エンジン。値は `search_web` と同じ（デフォルト: `SEARCH_ENGINE` の設定）
+  - `result_type` (str): 全クエリに使う `web` か `discussions`。扱いは `search_web` と同じ（デフォルト: "web"）
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
   - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（全結果を単一の `.json` ファイルに保存）
   - その他に受け付けるキー: `language` (str、デフォルト: "en")、`region` (str、デフォルト: "us")、`max_concurrent` (int、デフォルト: 3、最大5)
@@ -425,7 +429,7 @@ Web検索を実行し、上位の結果をそのままクロールします。
 
 ### `batch_search_google`
 
-`batch_search_web` の非推奨エイリアスです。`request` 辞書で受け付けるキー（`queries`、`num_results_per_query`、`search_genre`、`engine`、`recent_days`、`output_path`、`include_content_in_response`、`overwrite`）も結果も `batch_search_web` と同じです。
+`batch_search_web` の非推奨エイリアスです。`request` 辞書で受け付けるキー（`queries`、`num_results_per_query`、`search_genre`、`engine`、`result_type`、`recent_days`、`output_path`、`include_content_in_response`、`overwrite`）も結果も `batch_search_web` と同じです。
 
 ### `get_search_genres`
 
@@ -434,7 +438,7 @@ Web検索を実行し、上位の結果をそのままクロールします。
 **レスポンスのキー:**
 - `genres`: ジャンル名と説明の対応
 - `query_operators`: ジャンル名と、クエリに付ける検索演算子の対応
-- `configuration`: `default_engine`、`auto_order`、`configured_engines`（APIキーのあるエンジン）、`engines`、`genre_support`（エンジンごとのジャンルの扱い）、対応する言語と地域
+- `configuration`: `default_engine`、`auto_order`、`configured_engines`（APIキーのあるエンジン）、`engines`、`result_types`、`genre_support`（エンジンごとのジャンルの扱い）、対応する言語と地域
 - `total_genres`、`usage_example`、`notes`
 
 ## バッチ操作ツール

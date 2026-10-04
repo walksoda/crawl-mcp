@@ -158,6 +158,8 @@ The search tools need an API key for at least one engine: `GOOGLE_SEARCH_API_KEY
 
 `search_web`, `batch_search_web` and `search_and_crawl` accept the same `search_genre` values: `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, `english`. Matching is case-insensitive. Any other value returns an `invalid_search_genre` error before the search runs. Exa cannot filter by file type, so `auto` skips Exa for the file type genres.
 
+`result_type: "discussions"` returns forum posts (with forum name, answer count, score, question and top comment) from Brave's discussions results. It needs the `brave` engine, and Brave returns these posts for some queries only.
+
 ### File Processing (3)
 - `process_file` - Convert PDF, Word, Excel, PowerPoint, ZIP to markdown
 - `get_supported_file_formats` - Get supported file formats and capabilities

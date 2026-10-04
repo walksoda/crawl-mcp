@@ -356,6 +356,7 @@ Parameters:
   - `num_results` (int): Number of results to return, 1-100 (default: 10)
   - `search_genre` (Optional[str]): Genre filter, one of `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, `english` (default: None)
   - `engine` (Optional[str]): `auto`, `google_custom`, `brave` or `exa` (default: the `SEARCH_ENGINE` setting)
+  - `result_type` (str): `web` or `discussions` (default: "web"). See below
   - `language` (str): Search language (default: "en")
   - `region` (str): Search region (default: "us")
   - `recent_days` (Optional[int]): Limit results to the past N days (default: None)
@@ -370,10 +371,11 @@ Features:
 - `search_genre` matching is case-insensitive. Any other value returns `success: false` with `error_code: invalid_search_genre` and the `valid_genres` list, before any network request. `batch_search_web` and `search_and_crawl` check `search_genre` and `engine` the same way
 - When an engine returns zero results, the response suggests shorter queries in `alternative_queries`
 - Safe search is on by default
+- `result_type: "discussions"` returns forum posts from Brave's discussions cluster instead of web results. Only `brave` returns it: `auto` uses Brave alone, and naming `google_custom` or `exa` returns `error_code: unsupported_result_type`. Each result adds `forum_name`, `num_answers`, `score`, `question` and `top_comment` (HTML removed; `question` and `top_comment` are cut at 1,000 characters). Brave returns the cluster for some queries only, and it holds about a dozen posts at most; `num_results` can only shorten it. When a query has no cluster, the response is `success: false` with a suggestion to reword or use `web`. Any other value returns `error_code: invalid_result_type` before any network request
 
 ### `search_google`
 
-Deprecated alias of `search_web`. Its `request` dict takes the same keys (`query`, `num_results`, `search_genre`, `engine`, `language`, `region`, `recent_days`, `content_limit`, `content_offset`, `output_path`, `include_content_in_response`, `overwrite`) and returns the same results. The engine is chosen as for `search_web`, so it is not limited to Google. Kept so that existing clients keep working.
+Deprecated alias of `search_web`. Its `request` dict takes the same keys (`query`, `num_results`, `search_genre`, `engine`, `result_type`, `language`, `region`, `recent_days`, `content_limit`, `content_offset`, `output_path`, `include_content_in_response`, `overwrite`) and returns the same results. The engine is chosen as for `search_web`, so it is not limited to Google. Kept so that existing clients keep working.
 
 ### `search_and_crawl`
 
@@ -385,6 +387,7 @@ Parameters:
   - `crawl_top_results` (int): Number of top results to crawl, max 3 (default: 2)
   - `search_genre` (Optional[str]): Genre filter, same values as `search_web` (default: None)
   - `engine` (Optional[str]): Search engine, same values as `search_web` (default: the `SEARCH_ENGINE` setting)
+  - `result_type` (str): `web` or `discussions`, as in `search_web` (default: "web"). With `discussions`, the crawled pages are the forum threads
   - `recent_days` (Optional[int]): Limit search results to the past N days (default: None)
   - `generate_markdown` (bool): Generate markdown content from crawled pages (default: True)
   - `max_content_per_page` (int): Maximum content characters per crawled page in the response (default: 5000)
@@ -405,6 +408,7 @@ Parameters:
   - `num_results_per_query` (int): Number of results per query, 1-100 (default: 10)
   - `search_genre` (Optional[str]): Genre filter applied to all queries, same values as `search_web` (default: None)
   - `engine` (Optional[str]): Search engine for all queries, same values as `search_web` (default: the `SEARCH_ENGINE` setting)
+  - `result_type` (str): `web` or `discussions` for all queries, as in `search_web` (default: "web")
   - `recent_days` (Optional[int]): Limit results to the past N days (default: None)
   - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.json` file with the full result set)
   - Also accepted: `language` (str, default: "en"), `region` (str, default: "us"), `max_concurrent` (int, default: 3, max 5)
@@ -413,7 +417,7 @@ Each entry in `results` has its own `engine` (and `fallback_info` when `auto` mo
 
 ### `batch_search_google`
 
-Deprecated alias of `batch_search_web`. Its `request` dict takes the same keys (`queries`, `num_results_per_query`, `search_genre`, `engine`, `recent_days`, `output_path`, `include_content_in_response`, `overwrite`) and returns the same results.
+Deprecated alias of `batch_search_web`. Its `request` dict takes the same keys (`queries`, `num_results_per_query`, `search_genre`, `engine`, `result_type`, `recent_days`, `output_path`, `include_content_in_response`, `overwrite`) and returns the same results.
 
 ### `get_search_genres`
 
@@ -422,7 +426,7 @@ Returns the supported `search_genre` values and the search engine configuration.
 Response keys:
 - `genres`: genre name to description
 - `query_operators`: genre name to the operator added to the query
-- `configuration`: `default_engine`, `auto_order`, `configured_engines` (engines with API keys), `engines`, `genre_support` (how each engine applies genres), and the supported languages and regions
+- `configuration`: `default_engine`, `auto_order`, `configured_engines` (engines with API keys), `engines`, `result_types`, `genre_support` (how each engine applies genres), and the supported languages and regions
 - `total_genres`, `usage_example`, and `notes`
 
 ## Batch Operations

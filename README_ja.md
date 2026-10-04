@@ -157,6 +157,8 @@ DockerのHTTPモードを使う場合:
 
 `search_web`、`batch_search_web`、`search_and_crawl` の `search_genre` に指定できる値は共通で、`pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` です。大文字と小文字は区別しません。それ以外の値を渡すと、検索を始める前に `invalid_search_genre` エラーが返ります。Exa はファイル形式で絞り込めないため、`auto` ではファイル形式のジャンルのとき Exa を飛ばします。
 
+`result_type: "discussions"` を指定すると、Brave の discussions から掲示板の投稿を返します。投稿には掲示板名、回答数、スコア、質問、トップコメントが付きます。`brave` エンジンが必要で、Brave がこの結果を返すのは一部のクエリだけです。
+
 ### ファイル処理 (3)
 - `process_file` - PDF、Word、Excel、PowerPoint、ZIPをMarkdownに変換
 - `get_supported_file_formats` - サポートされているファイル形式と機能の取得
