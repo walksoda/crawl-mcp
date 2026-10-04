@@ -1,0 +1,17 @@
+#!/bin/sh
+# Block a push when the docs no longer match the code or CHANGELOG.md does
+# not cover the code changes since the latest tag.
+# Enable once per clone: git config core.hooksPath .githooks
+# Bypass in an emergency: git push --no-verify
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+PY="${CRAWL_MCP_PYTHON:-venv/bin/python}"
+if [ ! -x "$PY" ]; then
+    echo "pre-push: $PY not found; set CRAWL_MCP_PYTHON to a Python with the project installed" >&2
+    exit 1
+fi
+
+if ! "$PY" scripts/check_docs.py --release 2>/dev/null; then
+    echo "pre-push: documentation check failed (scripts/check_docs.py --release)" >&2
+    exit 1
+fi

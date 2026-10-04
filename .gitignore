@@ -121,6 +121,7 @@ check_*.py
 *_debug.py
 *_check.py
 !crawl4ai_mcp/middleware/module_check.py
+!scripts/check_docs.py
 
 # Documentation build
 docs/_build/
