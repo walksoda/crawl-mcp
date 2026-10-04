@@ -10,7 +10,7 @@
 - `get_search_genres` reports the engine configuration (`default_engine`, `auto_order`, `configured_engines`, `genre_support`).
 
 ### Changed
-- `recent_days` is passed to each engine's date parameter (`dateRestrict`, `freshness`, `startPublishedDate`) instead of appending `after:YYYY-MM-DD` to the query.
+- `recent_days` is passed to each engine's date parameter (`dateRestrict`, `freshness`, `startPublishedDate`) instead of appending `after:YYYY-MM-DD` to the query. For Brave, 1, 7, 31 and 365 use the rolling windows `pd`, `pw`, `pm` and `py`; other values become a UTC date range.
 - `search_and_crawl` sends the query as written. It previously rewrote multi-word queries to `word1 OR word2 OR ...`.
 - Search results no longer fetch each result page to read its title and description; the snippet comes from the engine.
 - An unknown `engine` value returns `error_code: invalid_search_engine`, and a named engine without an API key returns `error_code: search_engine_not_configured`, both before any network request. Exa has no file type filter: naming `exa` with the `pdf`, `documents`, `presentations` or `spreadsheets` genre returns `error_code: unsupported_search_genre`, and `auto` skips Exa for those genres.

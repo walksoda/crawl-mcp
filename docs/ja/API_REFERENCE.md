@@ -355,8 +355,10 @@ YouTube動画のメタデータと、トランスクリプトがどの言語で�
 |---|---|---|---|
 | `language` | `hl` | `search_lang` | 使わない |
 | `region` | `gl` | `country`（`uk` は `GB` に変える。Brave の一覧にないコードは `ALL`） | `userLocation` |
-| `recent_days` | `dateRestrict` | `freshness` の日付範囲 | `startPublishedDate` |
+| `recent_days` | `dateRestrict` | `freshness`（下記を参照） | `startPublishedDate`（ちょうど N 日前の時刻） |
 | `safe_search` | `safe=active` | `safesearch=moderate` | `moderation` |
+
+`brave` では、`recent_days` が 1、7、31、365 のとき Brave の固定期間（`pd`、`pw`、`pm`、`py`。それぞれ直近24時間、7日、31日、365日）を使う。それ以外の値は、N 日前から今日までの UTC の日付範囲になる。日単位で数えるため、N 日より最大1日古い結果まで入ることがある。
 
 ### `search_web`
 
@@ -383,7 +385,7 @@ Web検索を実行し、タイトル、スニペット、URL、メタデータ�
 - `search_genre` は大文字と小文字を区別せずに照合する。一覧にない値を渡すと、通信を始める前に `success: false` と `error_code: invalid_search_genre` を返し、`valid_genres` に指定できる値を並べる。`batch_search_web` と `search_and_crawl` も `search_genre` と `engine` を同じように検査する
 - エンジンが0件を返したときは、短くしたクエリの候補を `alternative_queries` に入れる
 - セーフサーチはデフォルトで有効
-- `result_type` で、Web の結果のほかに Brave の結果枠を受け取れる。`discussions` は Reddit のスレッドや GitHub Issues などの掲示板の投稿で、`forum_name`、`num_answers`、`score`、`question`、`top_comment` が付く。`faq` はページ内の Q&A の抜粋で、`question` と、回答を入れた `snippet` が付く。`videos` には `duration`、`creator`、`publisher`、`news` には `source`、`age`、`breaking` が付く。`web`、`discussions`、`faq`、`videos` は Brave の Web 検索1回でまとめて取る。`news` だけは Brave の News Search へ別にリクエストを送る（1回で50件まで）。Web 検索の news 枠は、具体的な出来事や概念を書いたクエリではほとんど空になるためである。News Search は日付のある記事全般を返すので、ブログやドキュメントのページも混ざる。日本のニュースを取るときは `region: jp` を指定する。`results` には、`web` を指定していれば Web の結果、指定していなければ先頭に書いた枠が入り、ほかの枠は `extra_results` に枠の名前ごとに入る（Brave が返さなかった枠は空のリスト）。掲示板の投稿と回答の本文は1,000文字で切る。`news` を追加の枠として指定し、そのリクエストだけが失敗したときは、ほかの結果を返し、エラーを `extra_errors` に入れる
+- `result_type` で、Web の結果のほかに Brave の結果枠を受け取れる。`discussions` は Reddit のスレッドや GitHub Issues などの掲示板の投稿で、`forum_name`、`num_answers`、`score`、`question`、`top_comment` が付く。`faq` はページ内の Q&A の抜粋で、`question` と、回答を入れた `snippet` が付く。`videos` には `duration`、`creator`、`publisher`、`news` には `source` と `age` が付く。`web`、`discussions`、`faq`、`videos` は Brave の Web 検索1回でまとめて取る。`news` だけは Brave の News Search へ別にリクエストを送る（1回で50件まで）。Web 検索の news 枠は、具体的な出来事や概念を書いたクエリではほとんど空になるためである。News Search は日付のある記事全般を返すので、ブログやドキュメントのページも混ざる。日本のニュースを取るときは `region: jp` を指定する。`results` には、`web` を指定していれば Web の結果、指定していなければ先頭に書いた枠が入り、ほかの枠は `extra_results` に枠の名前ごとに入る（Brave が返さなかった枠は空のリスト）。掲示板の投稿と回答の本文は1,000文字で切る。`news` を追加の枠として指定し、そのリクエストだけが失敗したときは、ほかの結果を返し、エラーを `extra_errors` に入れる。`extra_results` の空のリストは、Brave がその枠に何も返さなかったことを表す。リクエストの失敗は必ず `extra_errors` に出る
 - `web` 以外の枠を返せるのは `brave` だけなので、`auto` では Brave だけを使い、`google_custom` か `exa` を名指しすると `error_code: unsupported_result_type` を返す。Brave が `discussions`、`faq`、`videos` を返すのは一部のクエリだけで、`num_results` では減らすことしかできず、20件を超えるページ送りで増えるのは Web の結果だけになる。指定した枠がどれも空なら `success: false` になり、言い換えるか `web` を使うよう案内する。未知の枠を渡すと、通信の前に `error_code: invalid_result_type` を返す
 
 ### `search_google`
