@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 
-from crawl4ai import BM25ContentFilter, PruningContentFilter, LLMContentFilter
+from crawl4ai import BM25ContentFilter, PruningContentFilterLXML, LLMContentFilter
 from crawl4ai.chunking_strategy import (
     TopicSegmentationChunking,
     OverlappingWindowChunking,
@@ -118,7 +118,7 @@ class AdaptiveFiltering:
             return BM25ContentFilter(user_query=filter_query, bm25_threshold=1.0, language='english'), "bm25"
         elif len(content) > 200000:  # Very large content
             # Use pruning for very large content
-            return PruningContentFilter(threshold=0.5, threshold_type="percentile"), "pruning"
+            return PruningContentFilterLXML(threshold=0.5, threshold_type="percentile"), "pruning"
         else:
             # Use basic pruning as default
-            return PruningContentFilter(), "pruning"
+            return PruningContentFilterLXML(), "pruning"

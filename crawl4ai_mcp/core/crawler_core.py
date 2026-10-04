@@ -23,7 +23,7 @@ from ..infra.fallback_strategies import (
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
 from crawl4ai import (
     BM25ContentFilter,
-    PruningContentFilter,
+    PruningContentFilterLXML,
     LLMContentFilter,
     CacheMode,
 )
@@ -96,7 +96,7 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
         if request.content_filter == "bm25" and request.filter_query:
             content_filter_strategy = BM25ContentFilter(user_query=request.filter_query)
         elif request.content_filter == "pruning":
-            content_filter_strategy = PruningContentFilter(threshold=0.5)
+            content_filter_strategy = PruningContentFilterLXML(threshold=0.5)
         elif request.content_filter == "llm" and request.filter_query:
             content_filter_strategy = LLMContentFilter(
                 instructions=f"Filter content related to: {request.filter_query}"
