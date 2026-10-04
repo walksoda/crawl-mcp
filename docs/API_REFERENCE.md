@@ -356,7 +356,7 @@ Parameters:
   - `num_results` (int): Number of results to return, 1-100 (default: 10)
   - `search_genre` (Optional[str]): Genre filter, one of `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, `english` (default: None)
   - `engine` (Optional[str]): `auto`, `google_custom`, `brave` or `exa` (default: the `SEARCH_ENGINE` setting)
-  - `result_type` (str): `web` or `discussions` (default: "web"). See below
+  - `result_type` (str or List[str]): `web`, `discussions`, `faq`, `videos`, `news`, or several of them as a list or a comma-separated string (default: "web"). See below
   - `language` (str): Search language (default: "en")
   - `region` (str): Search region (default: "us")
   - `recent_days` (Optional[int]): Limit results to the past N days (default: None)
@@ -371,7 +371,8 @@ Features:
 - `search_genre` matching is case-insensitive. Any other value returns `success: false` with `error_code: invalid_search_genre` and the `valid_genres` list, before any network request. `batch_search_web` and `search_and_crawl` check `search_genre` and `engine` the same way
 - When an engine returns zero results, the response suggests shorter queries in `alternative_queries`
 - Safe search is on by default
-- `result_type: "discussions"` returns forum posts from Brave's discussions cluster instead of web results. Only `brave` returns it: `auto` uses Brave alone, and naming `google_custom` or `exa` returns `error_code: unsupported_result_type`. Each result adds `forum_name`, `num_answers`, `score`, `question` and `top_comment` (HTML removed; `question` and `top_comment` are cut at 1,000 characters). Brave returns the cluster for some queries only, and it holds about a dozen posts at most; `num_results` can only shorten it. When a query has no cluster, the response is `success: false` with a suggestion to reword or use `web`. Any other value returns `error_code: invalid_result_type` before any network request
+- `result_type` picks Brave result sections besides web results: `discussions` (forum posts such as Reddit threads and GitHub issues, with `forum_name`, `num_answers`, `score`, `question` and `top_comment`), `faq` (question and answer excerpts from pages, with `question` and the answer as `snippet`), `videos` (with `duration`, `creator`, `publisher`) and `news` (with `source`, `age`, `breaking`). `web`, `discussions`, `faq` and `videos` come from one Brave web search request. `news` comes from a separate request to Brave's News Search endpoint (up to 50 articles per request), because the news section of web search is empty for most queries that name a specific event or a concept. News Search returns dated articles in general, so blog posts and documentation pages can appear too; for Japanese news pass `region: jp`. `results` holds the web results when `web` is requested, otherwise the first type listed; the other types go to `extra_results` keyed by type (an empty list when Brave returned none). Forum post and answer text is cut at 1,000 characters. If the news request fails while `news` is an extra type, the other results are still returned and the error is in `extra_errors`
+- Only `brave` returns types other than `web`: `auto` uses Brave alone, and naming `google_custom` or `exa` returns `error_code: unsupported_result_type`. Brave returns `discussions`, `faq` and `videos` for some queries only, `num_results` can only shorten them, and paging past 20 results adds web results only. When none of the requested sections has results, the response is `success: false` with a suggestion to reword or use `web`. An unknown type returns `error_code: invalid_result_type` before any network request
 
 ### `search_google`
 
@@ -387,14 +388,14 @@ Parameters:
   - `crawl_top_results` (int): Number of top results to crawl, max 3 (default: 2)
   - `search_genre` (Optional[str]): Genre filter, same values as `search_web` (default: None)
   - `engine` (Optional[str]): Search engine, same values as `search_web` (default: the `SEARCH_ENGINE` setting)
-  - `result_type` (str): `web` or `discussions`, as in `search_web` (default: "web"). With `discussions`, the crawled pages are the forum threads
+  - `result_type` (str or List[str]): Result types, as in `search_web` (default: "web"). The pages in `results` are crawled (the forum threads with `discussions` alone); `extra_results` is returned as is
   - `recent_days` (Optional[int]): Limit search results to the past N days (default: None)
   - `generate_markdown` (bool): Generate markdown content from crawled pages (default: True)
   - `max_content_per_page` (int): Maximum content characters per crawled page in the response (default: 5000)
   - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a directory of per-page `.md` files + `index.json`, written before `max_content_per_page` truncation)
 
 Returns:
-- `engine`, `result_type`, search metadata and `search_results` (`search_fallback_info` when `auto` moved past an engine)
+- `engine`, `result_type`, search metadata, `search_results` and `extra_results` (`search_fallback_info` when `auto` moved past an engine)
 - `crawled_pages`: one entry per crawled page with `search_rank`, `url`, `title`, `success`, `markdown` (or `content` when `generate_markdown` is false), `content_length`, `error` for failed pages, and `search_result` (the search hit). A page that fails or comes back empty is crawled again with the fallback crawler and marked `fallback_used`
 - Success rates and processing statistics
 - A combined summary of the search and crawl results
@@ -409,7 +410,7 @@ Parameters:
   - `num_results_per_query` (int): Number of results per query, 1-100 (default: 10)
   - `search_genre` (Optional[str]): Genre filter applied to all queries, same values as `search_web` (default: None)
   - `engine` (Optional[str]): Search engine for all queries, same values as `search_web` (default: the `SEARCH_ENGINE` setting)
-  - `result_type` (str): `web` or `discussions` for all queries, as in `search_web` (default: "web")
+  - `result_type` (str or List[str]): Result types for all queries, as in `search_web` (default: "web"). Each entry in `results` carries its own `extra_results`
   - `recent_days` (Optional[int]): Limit results to the past N days (default: None)
   - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.json` file with the full result set)
   - Also accepted: `language` (str, default: "en"), `region` (str, default: "us"), `max_concurrent` (int, default: 3, max 5)

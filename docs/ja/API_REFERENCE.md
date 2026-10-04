@@ -368,7 +368,7 @@ Web検索を実行し、タイトル、スニペット、URL、メタデータ�
   - `num_results` (int): 返す結果数 1-100（デフォルト: 10）
   - `search_genre` (Optional[str]): ジャンルフィルタ。`pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` のいずれか（デフォルト: None）
   - `engine` (Optional[str]): `auto`、`google_custom`、`brave`、`exa` のいずれか（デフォルト: `SEARCH_ENGINE` の設定）
-  - `result_type` (str): `web` か `discussions`（デフォルト: "web"）。下記を参照
+  - `result_type` (str または List[str]): `web`、`discussions`、`faq`、`videos`、`news` のいずれか。複数をリストかカンマ区切りの文字列で指定できる（デフォルト: "web"）。下記を参照
   - `language` (str): 検索言語（デフォルト: "en"）
   - `region` (str): 検索地域（デフォルト: "us"）
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
@@ -383,7 +383,8 @@ Web検索を実行し、タイトル、スニペット、URL、メタデータ�
 - `search_genre` は大文字と小文字を区別せずに照合する。一覧にない値を渡すと、通信を始める前に `success: false` と `error_code: invalid_search_genre` を返し、`valid_genres` に指定できる値を並べる。`batch_search_web` と `search_and_crawl` も `search_genre` と `engine` を同じように検査する
 - エンジンが0件を返したときは、短くしたクエリの候補を `alternative_queries` に入れる
 - セーフサーチはデフォルトで有効
-- `result_type: "discussions"` を指定すると、Web の結果の代わりに Brave の discussions（掲示板の投稿のまとまり）を返す。返せるのは `brave` だけなので、`auto` では Brave だけを使い、`google_custom` か `exa` を名指しすると `error_code: unsupported_result_type` を返す。各結果には `forum_name`、`num_answers`、`score`、`question`、`top_comment` が付く（HTML は除き、`question` と `top_comment` は1,000文字で切る）。Brave がこのまとまりを返すのは一部のクエリだけで、多くても十数件にとどまり、`num_results` では減らすことしかできない。まとまりのないクエリでは `success: false` になり、言い換えるか `web` を使うよう案内する。ほかの値を渡すと、通信の前に `error_code: invalid_result_type` を返す
+- `result_type` で、Web の結果のほかに Brave の結果枠を受け取れる。`discussions` は Reddit のスレッドや GitHub Issues などの掲示板の投稿で、`forum_name`、`num_answers`、`score`、`question`、`top_comment` が付く。`faq` はページ内の Q&A の抜粋で、`question` と、回答を入れた `snippet` が付く。`videos` には `duration`、`creator`、`publisher`、`news` には `source`、`age`、`breaking` が付く。`web`、`discussions`、`faq`、`videos` は Brave の Web 検索1回でまとめて取る。`news` だけは Brave の News Search へ別にリクエストを送る（1回で50件まで）。Web 検索の news 枠は、具体的な出来事や概念を書いたクエリではほとんど空になるためである。News Search は日付のある記事全般を返すので、ブログやドキュメントのページも混ざる。日本のニュースを取るときは `region: jp` を指定する。`results` には、`web` を指定していれば Web の結果、指定していなければ先頭に書いた枠が入り、ほかの枠は `extra_results` に枠の名前ごとに入る（Brave が返さなかった枠は空のリスト）。掲示板の投稿と回答の本文は1,000文字で切る。`news` を追加の枠として指定し、そのリクエストだけが失敗したときは、ほかの結果を返し、エラーを `extra_errors` に入れる
+- `web` 以外の枠を返せるのは `brave` だけなので、`auto` では Brave だけを使い、`google_custom` か `exa` を名指しすると `error_code: unsupported_result_type` を返す。Brave が `discussions`、`faq`、`videos` を返すのは一部のクエリだけで、`num_results` では減らすことしかできず、20件を超えるページ送りで増えるのは Web の結果だけになる。指定した枠がどれも空なら `success: false` になり、言い換えるか `web` を使うよう案内する。未知の枠を渡すと、通信の前に `error_code: invalid_result_type` を返す
 
 ### `search_google`
 
@@ -399,14 +400,14 @@ Web検索を実行し、上位の結果をそのままクロールします。
   - `crawl_top_results` (int): クロール対象の上位結果数、最大3（デフォルト: 2）
   - `search_genre` (Optional[str]): ジャンルフィルタ。値は `search_web` と同じ（デフォルト: None）
   - `engine` (Optional[str]): 検索エンジン。値は `search_web` と同じ（デフォルト: `SEARCH_ENGINE` の設定）
-  - `result_type` (str): `web` か `discussions` で、扱いは `search_web` と同じ（デフォルト: "web"）。`discussions` を指定すると、掲示板のスレッドをクロールする
+  - `result_type` (str または List[str]): 結果の枠。扱いは `search_web` と同じ（デフォルト: "web"）。クロールするのは `results` のページで（`discussions` だけを指定すれば掲示板のスレッド）、`extra_results` はそのまま返す
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
   - `generate_markdown` (bool): クロールしたページからMarkdownを生成（デフォルト: True）
   - `max_content_per_page` (int): レスポンス内のページごとの最大文字数（デフォルト: 5000）
   - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（ページごとの `.md` ファイルと `index.json` をディレクトリに保存。`max_content_per_page` による切り詰めの前に保存）
 
 **戻り値:**
-- `engine`、`result_type`、検索のメタデータ、`search_results`（`auto` で次のエンジンへ進んだときは `search_fallback_info` も入る）
+- `engine`、`result_type`、検索のメタデータ、`search_results`、`extra_results`（`auto` で次のエンジンへ進んだときは `search_fallback_info` も入る）
 - `crawled_pages`: クロールしたページごとの要素で、`search_rank`、`url`、`title`、`success`、`markdown`（`generate_markdown` が false なら `content`）、`content_length`、失敗時の `error`、元の検索結果の `search_result` を持つ。失敗したページや本文が空のページは、フォールバック用のクローラーで取り直し、`fallback_used` を付ける
 - 成功率などの処理統計
 - 検索結果とクロール結果をまとめた分析
@@ -421,7 +422,7 @@ Web検索を実行し、上位の結果をそのままクロールします。
   - `num_results_per_query` (int): クエリごとの結果数 1-100（デフォルト: 10）
   - `search_genre` (Optional[str]): 全クエリに適用するジャンルフィルタ。値は `search_web` と同じ（デフォルト: None）
   - `engine` (Optional[str]): 全クエリに使う検索エンジン。値は `search_web` と同じ（デフォルト: `SEARCH_ENGINE` の設定）
-  - `result_type` (str): 全クエリに使う `web` か `discussions`。扱いは `search_web` と同じ（デフォルト: "web"）
+  - `result_type` (str または List[str]): 全クエリに使う結果の枠。扱いは `search_web` と同じ（デフォルト: "web"）。`results` の各要素に、それぞれの `extra_results` が入る
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
   - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（全結果を単一の `.json` ファイルに保存）
   - その他に受け付けるキー: `language` (str、デフォルト: "en")、`region` (str、デフォルト: "us")、`max_concurrent` (int、デフォルト: 3、最大5)

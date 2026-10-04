@@ -157,7 +157,7 @@ DockerのHTTPモードを使う場合:
 
 `search_web`、`batch_search_web`、`search_and_crawl` の `search_genre` に指定できる値は共通で、`pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` です。大文字と小文字は区別しません。それ以外の値を渡すと、検索を始める前に `invalid_search_genre` エラーが返ります。Exa はファイル形式で絞り込めないため、`auto` ではファイル形式のジャンルのとき Exa を飛ばします。
 
-`result_type: "discussions"` を指定すると、Brave の discussions から掲示板の投稿を返します。投稿には掲示板名、回答数、スコア、質問、トップコメントが付きます。`brave` エンジンが必要で、Brave がこの結果を返すのは一部のクエリだけです。
+`result_type` を使うと、検索に Brave の結果枠を加えられます。`discussions` は掲示板の投稿（掲示板名、回答数、スコア付き）、`faq` はページ内の Q&A の抜粋で、ほかに `videos` と `news` があります。`["web", "discussions", "faq"]` のように複数を指定でき、追加の枠は `extra_results` に入ります。`brave` エンジンが必要です。`discussions`、`faq`、`videos` は Brave への1回のリクエストでまとめて取り、返るのは一部のクエリだけです。`news` は Brave の News Search へ別にリクエストを送ります。
 
 ### ファイル処理 (3)
 - `process_file` - PDF、Word、Excel、PowerPoint、ZIPをMarkdownに変換
