@@ -71,11 +71,11 @@ crawl-mcp
 
 Use this method to install into an existing Python environment.
 
-`pyproject.toml` defines the dependencies with constrained versions (for example `crawl4ai>=0.9.4,<0.10`, `fastmcp>=2.14.2,<3`, `playwright==1.55.0`). `requirements.txt` mirrors them for Docker builds.
+`pyproject.toml` defines the dependencies with constrained versions (for example `crawl4ai>=0.9.4,<0.10`, `fastmcp>=2.14.2,<3`, `playwright==1.55.0`). `requirements.txt` mirrors them for Docker builds. The Anthropic SDK (`anthropic>=0.40.0`) is a regular dependency, so Anthropic summarization also works in UVX installs.
 
 ### Setup Scripts (Traditional)
 
-The repository also contains setup scripts. They create `venv` and install `requirements.txt`, which does not install the package itself, so run the server from the repository root.
+The repository also contains setup scripts. They create `venv`, install `requirements.txt` and Playwright's Chromium, and print the commands to start the server. `requirements.txt` does not install the package itself, so run the server from the repository root. On Linux, the scripts do not install system libraries; see Prerequisites if Chromium fails to start.
 
 Linux/macOS:
 
@@ -140,6 +140,8 @@ macOS:
 Playwright browser errors on Linux or WSL: on Ubuntu 24.04, use the `t64` library names (`libasound2t64`, `libgtk-3-0t64`). The server runs Chromium headless, so WSL does not need an X server.
 
 JSON parsing errors in the MCP client (STDIO): over STDIO, the server keeps stdout for MCP messages only. All diagnostics, including the `.env` loading notices, go to stderr. If a client still reports invalid JSON, check for a wrapper script or shell profile that prints to stdout before the server starts.
+
+Server logs: logging is off by default. Set `CRAWL4AI_MCP_LOG_LEVEL` to `DEBUG`, `INFO`, `WARNING`, or `ERROR` in the `env` block of the client configuration to write log records to stderr. A value in `.env` is not used, because the server reads this variable before it loads `.env`.
 
 Cached results that look like 16-character hash strings: crawl4ai's legacy cache migration could corrupt an existing cache database. The server disables that migration on startup, so upgrading crawl4ai no longer rewrites `~/.crawl4ai/crawl4ai.db`. If an earlier run already damaged the cache, you can delete the crawl4ai cache (`~/.crawl4ai/`); it is rebuilt on the next crawl.
 

@@ -12,7 +12,7 @@ The server is a [FastMCP](https://gofastmcp.com) application. The transport is c
 | `streamable-http` (alias: `http`) | `http://<host>:<port>/mcp` | Use this for HTTP. Current MCP Streamable HTTP transport |
 | `sse` | `http://<host>:<port>/sse` | Legacy MCP SSE transport, for older clients only |
 
-Other flags: `--host` (default `127.0.0.1`) and `--port` (default `8000`). Transport, host, and port are set only by these flags; no environment variables control them.
+Other flags: `--host` (default `127.0.0.1`) and `--port` (default `8000`). Transport, host, and port are set only by these flags; no environment variables control them. `--help` lists the flags, and an invalid value exits with status 2 and an error on stderr.
 
 Every HTTP request is an MCP JSON-RPC message. The server does not expose REST-style endpoints such as `/tools/{name}`, and it has no `/health`, `/docs`, `/stats`, or `/status` routes.
 
@@ -29,9 +29,14 @@ uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --transport strea
 
 # Background startup
 nohup python -m crawl4ai_mcp.server --transport streamable-http --port 8000 > server.log 2>&1 &
+
+# Helper script for a development checkout
+./scripts/run_http_server.sh --port 8000
 ```
 
 `--transport http` is accepted as an alias for `streamable-http`.
+
+`scripts/run_http_server.sh` runs the same streamable-http server with the project's `venv` (or `.venv`) and prints the `/mcp` endpoint. Its options are `--host`, `--port`, `--external` (binds `0.0.0.0`), and `--log-level` (sets `CRAWL4AI_MCP_LOG_LEVEL`, so log records go to stderr).
 
 ### MCP Client Configuration
 
@@ -168,6 +173,8 @@ docker run -p 8000:8000 crawl4ai-mcp:latest \
 docker-compose --profile http up crawl4ai-mcp-http
 ```
 
+The `crawl4ai-mcp-http` service has a healthcheck that sends a plain GET to `/mcp`. A running server answers it with a 4xx status, so any status below 500 counts as healthy.
+
 ## STDIO Protocol
 
 ```bash
@@ -199,15 +206,6 @@ STDIO carries newline-delimited JSON-RPC messages. While the server runs over ST
 | Message format | JSON-RPC (SSE-framed responses) | JSON-RPC over SSE | Newline-delimited JSON-RPC |
 | Process management | Run the server yourself | Run the server yourself | Client launches the server |
 | Shared by multiple clients | Yes | Yes | No |
-
-## Example Servers in `examples/` (Unmaintained)
-
-`examples/` contains older demo servers. They are not maintained and are not recommended:
-
-- `examples/simple_pure_http_server.py` (started by `scripts/start_pure_http_server.sh`) **returns mock results** ("Mock crawl result") and lists only two tools. It does not crawl anything.
-- `examples/pure_streamable_http_server.py` and `examples/run_http_server.py` use custom, non-standard endpoints.
-
-Use the built-in `--transport streamable-http` server instead.
 
 ## Security Considerations
 

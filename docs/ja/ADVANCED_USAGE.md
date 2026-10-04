@@ -21,7 +21,9 @@
 }
 ```
 
-`max_depth` は1か2、`max_pages` は10まで指定でき、`crawl_strategy` には `bfs`、`dfs`、`best_first` のいずれかを使います。`url_pattern` に渡せるパターンは1つだけで、サーバーはそれを1つのフィルタとして扱うため、カンマ区切りで並べても分割されません。
+`max_depth` は1か2、`max_pages` は1〜10を指定できます。範囲外の値を渡すと、ページを取得する前にエラーが返ります。`crawl_strategy` には `bfs`、`dfs`、`best_first` のいずれかを使います。`url_pattern` に渡せるパターンは1つだけで、サーバーはそれを1つのフィルタとして扱うため、カンマ区切りで並べても分割されません。
+
+レスポンスの `markdown` には全ページがつながって入り、`crawled_pages` にはページごとの `url`、`title`、`success`、`error` が並びます。`output_path` を指定すると、成功したページが1ページずつ `.md` ファイルになり、`index.json` と一緒に保存されます。このとき `include_content_in_response` を `true` にしなければ、レスポンスにはメタデータだけが残ります。
 
 ### JavaScriptを多用するページ
 
@@ -63,7 +65,7 @@
 }
 ```
 
-`crawl_url_with_fallback` は最大7段階を順に試します。静的な高速パス、通常のヘッドレスブラウザ、Chromiumのステルスモード、ユーザー操作のシミュレーション、モバイルのユーザーエージェント、AMP版やRSS版の取得、静的なHTML/JSON抽出の順です。成功した段階はドメインごとにキャッシュされ、次回はその段階から始まります。どの段階で取得できたかは、レスポンスの `extracted_data.fallback_strategy_used` と `fallback_stage` でわかります。
+`crawl_url_with_fallback` は最大7段階を順に試します。静的な高速パス、通常のヘッドレスブラウザ、Chromiumのステルスモード、ユーザー操作のシミュレーション、モバイルのユーザーエージェント、AMP版やRSS版の取得、静的なHTML/JSON抽出の順です。成功した段階はドメインごとにキャッシュされ、次回はその段階から始まります。どの段階で取得できたかは、レスポンスの `extracted_data.fallback_strategy_used` と `fallback_stage` でわかります。HTTP 4xx/5xxが返った段階は失敗として扱います。AMPの段階では、エラーページに見えるページも採用しません。
 
 ## LLMによる抽出
 
@@ -201,11 +203,11 @@
 | ツール | 1回あたりの上限 |
 |--------|------------------|
 | `batch_crawl` | URL 3件（1件ずつ順に処理） |
-| `multi_url_crawl` | URL設定 5件（1件ずつ順に処理） |
+| `multi_url_crawl` | URL設定 5件（1件ずつ順に処理。`max_concurrent` は効かない） |
 | `batch_extract_youtube_transcripts` | URL 3件。`max_concurrent` は任意（デフォルト3、上限5） |
 | `batch_search_google` | クエリ 3件。`max_concurrent` は任意（デフォルト3、上限5） |
 | `search_and_crawl` | `crawl_top_results` は3まで |
-| `deep_crawl_site` | `max_depth` 1〜2、`max_pages` 10まで |
+| `deep_crawl_site` | `max_depth` 1〜2、`max_pages` 1〜10 |
 
 上限を超える処理は、何回かの呼び出しに分けてください。
 
@@ -297,7 +299,7 @@ URLごとに設定を変えたいときは `multi_url_crawl` を使います。
 }
 ```
 
-`search_genre` でクエリが変わるのは `pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` だけです。ほかの値ではクエリはそのままです。
+`search_genre` に指定できるのは `pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` で、大文字と小文字は区別しません。`search_google`、`batch_search_google`、`search_and_crawl` は、ほかの値を受け取ると検索を始める前に `invalid_search_genre` エラーを返し、`valid_genres` に指定できる値を並べます。各ジャンルがクエリに付ける検索演算子は `get_search_genres` で確認できます。
 
 ## ワークフロー
 
@@ -352,7 +354,7 @@ URLごとに設定を変えたいときは `multi_url_crawl` を使います。
 }
 ```
 
-組み込みのタイプは `emails`、`phones`、`urls`、`dates`、`ips`、`prices`、`credit_cards`、`coordinates` の8つです。`custom_patterns` のエントリは新しいタイプとして扱われ、その名前を `entity_types` に入れたときだけ抽出されます。`social_media` のように組み込みにないタイプを使うには `"use_llm": true` が要ります。
+組み込みのタイプは `emails`、`phones`、`urls`、`dates`、`ips`、`prices`、`credit_cards`、`coordinates` の8つです。`email` や `phone` のような単数形でも指定でき、大文字と小文字は区別しません。`custom_patterns` のエントリは新しいタイプとして扱われ、その名前を `entity_types` に入れたときだけ抽出されます。`custom_patterns` が使われるのは正規表現モードのときだけです。`people` や `social_media` のように組み込みにないタイプを使うには `"use_llm": true` が要ります。付けずに指定したタイプは `unsupported_entity_types` に入り、レスポンスに警告が付きます。
 
 ## タイムアウト
 
@@ -375,7 +377,7 @@ URLごとに設定を変えたいときは `multi_url_crawl` を使います。
 3. `wait_for_js` を外し、`timeout` を短くした設定
 4. PDFやOfficeのURLなら `process_file`
 
-STDIOで動かしている間、stdoutにはMCPメッセージしか流れず、診断はstderrに出ます。Pythonのloggingはimport時に止めてあるので、ログレベルの環境変数を変えても何も出ません。問題を調べるときは、MCPクライアント側に残るサーバーログ（stderr）を見てください。
+STDIOで動かしている間、stdoutにはMCPメッセージしか流れず、診断はstderrに出ます。Pythonのloggingはデフォルトでは出力されません。`CRAWL4AI_MCP_LOG_LEVEL` に `DEBUG`、`INFO`、`WARNING`、`ERROR` のどれかを設定すると、ログがstderrに出ます。この変数は起動時、`.env` を読み込む前に参照されます。そのため `.env` ではなく、MCPクライアント設定の `env` ブロックなど、プロセスの環境変数として渡してください。`FASTMCP_LOG_LEVEL` は効きません。問題を調べるときは、MCPクライアント側に残るサーバーログ（stderr）を見てください。
 
 ヘルスチェック用のエンドポイントはありません。HTTPサーバーが動いているかどうかは、`get_supported_file_formats` のような軽いツールを呼んで確かめます。手順は [HTTP統合ガイド](HTTP_INTEGRATION.md) にあります。
 

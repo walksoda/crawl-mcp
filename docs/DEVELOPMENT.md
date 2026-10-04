@@ -52,7 +52,7 @@ The `ToolPipeline` classes in `middleware/pipeline.py` (and the pipeline step mo
 
 A tool call passes through these layers:
 
-1. `server.py` creates `FastMCP("Crawl4AI")` and calls `register_all_tools(mcp, _get_modules)`. Logging, warnings, and the FastMCP banner are suppressed before the imports.
+1. `server.py` creates `FastMCP("Crawl4AI")` and calls `register_all_tools(mcp, _get_modules)`. Warnings and the FastMCP banner are suppressed before the imports, and logging is configured there too (off unless `CRAWL4AI_MCP_LOG_LEVEL` is set). `main()` parses `--transport`, `--host`, and `--port` with argparse.
 2. `server_tools/*_tools.py` are thin `@mcp.tool()` adapters. Parameters are declared with `Annotated[..., Field(description=...)]`, which becomes the schema MCP clients see. `get_modules()` lazily loads `tools/`; on failure the handler returns `modules_unavailable_error()`.
 3. `tools/` re-exports functions from `core/` for backward compatibility.
 4. `core/` implements the logic and uses `processors/`, `infra/`, `utils/`, and `models/`.
@@ -71,7 +71,7 @@ Tools that support `output_path` expose all three parameters: `output_path`, `in
 
 ### STDIO Output Rule
 
-Over the STDIO transport, stdout is reserved for MCP JSON-RPC messages, so server code must never print to stdout. Write diagnostics to stderr (`print(..., file=sys.stderr)`). `server.py` redirects stray stdout writes to stderr while running over STDIO, and `suppress_output.py` silences noisy library output. Logging is disabled at import (`logging.disable(logging.CRITICAL)`), so `FASTMCP_LOG_LEVEL` does not produce log output.
+Over the STDIO transport, stdout is reserved for MCP JSON-RPC messages, so server code must never print to stdout. Write diagnostics to stderr (`print(..., file=sys.stderr)`). `server.py` redirects stray stdout writes to stderr while running over STDIO, and `suppress_output.py` silences noisy library output. Logging is disabled by default. Setting `CRAWL4AI_MCP_LOG_LEVEL` to `DEBUG`, `INFO`, `WARNING`, or `ERROR` sends log records to stderr. `server.py` reads it at import, before `.env` is loaded, so it must be in the process environment. `FASTMCP_LOG_LEVEL` does not produce log output.
 
 ## Development & Distribution
 
@@ -154,7 +154,10 @@ Manual server checks:
 python -m crawl4ai_mcp.server --help
 python -m crawl4ai_mcp.server                                               # STDIO
 python -m crawl4ai_mcp.server --transport streamable-http --host 127.0.0.1 --port 8000   # HTTP at /mcp
+./scripts/run_http_server.sh --log-level DEBUG                              # same HTTP server, with logging
 ```
+
+`--transport` accepts `stdio`, `streamable-http`, `http`, and `sse`. An invalid argument exits with status 2 and prints the error to stderr.
 
 See the [HTTP Integration Guide](HTTP_INTEGRATION.md) for calling the HTTP server with curl or an MCP client.
 
@@ -288,7 +291,7 @@ lsof -i :8000               # Check port availability
 kill <PID>
 ```
 
-The server writes diagnostics to stderr, and Python logging is disabled at import. To investigate, run the server in a terminal and watch stderr, or add temporary `print(..., file=sys.stderr)` calls. Never print to stdout.
+The server writes diagnostics to stderr. Python logging is off unless `CRAWL4AI_MCP_LOG_LEVEL` is set. To investigate, run the server in a terminal with `CRAWL4AI_MCP_LOG_LEVEL=DEBUG` and watch stderr, or add temporary `print(..., file=sys.stderr)` calls. Never print to stdout.
 
 CPU profiling:
 

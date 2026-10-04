@@ -90,6 +90,7 @@ Response behavior:
 - Token limit: 25000 tokens (automatically truncated with recommendations if exceeded)
 - Content is summarized only when `auto_summarize=true` (summarization is skipped while `content_limit`/`content_offset` paging is active). Without it, large pages are returned as-is and the response is truncated at about 25000 tokens; use `output_path` to save the full, unsummarized content to disk
 - Remote `.html`/`.htm` URLs are rendered in the browser like any other web page. Document URLs (PDF, Office, ZIP, text, arXiv `/pdf/` links, etc.) are converted as files without a browser fallback
+- If the first crawl fails, it is retried automatically with the undetected browser (except for document URLs)
 - `take_screenshot`: with `output_path`, the PNG is saved next to the main file (`<stem>_screenshot.png`) and the response gets `screenshot_path`; without `output_path`, the screenshot is dropped from the response with a warning
 
 ### `deep_crawl_site`
@@ -98,8 +99,8 @@ Crawl a site recursively from a starting URL, following links up to the given de
 
 Parameters:
 - `url` (str): Starting URL (required)
-- `max_depth` (int): Link depth; supported range 1-2 (default: 2)
-- `max_pages` (int): Maximum number of pages to crawl; supported maximum 10 (default: 5)
+- `max_depth` (int): Link depth, 1-2 (default: 2)
+- `max_pages` (int): Maximum number of pages to crawl, 1-10 (default: 5)
 - `crawl_strategy` (str): Crawling strategy, 'bfs', 'dfs' or 'best_first' (default: 'bfs')
 - `include_external` (bool): Follow external links (default: False)
 - `url_pattern` (Optional[str]): URL filter pattern, e.g. '*docs*', '*blog*' (default: None)
@@ -107,6 +108,12 @@ Parameters:
 - `extract_media` (bool): Extract images and videos from pages (default: False)
 - `base_timeout` (int): Timeout per page in seconds (default: 60)
 - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a directory of per-URL `.md` files + `index.json`)
+
+Response behavior:
+- `max_depth` or `max_pages` outside its range returns an error before any page is fetched. The `error_code` is `invalid_depth` or `depth_too_large` for `max_depth`, and `invalid_max_pages` or `max_pages_too_large` for `max_pages`
+- `markdown` and `content` hold all crawled pages merged into one document
+- `crawled_pages` lists each page with `url`, `title`, `success`, and `error`
+- With `output_path`, each successful page is saved as its own `.md` file and listed in `index.json`. Unless `include_content_in_response=true`, the merged `markdown`/`content` and the page bodies are left out of the response
 
 ### `crawl_url_with_fallback`
 
@@ -131,6 +138,7 @@ Response behavior:
 - Content is summarized only when `auto_summarize=true`. Without it, large pages are returned as-is and the response is truncated; use `output_path` to save the full, unsummarized content to disk
 - Remote `.html`/`.htm` URLs are rendered in the browser. Document URLs (PDF, Office, ZIP, text, etc.) are converted as files once, without the browser fallback stages
 - `take_screenshot`: the screenshot is persisted only when `output_path` is set (saved as `<stem>_screenshot.png`, referenced by `screenshot_path`)
+- A fallback stage that gets an HTTP 4xx/5xx status moves on to the next stage. The AMP stage also skips pages that look like error pages, so a missing `<url>/amp` page is not returned as the content
 
 ## Data Extraction Tools
 
@@ -172,14 +180,18 @@ Extract specific entity types from a URL using pattern matching or LLM.
 
 Parameters:
 - `url` (str): Target URL (required)
-- `entity_types` (List[str]): Entity types to extract (required). Regex-supported values: 'emails', 'phones', 'urls', 'dates', 'ips', 'prices', 'credit_cards', 'coordinates'. Other types (e.g. 'social_media') are extracted only with `use_llm=true`
-- `custom_patterns` (Optional[Dict]): Custom regex patterns for entity extraction (default: None)
+- `entity_types` (List[str]): Entity types to extract (required). Regex-supported values: 'emails', 'phones', 'urls', 'dates', 'ips', 'prices', 'credit_cards', 'coordinates'. Other types (e.g. 'people', 'organizations', 'social_media') are extracted only with `use_llm=true`
+- `custom_patterns` (Optional[Dict]): Custom regex patterns as `{type_name: regex}`; add `type_name` to `entity_types` to extract it. Used in regex mode only (default: None)
 - `include_context` (bool): Include surrounding context for each entity (default: True)
 - `deduplicate` (bool): Remove duplicate entities from results (default: True)
 - `use_llm` (bool): Use LLM for named entity recognition (default: False)
 - `llm_provider` (Optional[str]): LLM provider, auto-detected if not specified (default: None)
 - `llm_model` (Optional[str]): Specific LLM model, auto-detected if not specified (default: None)
 - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.json` file)
+
+Response behavior:
+- Type names are case-insensitive, and singular forms are mapped to the plural names: 'email', 'phone', 'url', 'date', 'ip', 'price', 'credit_card', 'coordinate', 'person' (to 'people'), 'organization', 'location', 'product', 'event'. `entity_types_requested` shows the normalized names
+- In regex mode, requested types without a pattern are listed in `unsupported_entity_types`, with a message in `warnings`
 
 ## File Processing Tools
 
@@ -318,7 +330,7 @@ Parameters:
 - `request` (Dict): Request object with the following keys:
   - `query` (str): Search query string (required)
   - `num_results` (int): Number of results to return, 1-100 (default: 10)
-  - `search_genre` (Optional[str]): Content genre filter (default: None)
+  - `search_genre` (Optional[str]): Genre filter, one of `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, `english` (default: None)
   - `language` (str): Search language (default: "en")
   - `region` (str): Search region (default: "us")
   - `recent_days` (Optional[int]): Limit results to the past N days (default: None)
@@ -330,6 +342,7 @@ Parameters:
 Features:
 - Automatic title and snippet extraction from search results
 - 6 search genres that add Google operators to the query: `pdf`, `documents`, `presentations`, `spreadsheets` (file type filters), `japanese`, `english` (language filters)
+- `search_genre` matching is case-insensitive. Any other value returns `success: false` with `error_code: invalid_search_genre` and the `valid_genres` list, before any network request. `batch_search_google` and `search_and_crawl` check `search_genre` the same way
 - URL classification and domain analysis
 - Safe search enforced by default
 
@@ -341,7 +354,7 @@ Parameters:
 - `request` (Dict): Request object with the following keys:
   - `search_query` (str): Google search query (required)
   - `crawl_top_results` (int): Number of top results to crawl, max 3 (default: 2)
-  - `search_genre` (Optional[str]): Content genre filter (default: None)
+  - `search_genre` (Optional[str]): Genre filter, same values as `search_google` (default: None)
   - `recent_days` (Optional[int]): Limit search results to the past N days (default: None)
   - `generate_markdown` (bool): Generate markdown content from crawled pages (default: True)
   - `max_content_per_page` (int): Maximum content characters per crawled page in the response (default: 5000)
@@ -360,14 +373,19 @@ Parameters:
 - `request` (Dict): Request object with the following keys:
   - `queries` (List[str]): List of search query strings (max 3, required)
   - `num_results_per_query` (int): Number of results per query, 1-100 (default: 10)
-  - `search_genre` (Optional[str]): Content genre filter applied to all queries (default: None)
+  - `search_genre` (Optional[str]): Genre filter applied to all queries, same values as `search_google` (default: None)
   - `recent_days` (Optional[int]): Limit results to the past N days (default: None)
   - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.json` file with the full result set)
   - Also accepted: `language` (str, default: "en"), `region` (str, default: "us"), `max_concurrent` (int, default: 3, max 5)
 
 ### `get_search_genres`
 
-Returns the list of available search genre filters. No parameters required.
+Returns the supported `search_genre` values. No parameters required.
+
+Response keys:
+- `genres`: genre name to description
+- `query_operators`: genre name to the operator added to the query
+- `total_genres`, `usage_example`, `configuration` (search mode, supported languages and regions), and `notes`
 
 ## Batch Operations
 
@@ -392,7 +410,7 @@ Parameters:
 - `pattern_matching` (str): URL pattern matching mode, 'wildcard' or 'regex' (default: 'wildcard')
 - `default_config` (Optional[Dict]): Default configuration applied to all URLs (default: None)
 - `base_timeout` (int): Timeout in seconds per URL (default: 30)
-- `max_concurrent` (int): Maximum number of concurrent crawl operations (default: 3)
+- `max_concurrent` (int): Has no effect; URLs are processed sequentially. Kept for compatibility (default: 3)
 - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a directory of per-URL `.md` files + `index.json`; the list return shape is kept and each success item gains `output_file`)
 
 ## Tool Categories

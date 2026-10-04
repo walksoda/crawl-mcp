@@ -155,8 +155,9 @@ python -m crawl4ai_mcp.server --transport streamable-http --host 127.0.0.1 --por
 | `GOOGLE_SEARCH_FALLBACK_DELAY` | `2.0` | 検索方式を切り替える前の待ち時間（秒） |
 | `CRAWL4AI_BROWSER_TYPE` | 未設定 | `chromium`、`firefox`、`webkit` のどれかを指定するとそのブラウザだけを使う。未設定ならWebKit、Chromiumの順に試す。検出回避ブラウザは常にChromium |
 | `CRAWL4AI_CACHE_TTL_SECONDS` | `3600` | 取得したページを新しいとみなす秒数。過ぎると、次にそのURLをクロールしたときにキャッシュを使わず取り直す。`0` なら期限なしで、キャッシュを使い続ける |
+| `CRAWL4AI_MCP_LOG_LEVEL` | 未設定（ログなし） | `DEBUG`、`INFO`、`WARNING`、`ERROR` のどれかでログをstderrに出す。`.env` を読み込む前に参照するので、プロセスの環境変数かクライアントの `env` ブロックで設定する |
 
-`.env.example` には `FASTMCP_LOG_LEVEL` も載っていますが、サーバーがimport時にPythonのloggingを止めているため効きません。診断はstderrに出ます。
+`FASTMCP_LOG_LEVEL` はこのサーバーでは効かないので、ログを出すときは `CRAWL4AI_MCP_LOG_LEVEL` を使ってください。診断はstderrに出ます。
 
 ### LLMの設定
 
@@ -250,7 +251,7 @@ JavaScriptを多用するページでは、待機の設定を加えます。
 }
 ```
 
-`deep_crawl_site` の `max_depth` は1〜2、`max_pages` は10までです。
+`deep_crawl_site` の `max_depth` は1〜2、`max_pages` は1〜10です。範囲外の値はエラーになります。
 
 ```json
 {
@@ -295,6 +296,8 @@ python -m crawl4ai_mcp.server --help
 # UVXでのインストールを確認
 uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --help
 ```
+
+`--help` には `--transport`（`stdio`、`streamable-http`、`http`、`sse`）、`--host`、`--port` が表示されます。引数が間違っていると、エラーをstderrに出して終了コード2で終わります。
 
 ヘルスチェック用のエンドポイントはありません。起動中のHTTPサーバーを確かめるには、`get_supported_file_formats` のような軽いツールを呼びます。やり方は [HTTP統合ガイド](HTTP_INTEGRATION.md) を参照してください。
 

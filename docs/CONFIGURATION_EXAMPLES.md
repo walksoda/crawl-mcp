@@ -155,8 +155,9 @@ The server loads a `.env` file from the repository root, or from the current dir
 | `GOOGLE_SEARCH_FALLBACK_DELAY` | `2.0` | Seconds to wait before switching search methods |
 | `CRAWL4AI_BROWSER_TYPE` | unset | `chromium`, `firefox`, or `webkit` forces one browser. When unset, the crawler tries WebKit and then Chromium. The undetected browser always uses Chromium |
 | `CRAWL4AI_CACHE_TTL_SECONDS` | `3600` | Seconds a fetched page counts as fresh. After that, the next crawl of the URL bypasses the cache and fetches it again. `0` disables expiry, so cached pages are always reused |
+| `CRAWL4AI_MCP_LOG_LEVEL` | unset (no logging) | `DEBUG`, `INFO`, `WARNING`, or `ERROR` writes log records to stderr. The server reads it before it loads `.env`, so set it in the process environment or the client's `env` block |
 
-`.env.example` also contains `FASTMCP_LOG_LEVEL`. It has no effect, because the server disables Python logging at import. Diagnostics go to stderr.
+`FASTMCP_LOG_LEVEL` has no effect on this server; use `CRAWL4AI_MCP_LOG_LEVEL` instead. Diagnostics go to stderr.
 
 ### LLM settings
 
@@ -250,7 +251,7 @@ These are `arguments` objects for single tool calls. The [API Reference](API_REF
 }
 ```
 
-`deep_crawl_site` (`max_depth` 1-2, `max_pages` up to 10):
+`deep_crawl_site` (`max_depth` 1-2, `max_pages` 1-10; other values return an error):
 
 ```json
 {
@@ -295,6 +296,8 @@ python -m crawl4ai_mcp.server --help
 # Check the UVX installation
 uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --help
 ```
+
+`--help` lists `--transport` (`stdio`, `streamable-http`, `http`, `sse`), `--host`, and `--port`. An invalid argument prints an error to stderr and exits with status 2.
 
 The server has no health-check endpoint. To check a running HTTP server, call a cheap tool such as `get_supported_file_formats`; the [HTTP Integration Guide](HTTP_INTEGRATION.md) shows how.
 

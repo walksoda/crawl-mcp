@@ -132,7 +132,7 @@ DockerのHTTPモードを使う場合:
 
 ### Webクローリング (3)
 - `crawl_url` - JavaScript対応のWebページコンテンツ抽出（リモートの `.html`/`.htm` URLはブラウザでレンダリングし、ドキュメントURLはファイルとして変換）
-- `deep_crawl_site` - 深度設定可能なサイト複数ページクローリング
+- `deep_crawl_site` - 深度設定可能なサイト複数ページクローリング（`max_depth` 1〜2、`max_pages` 1〜10）
 - `crawl_url_with_fallback` - アンチボットサイト向けフォールバック戦略付きクローリング
 
 ### データ抽出 (3)
@@ -147,10 +147,12 @@ DockerのHTTPモードを使う場合:
 - `extract_youtube_comments` - ページネーション付きYouTube動画コメント抽出
 
 ### 検索 (4)
-- `search_google` - ジャンルフィルタ付きGoogle検索（pdf, documents, presentations, spreadsheets, japanese, english）
+- `search_google` - Google検索（ジャンルでの絞り込みは任意）
 - `batch_search_google` - 複数Google検索の実行（最大3件）
 - `search_and_crawl` - Google検索と上位結果のクローリング
 - `get_search_genres` - 利用可能な検索ジャンルの取得
+
+`search_google`、`batch_search_google`、`search_and_crawl` の `search_genre` に指定できる値は共通で、`pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` です。大文字と小文字は区別しません。それ以外の値を渡すと、検索を始める前に `invalid_search_genre` エラーが返ります。
 
 ### ファイル処理 (3)
 - `process_file` - PDF、Word、Excel、PowerPoint、ZIPをMarkdownに変換
@@ -159,7 +161,7 @@ DockerのHTTPモードを使う場合:
 
 ### バッチ操作 (2)
 - `batch_crawl` - フォールバック付きで複数URLを順次クローリング（最大3件）
-- `multi_url_crawl` - パターンベース設定による複数URLクローリング（最大5URLパターン）
+- `multi_url_crawl` - パターンベース設定による複数URLクローリング（最大5URLパターン、1件ずつ順に処理）
 
 ## 大きな結果のディスク保存（token-saver）
 

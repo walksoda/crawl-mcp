@@ -52,7 +52,7 @@ crawl-mcp/
 
 ツール呼び出しは次の層を順に通ります。
 
-1. `server.py` が `FastMCP("Crawl4AI")` を生成し、`register_all_tools(mcp, _get_modules)` を呼びます。import前に logging・warnings・FastMCPのバナーを抑制します。
+1. `server.py` が `FastMCP("Crawl4AI")` を生成し、`register_all_tools(mcp, _get_modules)` を呼びます。import前に warnings とFastMCPのバナーを抑制し、loggingもここで設定します（`CRAWL4AI_MCP_LOG_LEVEL` がなければ出力しません）。`main()` は argparse で `--transport`、`--host`、`--port` を解析します。
 2. `server_tools/*_tools.py` は薄い `@mcp.tool()` アダプタです。パラメータは `Annotated[..., Field(description=...)]` で宣言し、これがMCPクライアントに見えるスキーマになります。`get_modules()` で `tools/` を遅延ロードし、失敗時は `modules_unavailable_error()` を返します。
 3. `tools/` は後方互換のために `core/` の関数を再エクスポートします。
 4. `core/` がロジックを実装し、`processors/`、`infra/`、`utils/`、`models/` を使います。
@@ -71,7 +71,7 @@ crawl-mcp/
 
 ### STDIO出力のルール
 
-STDIOトランスポートでは、stdoutはMCPのJSON-RPCメッセージ専用です。サーバーのコードから**stdoutには出力しないでください**。診断はstderrに書きます（`print(..., file=sys.stderr)`）。STDIOで動いている間、`server.py` は誤ってstdoutに書かれた出力をstderrへ回し、`suppress_output.py` はライブラリが出す余分な出力を抑えます。loggingはimport時に無効化されている（`logging.disable(logging.CRITICAL)`）ため、`FASTMCP_LOG_LEVEL` を設定してもログは出力されません。
+STDIOトランスポートでは、stdoutはMCPのJSON-RPCメッセージ専用です。サーバーのコードから**stdoutには出力しないでください**。診断はstderrに書きます（`print(..., file=sys.stderr)`）。STDIOで動いている間、`server.py` は誤ってstdoutに書かれた出力をstderrへ回し、`suppress_output.py` はライブラリが出す余分な出力を抑えます。loggingはデフォルトでは無効です。`CRAWL4AI_MCP_LOG_LEVEL` に `DEBUG`、`INFO`、`WARNING`、`ERROR` のどれかを設定すると、ログがstderrに出ます。`server.py` はこの変数を import 時、`.env` を読み込む前に参照するので、プロセスの環境変数として渡す必要があります。`FASTMCP_LOG_LEVEL` を設定してもログは出力されません。
 
 ## 開発と配布
 
@@ -154,7 +154,10 @@ venv/bin/pytest tests/unit/test_file_persistence.py::<test_name>   # 単一テ�
 python -m crawl4ai_mcp.server --help
 python -m crawl4ai_mcp.server                                               # STDIO
 python -m crawl4ai_mcp.server --transport streamable-http --host 127.0.0.1 --port 8000   # HTTP（/mcp）
+./scripts/run_http_server.sh --log-level DEBUG                              # 同じHTTPサーバーをログ付きで起動
 ```
+
+`--transport` に指定できるのは `stdio`、`streamable-http`、`http`、`sse` です。引数が間違っていると、エラーをstderrに出して終了コード2で終わります。
 
 HTTPサーバーを curl やMCPクライアントから呼び出す方法は [HTTP統合ガイド](HTTP_INTEGRATION.md) を参照してください。
 
@@ -284,7 +287,7 @@ lsof -i :8000               # ポートの使用状況を確認
 kill <PID>
 ```
 
-サーバーは診断をstderrに出力し、Pythonのloggingはimport時に無効化されています。調査するときは、ターミナルでサーバーを起動してstderrを確認するか、一時的に `print(..., file=sys.stderr)` を追加してください。stdoutには出力しないでください。
+サーバーは診断をstderrに出力します。Pythonのloggingは `CRAWL4AI_MCP_LOG_LEVEL` を設定したときだけ動きます。調査するときは、`CRAWL4AI_MCP_LOG_LEVEL=DEBUG` を付けてターミナルでサーバーを起動し、stderrを確認するか、一時的に `print(..., file=sys.stderr)` を追加してください。stdoutには出力しないでください。
 
 CPUプロファイルを取るには次のようにします。
 ```bash

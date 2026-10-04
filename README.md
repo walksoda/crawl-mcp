@@ -133,7 +133,7 @@ For Docker in HTTP mode:
 
 ### Web Crawling (3)
 - `crawl_url` - Extract web page content with JavaScript support (remote `.html`/`.htm` URLs are rendered in the browser; document URLs are converted as files)
-- `deep_crawl_site` - Crawl multiple pages from a site with configurable depth
+- `deep_crawl_site` - Crawl multiple pages from a site with configurable depth (`max_depth` 1-2, `max_pages` 1-10)
 - `crawl_url_with_fallback` - Crawl with fallback strategies for anti-bot sites
 
 ### Data Extraction (3)
@@ -148,10 +148,12 @@ For Docker in HTTP mode:
 - `extract_youtube_comments` - Extract YouTube video comments with pagination
 
 ### Search (4)
-- `search_google` - Search Google with genre filtering (pdf, documents, presentations, spreadsheets, japanese, english)
+- `search_google` - Search Google with optional genre filtering
 - `batch_search_google` - Perform multiple Google searches (max 3)
 - `search_and_crawl` - Search Google and crawl top results
 - `get_search_genres` - Get available search genres
+
+`search_google`, `batch_search_google` and `search_and_crawl` accept the same `search_genre` values: `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, `english`. Matching is case-insensitive. Any other value returns an `invalid_search_genre` error before the search runs.
 
 ### File Processing (3)
 - `process_file` - Convert PDF, Word, Excel, PowerPoint, ZIP to markdown
@@ -160,7 +162,7 @@ For Docker in HTTP mode:
 
 ### Batch Operations (2)
 - `batch_crawl` - Crawl multiple URLs sequentially with fallback (max 3 URLs)
-- `multi_url_crawl` - Multi-URL crawl with pattern-based config (max 5 URL patterns)
+- `multi_url_crawl` - Multi-URL crawl with pattern-based config (max 5 URL patterns, processed sequentially)
 
 ## Persist Large Results to Disk
 

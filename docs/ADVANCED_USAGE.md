@@ -21,7 +21,9 @@ Each example shows the `arguments` object for one tool call. Every key is a real
 }
 ```
 
-`max_depth` accepts 1 or 2, and `max_pages` accepts up to 10. `crawl_strategy` is `bfs`, `dfs`, or `best_first`. `url_pattern` takes one pattern; the server passes it as a single filter and does not split comma-separated lists.
+`max_depth` accepts 1 or 2, and `max_pages` accepts 1 to 10. Values outside these ranges return an error before any page is fetched. `crawl_strategy` is `bfs`, `dfs`, or `best_first`. `url_pattern` takes one pattern; the server passes it as a single filter and does not split comma-separated lists.
+
+The response has the pages merged into one `markdown` field, and `crawled_pages` lists each page's `url`, `title`, `success`, and `error`. With `output_path`, each successful page is saved as its own `.md` file next to an `index.json`, and the response keeps only metadata unless `include_content_in_response` is `true`.
 
 ### JavaScript-heavy pages
 
@@ -63,7 +65,7 @@ If that fails, use `crawl_url_with_fallback` with the same URL:
 }
 ```
 
-`crawl_url_with_fallback` tries up to seven stages in order: a static fast path, a normal headless browser, Chromium stealth mode, simulated user behavior, a mobile user agent, the page's AMP or RSS version, and static HTML/JSON extraction. It caches the stage that worked for each domain and starts there next time. The response names the stage in `extracted_data.fallback_strategy_used` and `fallback_stage`.
+`crawl_url_with_fallback` tries up to seven stages in order: a static fast path, a normal headless browser, Chromium stealth mode, simulated user behavior, a mobile user agent, the page's AMP or RSS version, and static HTML/JSON extraction. It caches the stage that worked for each domain and starts there next time. The response names the stage in `extracted_data.fallback_strategy_used` and `fallback_stage`. A stage whose page returns HTTP 4xx/5xx counts as failed, and the AMP stage also rejects pages that look like error pages.
 
 ## LLM-based extraction
 
@@ -201,11 +203,11 @@ With `auto_summarize: true`, `crawl_url` summarizes pages longer than about 15,0
 | Tool | Limit per call |
 |------|----------------|
 | `batch_crawl` | 3 URLs, processed one after another |
-| `multi_url_crawl` | 5 URL configurations, processed one after another |
+| `multi_url_crawl` | 5 URL configurations, processed one after another (`max_concurrent` has no effect) |
 | `batch_extract_youtube_transcripts` | 3 URLs; optional `max_concurrent` (default 3, capped at 5) |
 | `batch_search_google` | 3 queries; optional `max_concurrent` (default 3, capped at 5) |
 | `search_and_crawl` | `crawl_top_results` up to 3 |
-| `deep_crawl_site` | `max_depth` 1-2, `max_pages` up to 10 |
+| `deep_crawl_site` | `max_depth` 1-2, `max_pages` 1-10 |
 
 Split larger jobs into several calls.
 
@@ -297,7 +299,7 @@ The search tools take a single `request` object. `search_and_crawl` searches and
 }
 ```
 
-Only these `search_genre` values change the query: `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, and `english`. Other values leave the query as is.
+`search_genre` accepts `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, and `english`, in any letter case. `search_google`, `batch_search_google`, and `search_and_crawl` reject other values with an `invalid_search_genre` error and a `valid_genres` list, before any search runs. `get_search_genres` returns each genre with the operator it adds to the query.
 
 ## Workflows
 
@@ -352,7 +354,7 @@ Then extract details from a key page with `intelligent_extract`:
 }
 ```
 
-The built-in types are `emails`, `phones`, `urls`, `dates`, `ips`, `prices`, `credit_cards`, and `coordinates`. Each `custom_patterns` entry defines a new type; add its name to `entity_types` to extract it. Other types, such as `social_media`, need `"use_llm": true`.
+The built-in types are `emails`, `phones`, `urls`, `dates`, `ips`, `prices`, `credit_cards`, and `coordinates`. Singular names such as `email` or `phone` also work, and letter case does not matter. Each `custom_patterns` entry defines a new type; add its name to `entity_types` to extract it. `custom_patterns` is used only in regex mode. Other types, such as `people` or `social_media`, need `"use_llm": true`. Without it, they are listed in `unsupported_entity_types` and the response carries a warning.
 
 ## Timeouts
 
@@ -375,7 +377,7 @@ When a crawl fails, try these steps in order:
 3. Simpler settings: no `wait_for_js` and a shorter `timeout`.
 4. For PDF and Office URLs, `process_file`.
 
-Over STDIO, stdout carries only MCP messages and the server writes diagnostics to stderr. Python logging is disabled at import, so log-level variables have no effect. Look at the MCP client's server log (stderr) when you investigate a problem.
+Over STDIO, stdout carries only MCP messages and the server writes diagnostics to stderr. Python logging is off by default. Set `CRAWL4AI_MCP_LOG_LEVEL` to `DEBUG`, `INFO`, `WARNING`, or `ERROR` to write log records to stderr. The server reads it at startup, before it loads `.env`, so set it in the process environment, for example in the `env` block of the MCP client configuration. `FASTMCP_LOG_LEVEL` has no effect. Look at the MCP client's server log (stderr) when you investigate a problem.
 
 The server has no health-check endpoint. To check an HTTP server, call a cheap tool such as `get_supported_file_formats`; see the [HTTP Integration Guide](HTTP_INTEGRATION.md).
 

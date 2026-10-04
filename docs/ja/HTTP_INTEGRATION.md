@@ -12,7 +12,7 @@
 | `streamable-http`（別名: `http`） | `http://<host>:<port>/mcp` | HTTPで使うならこちら。現行のMCP Streamable HTTPトランスポート |
 | `sse` | `http://<host>:<port>/sse` | 旧来のMCP SSEトランスポート。古いクライアント向け |
 
-その他のフラグは `--host`（デフォルト `127.0.0.1`）と `--port`（デフォルト `8000`）です。トランスポート、ホスト、ポートはフラグでしか指定できず、環境変数では設定できません。
+その他のフラグは `--host`（デフォルト `127.0.0.1`）と `--port`（デフォルト `8000`）です。トランスポート、ホスト、ポートはフラグでしか指定できず、環境変数では設定できません。`--help` でフラグの一覧が出ます。値が間違っていると、エラーをstderrに出して終了コード2で終わります。
 
 HTTPリクエストはすべてMCPのJSON-RPCメッセージです。`/tools/{name}` のようなREST形式のエンドポイントはなく、`/health`、`/docs`、`/stats`、`/status` といったルートも提供していません。
 
@@ -29,9 +29,14 @@ uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --transport strea
 
 # バックグラウンド起動
 nohup python -m crawl4ai_mcp.server --transport streamable-http --port 8000 > server.log 2>&1 &
+
+# 開発用チェックアウトの起動スクリプト
+./scripts/run_http_server.sh --port 8000
 ```
 
 `--transport http` は `streamable-http` の別名として受け付けます。
+
+`scripts/run_http_server.sh` は、プロジェクトの `venv`（なければ `.venv`）で同じstreamable-httpサーバーを起動し、`/mcp` のエンドポイントを表示します。オプションは `--host`、`--port`、`--external`（`0.0.0.0` にバインド）、`--log-level`（`CRAWL4AI_MCP_LOG_LEVEL` を設定し、ログをstderrに出す）です。
 
 ### MCPクライアント設定
 
@@ -163,6 +168,8 @@ docker run -p 8000:8000 crawl4ai-mcp:latest \
 docker-compose --profile http up crawl4ai-mcp-http
 ```
 
+`crawl4ai-mcp-http` サービスのヘルスチェックは、`/mcp` に素のGETを送ります。動いているサーバーは4xxを返すので、500未満のステータスなら正常とみなします。
+
 ## STDIOプロトコル
 
 ```bash
@@ -194,15 +201,6 @@ STDIOでは改行区切りのJSON-RPCメッセージをやり取りします。�
 | メッセージ形式 | JSON-RPC（レスポンスはSSE形式） | SSE上のJSON-RPC | 改行区切りのJSON-RPC |
 | プロセス管理 | サーバーを自分で起動 | サーバーを自分で起動 | クライアントがサーバーを起動 |
 | 複数クライアントでの共有 | 可 | 可 | 不可 |
-
-## `examples/` のサンプルサーバー（メンテナンス対象外）
-
-`examples/` には古いデモサーバーがあります。メンテナンスしていないので、使わないでください。
-
-- `examples/simple_pure_http_server.py`（`scripts/start_pure_http_server.sh` が起動するもの）は**モック結果を返します**（"Mock crawl result"）。ツールも2つしか公開せず、実際のクロールは行いません。
-- `examples/pure_streamable_http_server.py` と `examples/run_http_server.py` は独自の非標準エンドポイントを使っています。
-
-代わりに、組み込みの `--transport streamable-http` サーバーを使ってください。
 
 ## セキュリティ
 

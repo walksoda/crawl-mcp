@@ -108,8 +108,8 @@ Webページの内容をJavaScriptを実行したうえで取得します。ス�
 
 **パラメータ:**
 - `url` (str, 必須): 開始URL
-- `max_depth` (int): リンク深度、対応範囲1-2（デフォルト: 2）
-- `max_pages` (int): 最大ページ数、対応上限10（デフォルト: 5）
+- `max_depth` (int): リンク深度、1-2（デフォルト: 2）
+- `max_pages` (int): 最大ページ数、1-10（デフォルト: 5）
 - `crawl_strategy` (str): クロール戦略、'bfs'、'dfs'、'best_first' のいずれか（デフォルト: 'bfs'）
 - `include_external` (bool): 外部リンクをフォロー（デフォルト: False）
 - `url_pattern` (Optional[str]): URLフィルタパターン（例: '*docs*'、'*blog*'）（デフォルト: None）
@@ -117,6 +117,12 @@ Webページの内容をJavaScriptを実行したうえで取得します。ス�
 - `extract_media` (bool): ページから画像/動画を抽出（デフォルト: False）
 - `base_timeout` (int): ページごとのタイムアウト秒数（デフォルト: 60）
 - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（URLごとの `.md` ファイルと `index.json` をディレクトリに保存）
+
+**レスポンス動作:**
+- `max_depth` か `max_pages` が範囲外なら、ページを取得する前にエラーを返す。`error_code` は、`max_depth` なら `invalid_depth` か `depth_too_large`、`max_pages` なら `invalid_max_pages` か `max_pages_too_large`
+- `markdown` と `content` には、クロールした全ページをつなげた1つの文書が入る
+- `crawled_pages` はページごとの `url`、`title`、`success`、`error` の一覧
+- `output_path` を指定すると、成功したページを1ページ1つの `.md` ファイルに保存し、`index.json` に載せる。`include_content_in_response=true` でなければ、つなげた `markdown`/`content` と各ページの本文はレスポンスから外す
 
 ### `crawl_url_with_fallback`
 
@@ -141,6 +147,7 @@ Webページの内容をJavaScriptを実行したうえで取得します。ス�
 - 要約は `auto_summarize=true` の場合だけ実行されます。指定しなければ大きなページもそのまま返り、レスポンスは切り詰められます。要約していない全文をディスクに残すには `output_path` を指定します
 - リモートの `.html`/`.htm` URLはブラウザでレンダリングします。ドキュメントURL（PDF、Office、ZIP、テキスト等）はブラウザのフォールバック段階を通らず、ファイルとして1回だけ変換します
 - `take_screenshot` のスクリーンショットは `output_path` を指定したときだけ保存されます（`<stem>_screenshot.png` として保存し、`screenshot_path` で参照）
+- フォールバックの段階でHTTP 4xx/5xxのステータスが返ったら、次の段階に進む。AMPの段階ではエラーページに見えるページも採用しないので、存在しない `<url>/amp` のページが本文として返ることはない
 
 ## データ抽出ツール
 
@@ -182,14 +189,18 @@ Webページからメールアドレスや電話番号などのエンティテ�
 
 **パラメータ:**
 - `url` (str, 必須): 対象URL
-- `entity_types` (List[str], 必須): 抽出するエンティティ種別。正規表現で対応する値: 'emails'、'phones'、'urls'、'dates'、'ips'、'prices'、'credit_cards'、'coordinates'。それ以外の種別（例: 'social_media'）は `use_llm=true` の場合のみ抽出
-- `custom_patterns` (Optional[Dict]): カスタム正規表現パターン（デフォルト: None）
+- `entity_types` (List[str], 必須): 抽出するエンティティ種別。正規表現で対応する値: 'emails'、'phones'、'urls'、'dates'、'ips'、'prices'、'credit_cards'、'coordinates'。それ以外の種別（例: 'people'、'organizations'、'social_media'）は `use_llm=true` の場合のみ抽出
+- `custom_patterns` (Optional[Dict]): `{type_name: regex}` 形式のカスタム正規表現パターン。`type_name` を `entity_types` に入れると抽出される。正規表現モードでのみ使う（デフォルト: None）
 - `include_context` (bool): 各エンティティの周囲のコンテキストを含める（デフォルト: True）
 - `deduplicate` (bool): 重複を除去（デフォルト: True）
 - `use_llm` (bool): 固有表現抽出（NER）にLLMを使用（デフォルト: False）
 - `llm_provider` (Optional[str]): LLMプロバイダー、未指定時は自動検出（デフォルト: None）
 - `llm_model` (Optional[str]): LLMモデル、未指定時は自動検出（デフォルト: None）
 - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（単一の `.json` ファイルを保存）
+
+**レスポンス動作:**
+- 種別名の大文字と小文字は区別しない。単数形（'email'、'phone'、'url'、'date'、'ip'、'price'、'credit_card'、'coordinate'、'person'、'organization'、'location'、'product'、'event'）は複数形の名前に読み替える。'person' は 'people' になる。`entity_types_requested` には読み替えた後の名前が入る
+- 正規表現モードでパターンのない種別を指定すると、その種別は `unsupported_entity_types` に入り、`warnings` にメッセージが付く
 
 ## ファイル処理ツール
 
@@ -331,7 +342,7 @@ Google検索を実行し、ジャンルで絞り込んだ結果とそのメタ�
 - `request` (Dict, 必須): 以下のキーを持つリクエスト辞書
   - `query` (str, 必須): 検索クエリ文字列
   - `num_results` (int): 返す結果数 1-100（デフォルト: 10）
-  - `search_genre` (Optional[str]): コンテンツジャンルフィルタ（デフォルト: None）
+  - `search_genre` (Optional[str]): ジャンルフィルタ。`pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` のいずれか（デフォルト: None）
   - `language` (str): 検索言語（デフォルト: "en"）
   - `region` (str): 検索地域（デフォルト: "us"）
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
@@ -343,6 +354,7 @@ Google検索を実行し、ジャンルで絞り込んだ結果とそのメタ�
 **機能:**
 - 検索結果のタイトルとスニペットを取り出す
 - 検索ジャンルは6つあり、クエリにGoogleの検索演算子を付けて絞り込む。`pdf`、`documents`、`presentations`、`spreadsheets` はファイル形式、`japanese` と `english` は言語で絞る
+- `search_genre` は大文字と小文字を区別せずに照合する。一覧にない値を渡すと、通信を始める前に `success: false` と `error_code: invalid_search_genre` を返し、`valid_genres` に指定できる値を並べる。`batch_search_google` と `search_and_crawl` の `search_genre` も同じように検査する
 - URLを分類し、ドメインを分析する
 - セーフサーチはデフォルトで有効
 
@@ -354,7 +366,7 @@ Google検索を実行し、上位の結果をそのままクロールします�
 - `request` (Dict, 必須): 以下のキーを持つリクエスト辞書
   - `search_query` (str, 必須): Google検索クエリ
   - `crawl_top_results` (int): クロール対象の上位結果数、最大3（デフォルト: 2）
-  - `search_genre` (Optional[str]): コンテンツジャンルフィルタ（デフォルト: None）
+  - `search_genre` (Optional[str]): ジャンルフィルタ。値は `search_google` と同じ（デフォルト: None）
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
   - `generate_markdown` (bool): クロールしたページからMarkdownを生成（デフォルト: True）
   - `max_content_per_page` (int): レスポンス内のページごとの最大文字数（デフォルト: 5000）
@@ -373,7 +385,7 @@ Google検索を実行し、上位の結果をそのままクロールします�
 - `request` (Dict, 必須): 以下のキーを持つリクエスト辞書
   - `queries` (List[str], 必須): 検索クエリのリスト（最大3件）
   - `num_results_per_query` (int): クエリごとの結果数 1-100（デフォルト: 10）
-  - `search_genre` (Optional[str]): 全クエリに適用するコンテンツジャンルフィルタ（デフォルト: None）
+  - `search_genre` (Optional[str]): 全クエリに適用するジャンルフィルタ。値は `search_google` と同じ（デフォルト: None）
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
   - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（全結果を単一の `.json` ファイルに保存）
   - その他に受け付けるキー: `language` (str、デフォルト: "en")、`region` (str、デフォルト: "us")、`max_concurrent` (int、デフォルト: 3、最大5)
@@ -381,6 +393,11 @@ Google検索を実行し、上位の結果をそのままクロールします�
 ### `get_search_genres`
 
 `search_genre` に指定できるジャンルと、その説明を返します。パラメータはありません。
+
+**レスポンスのキー:**
+- `genres`: ジャンル名と説明の対応
+- `query_operators`: ジャンル名と、クエリに付ける検索演算子の対応
+- `total_genres`、`usage_example`、`configuration`（検索モード、対応する言語と地域）、`notes`
 
 ## バッチ操作ツール
 
@@ -405,7 +422,7 @@ Google検索を実行し、上位の結果をそのままクロールします�
 - `pattern_matching` (str): URLパターンの照合方式、'wildcard' または 'regex'（デフォルト: 'wildcard'）
 - `default_config` (Optional[Dict]): 全URLに適用するデフォルト設定（デフォルト: None）
 - `base_timeout` (int): URLごとのタイムアウト秒数（デフォルト: 30）
-- `max_concurrent` (int): 最大同時実行数（デフォルト: 3）
+- `max_concurrent` (int): 互換性のために残しているだけで効果はなく、URLは1件ずつ順に処理する（デフォルト: 3）
 - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（URLごとの `.md` ファイルと `index.json` をディレクトリに保存。戻り値はリストのままで、成功項目に `output_file` が追加される）
 
 ## ツール分類

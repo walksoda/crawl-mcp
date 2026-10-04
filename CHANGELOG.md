@@ -5,12 +5,23 @@
 ### Added
 - `get_youtube_video_info`, `extract_youtube_transcript` and `batch_extract_youtube_transcripts` accept a `timezone` parameter (IANA name, default `UTC`). The full publish timestamp is returned under `published_at` (`metadata.published_at` for transcripts), converted to that timezone, with the original YouTube offset kept in `published_at.original`.
 - Fallback crawler gains a last-resort stage that converts the statically fetched HTML to markdown when every browser stage fails.
+- `deep_crawl_site` responses include `crawled_pages`, one entry per page with `url`, `title`, `success` and `error`.
+- Server logging can be turned on with `CRAWL4AI_MCP_LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING` or `ERROR`). Records go to stderr only. Logging stays off by default. The variable is read before `.env` is loaded, so set it in the process environment, for example the MCP client's `env` block.
+- `extract_entities` accepts singular type names (`email`, `phone`, `person` and so on) and maps them to the plural names, ignoring letter case. `entity_types_requested` shows the normalized names.
 
 ### Changed
 - Pages over 400,000 characters are no longer summarized with an LLM unless `auto_summarize=True`. Previously this ran implicitly, used LLM API credits, and caused `output_path` to save the summary instead of the full content. Large pages are now persisted in full and the response is truncated by the existing token limit, with a recommendation to use `output_path`.
 - `crawl_url_with_fallback` responses are now capped at 25000 tokens, the same limit as `crawl_url`; previously they could exceed the MCP output limit.
 - Remote `.html` / `.htm` URLs are rendered in the browser instead of being downloaded and converted with MarkItDown, so JS-rendered content, `css_selector` and `take_screenshot` now apply to them. Only document extensions and known file URL patterns are routed to file processing; local files and `process_file` are unchanged.
 - Content filtering uses crawl4ai's `PruningContentFilterLXML`, which produces near-identical output and is substantially faster.
+- An unknown `search_genre` in `search_google`, `batch_search_google` or `search_and_crawl` is now an error (`error_code: invalid_search_genre`, with `valid_genres`), returned before any network request. Previously the value was ignored and the search ran unfiltered. Valid genres are `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese` and `english`, matched case-insensitively.
+- The `get_search_genres` response shape changed. It returns `genres`, `query_operators`, `usage_example`, `configuration` and `notes`. The `categories`, `usage_examples` and `tips` keys are removed; they listed genres that never changed the query.
+- `deep_crawl_site` now enforces `max_depth` 1-2 and `max_pages` 1-10. Out-of-range values, which were previously passed through, return an error (`invalid_depth`, `depth_too_large`, `invalid_max_pages`, `max_pages_too_large`) before any page is fetched.
+- `extract_entities` in regex mode lists requested types that have no pattern under `unsupported_entity_types` and adds a `warnings` entry. Previously they were dropped silently. `custom_patterns` applies in regex mode only.
+- `python -m crawl4ai_mcp.server` parses its arguments with argparse: `--transport {stdio,streamable-http,http,sse}`, `--host`, `--port`. `--help` lists them, and an invalid argument exits with status 2 and an error on stderr.
+- `scripts/run_http_server.sh` starts the built-in streamable-http server at `/mcp`. `scripts/setup.sh` and `scripts/setup_windows.bat` also install Playwright's Chromium and print working next steps.
+- The docker-compose HTTP service's healthcheck probes `/mcp` instead of the non-existent `/health` route.
+- The `multi_url_crawl` `max_concurrent` description now says it has no effect. URLs are processed sequentially, and the parameter is kept for compatibility.
 
 ### Fixed
 - Over the stdio transport, stdout is reserved for MCP messages. Progress text and other writes to stdout (including from C extensions and child processes) are redirected to stderr, so clients no longer receive invalid or bursty lines.
@@ -20,9 +31,15 @@
 - File processing declares UTF-8 to MarkItDown when the file decodes as UTF-8, fixing garbled text when non-ASCII characters appear after the first 4 KiB.
 - File downloads send browser-like headers, avoiding 403 responses to the default python-requests User-Agent.
 - PDFs without a text layer return a clear error instead of an empty success.
+- `deep_crawl_site` with `output_path` failed with "No batch items found". It now writes one `.md` per successful page plus `index.json`. Unless `include_content_in_response=true`, the merged `markdown`/`content` and the page bodies are left out of the response. Without `output_path`, `crawled_pages` carries metadata only.
+- The fallback stages of `crawl_url` and `crawl_url_with_fallback` (static fast path, browser stages, AMP) no longer accept HTTP 4xx/5xx responses as success, and the AMP stage also rejects error pages. Previously a 404 page from `<url>/amp` could be returned as the content.
+
+### Removed
+- The unmaintained demo HTTP servers in `examples/` and `scripts/start_pure_http_server.sh`. Use `--transport streamable-http` or `scripts/run_http_server.sh`.
 
 ### Dependencies
 - Bump crawl4ai to `>=0.9.4,<0.10`.
+- Declare `anthropic>=0.40.0` as a dependency, so Anthropic summarization works in UVX installs.
 
 ## [0.3.3] - 2026-06-06
 
