@@ -314,11 +314,18 @@ def register_search_tools(mcp, get_modules):
 
                             if fallback_result.get("success", False):
                                 fallback_result["fallback_used"] = True
-                                # Update the page data
+                                # Update the page data; the first attempt's error no longer applies
+                                result["crawled_pages"][idx].pop("error", None)
                                 result["crawled_pages"][idx].update(fallback_result)
 
                         except Exception as fallback_error:
                             result["crawled_pages"][idx]["fallback_error"] = str(fallback_error)
+
+                summary = result.get("crawl_summary")
+                if failed_pages and isinstance(summary, dict):
+                    ok = sum(1 for p in result["crawled_pages"] if isinstance(p, dict) and p.get("success"))
+                    summary["successful_crawls"] = ok
+                    summary["failed_crawls"] = len(result["crawled_pages"]) - ok
 
             # Guard B: persist BEFORE the max_content_per_page truncation
             # so disk holds the full page bodies.

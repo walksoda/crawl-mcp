@@ -16,6 +16,9 @@
 - An unknown `engine` value returns `error_code: invalid_search_engine`, and a named engine without an API key returns `error_code: search_engine_not_configured`, both before any network request. Exa has no file type filter: naming `exa` with the `pdf`, `documents`, `presentations` or `spreadsheets` genre returns `error_code: unsupported_search_genre`, and `auto` skips Exa for those genres.
 - `GOOGLE_SEARCH_MODE` is read only when `SEARCH_ENGINE` is unset. `custom_search_only` means `google_custom`; `hybrid` and `googlesearch_only` mean `auto`.
 
+### Fixed
+- `search_and_crawl` with `output_path` failed with "No batch items found", and failed pages were never crawled again or truncated by `max_content_per_page`. The core returned the pages under `crawled_content` while the tool layer and persistence read `crawled_pages`. The response now has `crawled_pages`, one flat entry per page (`search_rank`, `url`, `title`, `success`, `markdown` or `content`, `error`, `search_result`), and the `crawled_content` key is removed.
+
 ### Removed
 - Google results scraping with googlesearch-python, which returns no results now that Google requires JavaScript. `GOOGLESEARCH_PYTHON_RPM`, `GOOGLE_SEARCH_MAX_RETRIES` and `GOOGLE_SEARCH_FALLBACK_DELAY` are no longer read.
 

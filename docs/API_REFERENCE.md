@@ -394,7 +394,8 @@ Parameters:
   - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a directory of per-page `.md` files + `index.json`, written before `max_content_per_page` truncation)
 
 Returns:
-- `engine`, search metadata and crawled content (`search_fallback_info` when `auto` moved past an engine)
+- `engine`, `result_type`, search metadata and `search_results` (`search_fallback_info` when `auto` moved past an engine)
+- `crawled_pages`: one entry per crawled page with `search_rank`, `url`, `title`, `success`, `markdown` (or `content` when `generate_markdown` is false), `content_length`, `error` for failed pages, and `search_result` (the search hit). A page that fails or comes back empty is crawled again with the fallback crawler and marked `fallback_used`
 - Success rates and processing statistics
 - A combined summary of the search and crawl results
 

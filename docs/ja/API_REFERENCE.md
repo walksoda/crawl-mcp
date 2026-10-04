@@ -406,7 +406,8 @@ Web検索を実行し、上位の結果をそのままクロールします。
   - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（ページごとの `.md` ファイルと `index.json` をディレクトリに保存。`max_content_per_page` による切り詰めの前に保存）
 
 **戻り値:**
-- `engine`、検索のメタデータ、クロールしたコンテンツ（`auto` で次のエンジンへ進んだときは `search_fallback_info` も入る）
+- `engine`、`result_type`、検索のメタデータ、`search_results`（`auto` で次のエンジンへ進んだときは `search_fallback_info` も入る）
+- `crawled_pages`: クロールしたページごとの要素で、`search_rank`、`url`、`title`、`success`、`markdown`（`generate_markdown` が false なら `content`）、`content_length`、失敗時の `error`、元の検索結果の `search_result` を持つ。失敗したページや本文が空のページは、フォールバック用のクローラーで取り直し、`fallback_used` を付ける
 - 成功率などの処理統計
 - 検索結果とクロール結果をまとめた分析
 

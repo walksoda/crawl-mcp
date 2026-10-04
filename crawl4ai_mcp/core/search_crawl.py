@@ -8,6 +8,14 @@ from .crawler_core import _internal_crawl_url
 from .search import recent_days_to_int, web_search_processor
 
 
+def _page_entry(search_rank: int, search_result: Dict[str, Any], **fields: Any) -> Dict[str, Any]:
+    """A crawled_pages entry: page fields (None values dropped) plus the search hit it came from."""
+    entry = {'search_rank': search_rank}
+    entry.update({k: v for k, v in fields.items() if v is not None})
+    entry['search_result'] = search_result
+    return entry
+
+
 async def search_and_crawl(
     search_query: str,
     num_search_results: int = 5,
@@ -73,7 +81,7 @@ async def search_and_crawl(
             }
 
         # Step 2: Crawl top results using _internal_crawl_url
-        crawl_results = []
+        crawled_pages = []
         successful_crawls = 0
         total_content_length = 0
 
@@ -95,59 +103,46 @@ async def search_and_crawl(
                 # Perform crawl
                 crawl_result = await _internal_crawl_url(crawl_request)
 
-                # Process crawl result
-                crawl_data = {
-                    'search_rank': i + 1,
-                    'search_result': result,
-                    'crawl_result': {
-                        'success': crawl_result.success,
-                        'url': crawl_result.url,
-                        'title': crawl_result.title,
-                        'content_length': len(crawl_result.markdown or crawl_result.content or '') if crawl_result.success else 0,
-                        'has_content': bool(crawl_result.success and (crawl_result.markdown or crawl_result.content)),
-                        'has_markdown': bool(crawl_result.success and crawl_result.markdown),
-                        'has_media': bool(crawl_result.success and crawl_result.media and extract_media),
-                        'error': crawl_result.error if not crawl_result.success else None,
-                        'processing_method': getattr(crawl_result, 'processing_method', 'unknown')
-                    }
-                }
+                # One flat entry per page. The tool layer (re-crawl and
+                # truncation) and output_path persistence read these keys.
+                body = (crawl_result.markdown or crawl_result.content or '') if crawl_result.success else ''
+                page = _page_entry(
+                    i + 1, result,
+                    url=crawl_result.url or url,
+                    title=crawl_result.title or result.get('title'),
+                    success=crawl_result.success,
+                    content_length=len(body),
+                    markdown=crawl_result.markdown if crawl_result.success and generate_markdown else None,
+                    content=crawl_result.content if crawl_result.success and not generate_markdown else None,
+                    media=crawl_result.media if crawl_result.success and extract_media else None,
+                    links=getattr(crawl_result, 'links', None) if crawl_result.success else None,
+                    metadata=getattr(crawl_result, 'metadata', None) if crawl_result.success else None,
+                    error=crawl_result.error if not crawl_result.success else None,
+                    processing_method=getattr(crawl_result, 'processing_method', None),
+                )
 
-                # Include full content for successful crawls
                 if crawl_result.success:
                     successful_crawls += 1
-                    content_length = len(crawl_result.markdown or crawl_result.content or '')
-                    total_content_length += content_length
+                    total_content_length += len(body)
 
-                    crawl_data['content'] = {
-                        'title': crawl_result.title,
-                        'markdown': crawl_result.markdown if generate_markdown else None,
-                        'html': crawl_result.content if not generate_markdown else None,
-                        'media': crawl_result.media if extract_media else None,
-                        'links': getattr(crawl_result, 'links', None),
-                        'metadata': getattr(crawl_result, 'metadata', {})
-                    }
-
-                crawl_results.append(crawl_data)
+                crawled_pages.append(page)
 
                 # Add small delay between requests to be respectful
                 if i < crawl_top_results - 1:  # Don't delay after the last request
                     await asyncio.sleep(1.0)
 
             except Exception as e:
-                crawl_results.append({
-                    'search_rank': i + 1,
-                    'search_result': result,
-                    'crawl_result': {
-                        'success': False,
-                        'url': url,
-                        'error': f"Crawling failed: {str(e)}",
-                        'content_length': 0,
-                        'has_content': False
-                    }
-                })
+                crawled_pages.append(_page_entry(
+                    i + 1, result,
+                    url=url,
+                    title=result.get('title'),
+                    success=False,
+                    content_length=0,
+                    error=f"Crawling failed: {str(e)}",
+                ))
 
         # Step 3: Generate comprehensive summary
-        failed_crawls = len(crawl_results) - successful_crawls
+        failed_crawls = len(crawled_pages) - successful_crawls
 
         response = {
             'success': True,
@@ -157,21 +152,21 @@ async def search_and_crawl(
             'search_metadata': search_result.get('search_metadata', {}),
             'crawl_summary': {
                 'total_search_results': len(search_results),
-                'urls_crawled': len(crawl_results),
+                'urls_crawled': len(crawled_pages),
                 'successful_crawls': successful_crawls,
                 'failed_crawls': failed_crawls,
                 'total_content_length': total_content_length,
-                'success_rate': f"{(successful_crawls/len(crawl_results)*100):.1f}%" if crawl_results else "0%",
+                'success_rate': f"{(successful_crawls/len(crawled_pages)*100):.1f}%" if crawled_pages else "0%",
                 'average_content_length': total_content_length // successful_crawls if successful_crawls > 0 else 0,
                 'timeout_used': dynamic_timeout
             },
             'search_results': search_results,
-            'crawled_content': crawl_results,
+            'crawled_pages': crawled_pages,
             'processing_method': 'search_and_crawl_integration',
             'performance_stats': {
                 'search_time': search_result.get('search_metadata', {}).get('performance', {}).get('search_time'),
-                'crawl_count': len(crawl_results),
-                'content_extraction_success_rate': f"{(successful_crawls/len(crawl_results)*100):.1f}%" if crawl_results else "0%"
+                'crawl_count': len(crawled_pages),
+                'content_extraction_success_rate': f"{(successful_crawls/len(crawled_pages)*100):.1f}%" if crawled_pages else "0%"
             }
         }
         if 'fallback_info' in search_result:
