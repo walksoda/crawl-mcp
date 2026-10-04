@@ -25,6 +25,7 @@ MANIFEST
 
 # Virtual Environment
 venv/
+.dev-crawl4ai/
 env/
 ENV/
 env.bak/
