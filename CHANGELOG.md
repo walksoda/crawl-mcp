@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `get_youtube_video_info`, `extract_youtube_transcript` and `batch_extract_youtube_transcripts` accept a `timezone` parameter (IANA name, default `UTC`). The full publish timestamp is returned under `published_at` (`metadata.published_at` for transcripts), converted to that timezone, with the original YouTube offset kept in `published_at.original`.
+- Fallback crawler gains a last-resort stage that converts the statically fetched HTML to markdown when every browser stage fails.
+
+### Changed
+- Pages over 400,000 characters are no longer summarized with an LLM unless `auto_summarize=True`. Previously this ran implicitly, used LLM API credits, and caused `output_path` to save the summary instead of the full content. Large pages are now persisted in full and the response is truncated by the existing token limit, with a recommendation to use `output_path`.
+- `crawl_url_with_fallback` responses are now capped at 25000 tokens, the same limit as `crawl_url`; previously they could exceed the MCP output limit.
+- Remote `.html` / `.htm` URLs are rendered in the browser instead of being downloaded and converted with MarkItDown, so JS-rendered content, `css_selector` and `take_screenshot` now apply to them. Only document extensions and known file URL patterns are routed to file processing; local files and `process_file` are unchanged.
+- Content filtering uses crawl4ai's `PruningContentFilterLXML`, which produces near-identical output and is substantially faster.
+
+### Fixed
+- Over the stdio transport, stdout is reserved for MCP messages. Progress text and other writes to stdout (including from C extensions and child processes) are redirected to stderr, so clients no longer receive invalid or bursty lines.
+- Disable crawl4ai's legacy cache migration, which is not idempotent: on a crawl4ai version change it re-hashed stored hashes (cached results came back as hash strings) and rewrote `~/.crawl4ai/crawl4ai.db` regardless of `CRAWL4_AI_BASE_DIRECTORY`. Schema updates still run.
+- Fallback crawler no longer discards normal pages as block pages. Detection now matches specific challenge phrases against visible text only and never flags pages with more than 2000 characters of text.
+- Document URLs that fail file processing no longer trigger the browser fallback, and `crawl_url_with_fallback` processes remote documents once.
+- File processing declares UTF-8 to MarkItDown when the file decodes as UTF-8, fixing garbled text when non-ASCII characters appear after the first 4 KiB.
+- File downloads send browser-like headers, avoiding 403 responses to the default python-requests User-Agent.
+- PDFs without a text layer return a clear error instead of an empty success.
+
+### Dependencies
+- Bump crawl4ai to `>=0.9.4,<0.10`.
+
 ## [0.3.3] - 2026-06-06
 
 ### Fixed
@@ -14,8 +38,10 @@
 ### Fixed
 - Fix `enhanced_process_large_content` crash when `content` is `None` (read the `markdown` field first).
 - Surface YouTube Restricted Mode as `success=True` with a structured warning instead of a cryptic error.
+- `extract_youtube_comments` returns a warning (also propagated to the top-level `warnings` list) when no comments are retrieved, keeping `success=true` and `total_comments: 0` (#17).
 
 ### Changed
+- Screenshots from `crawl_url` / `crawl_url_with_fallback` no longer appear as base64 in the response. With `output_path` set, the image is written to a sibling PNG file and the response carries `screenshot_path`; without it, the screenshot is dropped with a warning so the token limit holds (#20).
 - Add an upper bound to the markitdown dependency (`<0.2`).
 
 ### Security
@@ -47,14 +73,24 @@
 - File persistence option for information-gathering MCP tools. Supply `output_path` (plus optional `include_content_in_response` and `overwrite`) to have the tool write full fetched content to disk as markdown or JSON and return a slim metadata-only response that bypasses the 25000-token cap. Supported on: `crawl_url`, `crawl_url_with_fallback`, `deep_crawl_site`, `batch_crawl`, `multi_url_crawl`, `process_file`, `enhanced_process_large_content`, `extract_youtube_transcript`, `batch_extract_youtube_transcripts`, `get_youtube_video_info`, `extract_youtube_comments`, `intelligent_extract`, `extract_entities`, `extract_structured_data`, `search_google`, `batch_search_google`, `search_and_crawl`. Single-file tools accept a file path (auto-determined `.md`/`.json` extension when omitted); batch tools accept a directory path and emit per-URL files plus `index.json`.
 - `validate_output_path` validator: absolute path required, NUL rejection, optional existing-file guard for single-file tools.
 - New `crawl4ai_mcp/middleware/file_persistence.py` module with atomic writes (`tempfile` + `os.replace`) and nested-path field stripping.
+- `readOnlyHint` annotations added to all MCP tools
 
 ### Changed
+- `batch_crawl` switched to sequential execution with revised timeout design
+- LLM summarization skipped when pagination is active
 - `crawl_url`: persistence happens BEFORE `_apply_content_slicing`, so the on-disk copy holds the full unsliced content even when the caller also supplies `content_limit`/`content_offset`. The `_should_trigger_fallback` check is now evaluated against the unsliced markdown, which prevents a large `content_offset` from spuriously triggering the undetected-browser fallback.
 - `batch_crawl` / `multi_url_crawl` preserve their historical `list` return shape when `output_path` is set — each successful item simply gains an `output_file` key. An aggregate `index.json` is written in the target directory.
 - Request-dict tools (`search_google`, `batch_search_google`, `search_and_crawl`, `batch_extract_youtube_transcripts`) read persistence options (`output_path`, `include_content_in_response`, `overwrite`) directly from the request dict.
 - Batch tools (`deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`, `batch_crawl`, `multi_url_crawl`) now accept any non-existent `output_path` as a directory, including names containing `.` (`/tmp/run.v1`). The previous `Path.suffix`-based rejection is gone. Existing regular files are still rejected.
 - Batch-dict tools (`deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`) skip per-item persistence for items that report `success=False`; failed items still appear in `index.json` with `file: null` so callers can reason about the attempt list. This matches the existing `batch_crawl` / `multi_url_crawl` behavior.
 - `finalize_tool_response` treats `output_path=""` as a no-op, matching `validate_output_path`'s empty-string acceptance.
+
+### Fixed
+- `deep_crawl_site`: convert CrawlResponse to dict before calling `.get()` (community PR #18)
+- `extract_structured_data`: convert CrawlResponse to dict and request HTML (community PR #16)
+- `batch_crawl`: wrap remaining CrawlResponse returns with `_convert_result_to_dict`
+- Content offset propagated through CrawlRequest for pagination cache protection
+- Missing `middleware/module_check.py` added to the package
 
 ### Known caveats
 - Tools with `readOnlyHint` annotation keep that hint even when `output_path` is supplied and the tool writes to disk. Callers should treat `output_path` as an explicit opt-in to filesystem writes.
@@ -67,143 +103,139 @@
 
 ### Added
 - New `extract_youtube_comments` MCP tool with pagination support
-- Batch tools restored as MCP tools: `batch_crawl`, `multi_url_crawl`, `batch_search_google`, `batch_extract_youtube_transcripts`
-- `readOnlyHint` annotations added to all MCP tools
 - Content pagination support via `content_offset` and `content_limit` parameters across tools
-- pytest-based test infrastructure for MCP tools
+- YouTube transcript fallback to `crawl_url` when the transcript API fails, plus metadata enrichment (upload date, view count, channel name)
+- Content-Type detection for URLs without file extension
+- `crawl_url` recommendation for long YouTube videos
 
 ### Changed
+- **Breaking:** YouTube tools return a unified `content` / `markdown` / `extracted_data` response format. The `segments` array was removed and `include_timestamps` now defaults to `false`.
 - Architecture refactored: codebase modularized into `server_tools/`, `core/`, `infra/`, `middleware/`, `processors/` layers
-- `batch_crawl` switched to sequential execution with revised timeout design
-- LLM summarization skipped when pagination is active
+- `batch_crawl` limit updated from 5 to 3
 
 ### Fixed
-- `deep_crawl_site`: convert CrawlResponse to dict before calling `.get()` (community PR #18)
-- `extract_structured_data`: convert CrawlResponse to dict and request HTML (community PR #16)
-- `batch_crawl`: wrap remaining CrawlResponse returns with `_convert_result_to_dict`
-- Content offset propagated through CrawlRequest for pagination cache protection
-- YouTube comment tests made resilient to CI environment and non-deterministic ordering
+- ReDoS protection improved with multiprocessing timeout and strict size limits
+- Missing `anthropic` dependency added
+- `auth_token` is injected into the Authorization header, cookies are normalized to Playwright format, block pages are detected, and size limits apply to all fallback response paths
+- Remove the unsupported `xpath` parameter that caused a TypeError in `crawl_url`
+- Search cache key includes `safe_search` and normalized defaults to prevent incorrect cache hits; `content_limit` / `content_offset` are type-coerced and negative values rejected
+- YouTube tools no longer raise a NoneType error with `include_metadata=False`
 
 ---
 
 ## [0.1.7] - 2026-01-12
 
 ### Added
-- YouTube transcript fallback and metadata enrichment
-- Content-Type detection for URLs without file extension
+- Batch tools restored as MCP tools with rate limits: `batch_crawl`, `multi_url_crawl`, `batch_search_google`, `batch_extract_youtube_transcripts`
+- Ollama and Anthropic providers for LLM summarization
 
 ### Changed
 - Token counting improved using tiktoken for accurate counts
 - Tool descriptions reduced to lower token usage
 - Low-utility MCP tools hidden to reduce token usage
-- `batch_crawl` limit updated from 5 to 3
 
 ### Fixed
-- ReDoS protection improved with multiprocessing timeout and strict size limits
 - Token limit handling improved to preserve more content
 - Partial transcript data preserved on token overflow
-- Missing `anthropic` dependency added
+- `extract_media` Pydantic validation error
+- Docker image compatibility with Debian trixie
 
-### Updated
-- Dependencies updated to latest versions
+### Dependencies
+- Bump crawl4ai to 0.7.8 and fastmcp to `>=2.14.2,<3`
+- Bump markitdown to 0.1.3, youtube-transcript-api to 1.2.3 and playwright to 1.55.0
 
 ---
 
 ## [0.1.6] - 2025-10-18
 
-Note: Batch tools removed in 0.1.6 were restored in 0.2.0.
+Note: Batch tools removed in 0.1.6 were restored in 0.1.7.
 
-### 🔧 Improved
-- **Token Limit Optimization**: Increased response token limit from 20000 to 25000 for all crawling tools
-  - Affected tools: `crawl_url`, `deep_crawl_site`, `crawl_url_with_fallback`, `intelligent_extract`, `extract_entities`, `extract_structured_data`, `search_and_crawl`
-  - Better utilization of Claude Code MCP's 25000 token limit
-- **Token Limit Fallback**: Enhanced token limit fallback with detailed warnings and recommendations
-  - Clearer error messages when response exceeds token limits
-  - Actionable recommendations for reducing token usage
-  - Better user guidance for large content handling
-
-### ✨ Added
+### Added
 - **Markdown-Only Response**: New `include_cleaned_html` parameter for crawling tools
   - Default behavior: Returns markdown content only to reduce token usage (~50% reduction)
   - Set `include_cleaned_html=True` to also receive cleaned HTML content
-  - Improved readability and token efficiency
 
-### 🔄 Changed
-- **Removed Batch Tools from MCP Interface**: Batch-related tools no longer exposed as MCP tools
-  - Removed: `batch_extract_youtube_transcripts`, `batch_search_google`, `batch_crawl`, `multi_url_crawl`
-  - Total MCP tools reduced from 21 to 17
-  - Functions remain available internally but not exposed via MCP
-  - Batch operations provide limited value in MCP context due to sequential processing nature
-
-### 📝 Documentation
-- Updated API_REFERENCE.md (English) with all recent changes
-- Updated API_REFERENCE.md (Japanese) with all recent changes
-- Updated README.md tool count (21 → 17)
-- Updated README_ja.md tool count (21 → 17)
-- Removed batch tool references from documentation
-- Added `include_cleaned_html` parameter documentation
-- Added token limit information (25000 tokens)
+### Changed
+- **Token Limit Optimization**: Increased response token limit from 20000 to 25000 for all crawling tools
+  - Affected tools: `crawl_url`, `deep_crawl_site`, `crawl_url_with_fallback`, `intelligent_extract`, `extract_entities`, `extract_structured_data`, `search_and_crawl`
+- **Token Limit Fallback**: Enhanced token limit fallback with detailed warnings and actionable recommendations for reducing token usage
+- **Removed Batch Tools from MCP Interface**: `batch_extract_youtube_transcripts`, `batch_search_google`, `batch_crawl`, `multi_url_crawl` are no longer exposed as MCP tools (21 to 17 tools). The functions remain available internally.
+- Require Python >= 3.11
 
 ---
 
-## [0.1.5] - 2025-02-05
+## [0.1.5] - 2025-09-28
 
-### 🔧 Fixed
-- **Import Compatibility**: Fixed compatibility with latest FastMCP 2.11.0
+### Fixed
+- Compatibility with FastMCP 2.11.0
+- `batch_crawl` fallback handles `CrawlResponse` objects as well as dicts
+
+### Changed
+- `batch_crawl` total timeout shortened to base timeout + 10 seconds per URL
+
+### Dependencies
+- Add `python-dateutil`
+
+---
+
+## [0.1.4] - 2025-09-21
+
+### Added
+- Automatic fallback for all crawling and extraction tools, with `fallback_used` flags and original error tracking in responses
+- Undetected browser support, LLM table extraction and multi-URL configuration (crawl4ai 0.7.4 features)
+- `recent_days` date range filtering for search
+- Dockerfile and docker-compose configuration
+
+### Changed
+- Search API parameters standardized across tools
+
+### Removed
+- DXT package distribution
+- Deprecated `recent` search genre
+
+### Fixed
+- MCP response token limit safeguards
+- `YouTubeTranscriptResponse is not JSON serializable` error
+- File processing JSON serialization issues
+- `CrawlResponse` dict conversion issues
+
+### Dependencies
+- Bump crawl4ai from 0.7.2 to 0.7.4 in `requirements.txt`
+
+---
+
+## [0.1.2] - 2025-08-23
+
+### Added
+- Token-aware summarization (`target_tokens`) for web, file and YouTube content, with preserved metadata
+- `crawl_url_with_fallback` with multiple header, user agent and mobile strategies
+
+### Changed
+- Upgrade to FastMCP 2.0.0 for cleaner STDIO communication
+
+### Fixed
+- Config loading when the server is launched (for example via uvx) from a directory other than the project root
+- Restore all 21 MCP tools and the detailed parameter descriptions lost in the FastMCP 2.0 upgrade
+- CSS extraction fallback for `extract_structured_data`, timeout fallback for `enhanced_process_large_content`, and response truncation for `search_and_crawl`
+- Parameter validation in `batch_crawl`
 
 ---
 
 ## [0.1.1] - 2025-08-16
 
-### 🔧 Fixed
+### Fixed
 - **Relative Import Errors**: Resolved `attempted relative import beyond top-level package` errors in `batch_crawl` and `extract_structured_data` tools
 - **Import Statements**: Replaced relative imports (`..models`) with absolute imports (`crawl4ai_mcp.models`) for better reliability
-- **Multi-Platform Support**: Applied fixes to main server with UVX and Docker deployment options
 
-### ✨ Added
-- **Comprehensive Test Suite**: Added complete MCP tools testing framework in `tests/client/` directory
-  - `comprehensive_tool_test.py` - Full 21-tool testing suite
-  - `quick_tool_test.py` - Fast 8-tool core functionality test
-  - `category_tool_test.py` - Category-based testing (YouTube, Search, Crawl, File, Utils)
-  - `test_runner.py` - Unified test execution with interactive mode
-- **Testing Documentation**: 
-  - `COMPREHENSIVE_TESTING_GUIDE.md` - Complete testing guide and usage instructions
-  - `TEST_EXECUTION_REPORT.md` - Detailed test execution results and analysis
-  - `IMPORT_FIX_REPORT.md` - Technical details of the import fixes
-- **FastMCP Client Improvements**: Enhanced MCP client with better result processing and error handling
-
-### 📊 Test Results
-- **Success Rate**: Achieved 100% success rate for all tested tools (16/21 tools verified)
-- **Previously Failing Tools**: `batch_crawl` and `extract_structured_data` now working perfectly
-- **Tool Categories Tested**:
-  - YouTube: 4/4 tools (100%)
-  - Search: 4/4 tools (100%) 
-  - Web Crawling: 2/5 tools (100%)
-  - File Processing: 1/3 tools (100%)
-  - Utilities: 5/5 tools (100%)
-
-### 🚀 Improvements
-- **Error Handling**: Better error detection and reporting in test suite
-- **Performance**: Optimized test execution with configurable timeouts
-- **Reliability**: More stable MCP server operations with absolute imports
-- **Development Workflow**: Complete testing infrastructure for continuous quality assurance
-
-### 📦 Package Updates
-- **pyproject.toml**: Updated version to 0.1.1
-- **Docker Support**: Added comprehensive Docker and docker-compose configurations
-- **Dependencies**: No breaking changes, all existing dependencies maintained
-
-### 🔄 Migration Notes
+### Notes
 - No migration required for existing users
 - All MCP tools maintain backward compatibility
-- Enhanced reliability for production deployments
 
 ---
 
-## [0.1.0] - 2025-08-15
+## [0.1.0] - 2025-08-06
 
-### Initial Release
+### Added
 - Full MCP server implementation with 21 tools
 - Complete web crawling, YouTube, search, and file processing capabilities
 - FastMCP integration with modern async architecture
-- Production-ready with comprehensive error handling
