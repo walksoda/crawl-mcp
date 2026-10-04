@@ -10,6 +10,7 @@ from ._shared import (
     validate_output_path,
     validate_search_genre,
     validate_search_engine,
+    validate_search_result_type,
     _apply_search_content_slicing,
     _get_search_cache_key,
     _get_cached_search_result,
@@ -37,20 +38,31 @@ _ENGINE_DESC = (
     " and moves to the next one on errors other than zero results)"
 )
 
+# Text for the result_type key in the request descriptions.
+_RESULT_TYPE_DESC = (
+    "result_type (optional, web (default) or discussions; discussions returns forum posts from Brave's"
+    " discussions cluster with the forum name, answer count, post score, question and top comment, runs on brave only,"
+    " is returned for some queries only, and holds at most about a dozen posts)"
+)
+
 _SEARCH_REQUEST_DESC = (
-    "Dict with: query (required), num_results, " + _GENRE_DESC + ", " + _ENGINE_DESC
+    "Dict with: query (required), num_results, " + _GENRE_DESC + ", " + _ENGINE_DESC + ", " + _RESULT_TYPE_DESC
     + ", language, region, recent_days, content_limit (int), content_offset (int). Optional persistence keys: output_path (absolute file path, auto .json extension — full unsliced results written to disk BEFORE content_limit/content_offset slicing), include_content_in_response (bool, default False — when True keeps results in the response too, still subject to slicing), overwrite (bool, default False)."
 )
 
 _BATCH_REQUEST_DESC = (
-    "Dict with: queries (max 3), num_results_per_query, " + _GENRE_DESC + ", " + _ENGINE_DESC
+    "Dict with: queries (max 3), num_results_per_query, " + _GENRE_DESC + ", " + _ENGINE_DESC + ", " + _RESULT_TYPE_DESC
     + ", recent_days. Optional persistence keys: output_path (absolute file path, auto .json extension — full result set written to disk), include_content_in_response (bool, default False — when True keeps results in the response too), overwrite (bool, default False)."
 )
 
 
 def _validate_search_request(request: Dict[str, Any]):
-    """search_genre and engine checks shared by the search tools (before any network access)."""
-    return validate_search_genre(request.get('search_genre')) or validate_search_engine(request.get('engine'))
+    """search_genre, engine and result_type checks shared by the search tools (before any network access)."""
+    return (
+        validate_search_genre(request.get('search_genre'))
+        or validate_search_engine(request.get('engine'))
+        or validate_search_result_type(request.get('result_type'))
+    )
 
 
 def _extract_persist_opts(request: Dict[str, Any]):
@@ -227,7 +239,7 @@ def register_search_tools(mcp, get_modules):
 
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def search_and_crawl(
-        request: Annotated[Dict[str, Any], Field(description="Dict with: search_query (required), crawl_top_results, " + _GENRE_DESC + ", " + _ENGINE_DESC + ", recent_days, generate_markdown, max_content_per_page. Optional persistence keys: output_path (absolute directory — per-page .md files + index.json, the full page bodies are written BEFORE max_content_per_page truncation; dot-containing dir names are fine), include_content_in_response (bool, default False — when True keeps crawled_pages in the response too, still subject to max_content_per_page truncation), overwrite (bool, default False). Failed pages appear in index.json with file=null.")]
+        request: Annotated[Dict[str, Any], Field(description="Dict with: search_query (required), crawl_top_results, " + _GENRE_DESC + ", " + _ENGINE_DESC + ", " + _RESULT_TYPE_DESC + ", recent_days, generate_markdown, max_content_per_page. Optional persistence keys: output_path (absolute directory — per-page .md files + index.json, the full page bodies are written BEFORE max_content_per_page truncation; dot-containing dir names are fine), include_content_in_response (bool, default False — when True keeps crawled_pages in the response too, still subject to max_content_per_page truncation), overwrite (bool, default False). Failed pages appear in index.json with file=null.")]
     ) -> Dict[str, Any]:
         """Search the web (engine as in search_web) and crawl top results. Combines search with full content extraction. Supply output_path (directory) in the request to persist per-page markdown (unsliced) + index.json and receive a slim response."""
         request_error = _validate_search_request(request)
@@ -278,7 +290,8 @@ def register_search_tools(mcp, get_modules):
                 search_genre=search_genre,
                 recent_days=recent_days,
                 generate_markdown=generate_markdown,
-                engine=request.get('engine')
+                engine=request.get('engine'),
+                result_type=request.get('result_type') or 'web'
             )
 
             # Check for failed crawls and apply fallback
@@ -331,7 +344,8 @@ def register_search_tools(mcp, get_modules):
                 search_result = await search.search_web({
                     "query": request.get('search_query', ''),
                     "num_results": request.get('crawl_top_results', 2),
-                    "engine": request.get('engine')
+                    "engine": request.get('engine'),
+                    "result_type": request.get('result_type')
                 })
 
                 if search_result.get("success", False) and "results" in search_result:

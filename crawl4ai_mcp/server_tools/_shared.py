@@ -24,6 +24,7 @@ from ..validators import (
     validate_output_path,
     validate_search_genre,
     validate_search_engine,
+    validate_search_result_type,
     validate_crawl_depth,
     validate_max_pages,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "validate_output_path",
     "validate_search_genre",
     "validate_search_engine",
+    "validate_search_result_type",
     "validate_crawl_depth",
     "validate_max_pages",
     # file persistence

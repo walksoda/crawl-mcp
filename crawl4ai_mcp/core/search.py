@@ -37,7 +37,8 @@ async def search_web(
     Run a web search on the selected engine and return structured results.
 
     Request keys: query, num_results, search_genre, language, region,
-    safe_search, recent_days, engine (auto, google_custom, brave, exa).
+    safe_search, recent_days, engine (auto, google_custom, brave, exa),
+    result_type (web, discussions).
     """
     try:
         query = request.get('query', '')
@@ -57,6 +58,7 @@ async def search_web(
             search_genre=request.get('search_genre'),
             recent_days=recent_days_to_int(request.get('recent_days')),
             engine=request.get('engine'),
+            result_type=request.get('result_type') or 'web',
         )
 
         if result['success']:
@@ -64,6 +66,7 @@ async def search_web(
                 "success": True,
                 "query": result['query'],
                 "engine": result['engine'],
+                "result_type": result['result_type'],
                 "total_results": result['total_results'],
                 "results": result['results'],
                 "search_metadata": result['search_metadata']
@@ -130,6 +133,7 @@ async def batch_search_web(
         region = request.get('region', 'us')
         recent_days = request.get('recent_days')
         engine = request.get('engine')
+        result_type = request.get('result_type') or 'web'
         auto_summarize = request.get('auto_summarize', False)
         summary_length = request.get('summary_length', 'medium')
         llm_provider = request.get('llm_provider')
@@ -144,6 +148,7 @@ async def batch_search_web(
             search_genre=search_genre,
             recent_days=recent_days_to_int(recent_days),
             engine=engine,
+            result_type=result_type,
         )
 
         # Process results and count successes/failures
@@ -235,6 +240,7 @@ async def batch_search_web(
             "batch_metadata": {
                 "max_concurrent_used": max_concurrent,
                 "engine": engine or web_search_processor.default_engine,
+                "result_type": result_type,
                 "num_results_per_query": num_results,
                 "search_genre": search_genre,
                 "language": language,
@@ -286,6 +292,10 @@ async def get_search_genres() -> Dict[str, Any]:
                 "auto_order": config["auto_order"],
                 "configured_engines": config["configured_engines"],
                 "engines": list(SEARCH_ENGINES),
+                "result_types": {
+                    "web": "web results (all engines)",
+                    "discussions": "forum posts from Brave's discussions cluster (brave only; returned for some queries)",
+                },
                 "genre_support": {
                     "google_custom": "all genres (operators added to the query)",
                     "brave": "all genres (operators added to the query)",

@@ -38,6 +38,7 @@ class WebSearchAnalysisMixin:
         recent_days: Optional[int] = None,
         engine: Optional[str] = None,
         safe_search: bool = True,
+        result_type: str = 'web',
     ) -> List[Dict[str, Any]]:
         """Run several searches with limited concurrency"""
 
@@ -51,6 +52,7 @@ class WebSearchAnalysisMixin:
                 search_genre=search_genre,
                 recent_days=recent_days,
                 engine=engine,
+                result_type=result_type,
             )
 
         semaphore = asyncio.Semaphore(max_concurrent)

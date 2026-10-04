@@ -261,6 +261,53 @@ class TestBrave:
         assert peak == 1
 
     @pytest.mark.asyncio
+    async def test_discussions(self, monkeypatch):
+        monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "k")
+        long_post = "<p>\n  word " * 400 + "</p>"
+        cluster = {"type": "search", "results": [
+            {"title": f"Thread {i}", "url": f"https://www.reddit.com/r/rust/comments/{i}/",
+             "description": "short", "type": "discussion", "age": "December 27, 2025",
+             "data": {"forum_name": "r/rust", "num_answers": 322, "score": "363",
+                      "title": "Is Rust the future?", "question": long_post,
+                      "top_comment": "You&#39;re on <b>r/rust</b>"}}
+            for i in range(12)
+        ]}
+        session = _install(monkeypatch, brave, [(200, {"type": "search", "query": {"more_results_available": True},
+                                                       "discussions": cluster})])
+        result = await BraveSearchClient().search("q", num_results=5, result_type="discussions")
+
+        params = session.calls[0]["params"]
+        assert params["result_filter"] == "discussions"
+        # One request only: count/offset do not page the discussions cluster.
+        assert len(session.calls) == 1
+        assert result["result_type"] == "discussions"
+        assert result["total_results"] == 5
+        first = result["results"][0]
+        assert first["forum_name"] == "r/rust"
+        assert first["num_answers"] == 322
+        assert first["score"] == "363"
+        assert first["top_comment"] == "You're on r/rust"
+        assert first["question"].startswith("word word")
+        assert first["question"].endswith("...")
+        assert len(first["question"]) <= brave.FORUM_TEXT_LIMIT + 3
+
+    @pytest.mark.asyncio
+    async def test_discussions_absent_is_no_results(self, monkeypatch):
+        monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "k")
+        _install(monkeypatch, brave, [(200, {"type": "search", "query": {}})])
+        result = await BraveSearchClient().search("q", result_type="discussions")
+        assert result["failure_kind"] == "no_results"
+        assert "only for some queries" in result["suggestion"]
+
+    @pytest.mark.asyncio
+    async def test_web_results_have_no_forum_fields(self, monkeypatch):
+        monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "k")
+        _install(monkeypatch, brave, [(200, _brave_page(1, more=False))])
+        result = await BraveSearchClient().search("q", num_results=1)
+        assert "forum_name" not in result["results"][0]
+        assert result["result_type"] == "web"
+
+    @pytest.mark.asyncio
     async def test_zero_results(self, monkeypatch):
         monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "k")
         _install(monkeypatch, brave, [(200, {"web": {"results": []}})])
@@ -563,6 +610,53 @@ class TestWebSearchProcessor:
         assert result["engine"] == "exa"
         assert "unexpected shape" in result["fallback_info"]["attempts"][0]["error"]
 
+    @pytest.mark.asyncio
+    async def test_discussions_auto_uses_brave_only(self):
+        g = StubClient(result=_ok())
+        b = StubClient(result=_ok())
+        e = StubClient(result=_ok())
+        result = await _processor(google_custom=g, brave=b, exa=e).search("q", result_type="discussions")
+        assert result["engine"] == "brave"
+        assert result["result_type"] == "discussions"
+        assert result["search_metadata"]["search_params"]["result_type"] == "discussions"
+        assert g.calls == [] and e.calls == []
+        # brave: (query, num_results, language, region, safe_search, recent_days, result_type)
+        assert b.calls[0][6] == "discussions"
+        assert "fallback_info" not in result
+
+    @pytest.mark.asyncio
+    async def test_discussions_without_brave(self):
+        result = await _processor(google_custom=StubClient(result=_ok())).search("q", result_type="discussions")
+        assert result["error_code"] == "search_engine_not_configured"
+        assert "discussions" in result["error"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("engine", ["google_custom", "exa"])
+    async def test_discussions_on_other_engine(self, engine):
+        proc = _processor(google_custom=StubClient(result=_ok()), exa=StubClient(result=_ok()))
+        result = await proc.search("q", result_type="discussions", engine=engine)
+        assert result["error_code"] == "unsupported_result_type"
+
+    @pytest.mark.asyncio
+    async def test_engine_suggestion_is_kept_on_zero_results(self):
+        b = StubClient(result=failure("no_results", "No discussion results found",
+                                      suggestion="Brave returns discussions only for some queries"))
+        result = await _processor(brave=b).search("should I learn go or rust", result_type="discussions")
+        assert result["suggestion"] == "Brave returns discussions only for some queries"
+        assert result["alternative_queries"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_result_type(self):
+        result = await _processor(brave=StubClient(result=_ok())).search("q", result_type="news")
+        assert result["error_code"] == "invalid_result_type"
+
+    @pytest.mark.asyncio
+    async def test_web_result_type_by_default(self):
+        b = StubClient(result=_ok())
+        result = await _processor(brave=b).search("q")
+        assert result["result_type"] == "web"
+        assert b.calls[0][6] == "web"
+
     def test_google_search_processor_alias(self):
         from crawl4ai_mcp.processors import GoogleSearchProcessor
         assert GoogleSearchProcessor is WebSearchProcessor
@@ -641,6 +735,8 @@ def test_cache_key_includes_engine():
     assert _get_search_cache_key(base) == _get_search_cache_key({**base, "engine": ""})
     assert _get_search_cache_key(base) != _get_search_cache_key({**base, "engine": "brave"})
     assert _get_search_cache_key({**base, "engine": "Brave"}) == _get_search_cache_key({**base, "engine": "brave"})
+    assert _get_search_cache_key(base) == _get_search_cache_key({**base, "result_type": "web"})
+    assert _get_search_cache_key(base) != _get_search_cache_key({**base, "result_type": "discussions"})
 
 
 class FakeMcp:
@@ -681,6 +777,27 @@ class TestSearchToolsEngine:
         result = await _tools(search)[tool](request=request_dict)
         assert result["error_code"] == "invalid_search_engine"
         assert result["valid_engines"] == ["auto", "google_custom", "brave", "exa"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("tool,request_dict", [
+        ("search_web", {"query": "x", "result_type": "news"}),
+        ("batch_search_web", {"queries": ["x"], "result_type": 3}),
+        ("search_and_crawl", {"search_query": "x", "result_type": "forum"}),
+    ])
+    async def test_invalid_result_type_errors_before_search(self, tool, request_dict):
+        search = MagicMock()
+        boom = AsyncMock(side_effect=AssertionError("must not search"))
+        search.search_web = search.batch_search_web = search.search_and_crawl = boom
+        result = await _tools(search)[tool](request=request_dict)
+        assert result["error_code"] == "invalid_result_type"
+        assert result["valid_result_types"] == ["web", "discussions"]
+
+    @pytest.mark.asyncio
+    async def test_search_and_crawl_passes_result_type(self):
+        search = MagicMock()
+        search.search_and_crawl = AsyncMock(return_value={"success": True})
+        await _tools(search)["search_and_crawl"](request={"search_query": "x", "result_type": "discussions"})
+        assert search.search_and_crawl.await_args.kwargs["result_type"] == "discussions"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("tool,core_fn,request_dict", [

@@ -21,6 +21,8 @@ BRAVE_COUNTRIES = frozenset(
 )
 # search_lang codes that differ from the plain language code.
 _LANG_ALIASES = {'zh': 'zh-hans', 'pt': 'pt-pt'}
+# Forum post text longer than this is cut, so a dozen posts stay readable.
+FORUM_TEXT_LIMIT = 1000
 
 
 class BraveSearchClient:
@@ -75,14 +77,15 @@ class BraveSearchClient:
         region: Optional[str] = None,
         safe_search: bool = True,
         recent_days: Optional[int] = None,
+        result_type: str = 'web',
     ) -> Dict[str, Any]:
-        """Query parameters for one page of results."""
+        """Query parameters for one page of results (result_type: 'web' or 'discussions')."""
         params: Dict[str, Any] = {
             'q': query,
             'count': count,
             'offset': page_offset,
             'safesearch': 'moderate' if safe_search else 'off',
-            'result_filter': 'web',
+            'result_filter': result_type,
             'text_decorations': 'false',
         }
         if language:
@@ -105,8 +108,15 @@ class BraveSearchClient:
         region: Optional[str] = 'us',
         safe_search: bool = True,
         recent_days: Optional[int] = None,
+        result_type: str = 'web',
     ) -> Dict[str, Any]:
-        """Search, paging with offset when num_results exceeds one page."""
+        """
+        Search, paging with offset when num_results exceeds one page.
+
+        result_type='discussions' returns Brave's forum cluster instead of web
+        results. count and offset do not apply to it, so one request is sent
+        and the cluster is cut to num_results.
+        """
         if not self.is_configured():
             return failure('not_configured', 'Brave Search API not configured',
                            suggestion='Set BRAVE_SEARCH_API_KEY')
@@ -124,7 +134,7 @@ class BraveSearchClient:
             async with aiohttp.ClientSession(timeout=self.timeout) as session:
                 while len(results) < num_results and page_offset <= self.max_page_offset:
                     params = self.build_params(
-                        query, count, page_offset, language, region, safe_search, recent_days
+                        query, count, page_offset, language, region, safe_search, recent_days, result_type
                     )
                     status, data = await self._get_page(session, params, headers)
                     if status != 200:
@@ -132,7 +142,7 @@ class BraveSearchClient:
                     if not isinstance(data, dict):
                         return failure('error', 'Brave Search API returned a response that is not a JSON object')
 
-                    items = (data.get('web') or {}).get('results') or []
+                    items = (data.get(result_type) or {}).get('results') or []
                     for item in items:
                         url = item.get('url') if isinstance(item, dict) else None
                         if not url or url in seen:
@@ -145,10 +155,13 @@ class BraveSearchClient:
                             strip_html(item.get('description')),
                             age=item.get('age'),
                             published_date=item.get('page_age'),
+                            **(_forum_fields(item) if result_type == 'discussions' else {}),
                         ))
                         if len(results) >= num_results:
                             break
 
+                    if result_type == 'discussions':
+                        break
                     # A page can hold fewer than `count` results while more remain.
                     more = (data.get('query') or {}).get('more_results_available')
                     if not more or not items:
@@ -164,15 +177,40 @@ class BraveSearchClient:
             return failure('error', f'Brave Search API error: {e}')
 
         if not results:
+            if result_type == 'discussions':
+                return failure(
+                    'no_results', 'No discussion results found', query=query,
+                    suggestion='Brave returns discussions only for some queries; '
+                               'try another wording or result_type web',
+                )
             return failure('no_results', 'No search results found', query=query)
 
         return {
             'success': True,
             'query': query,
+            'result_type': result_type,
             'total_results': len(results),
             'results': results,
             'processing_method': 'brave_search_api',
         }
+
+
+def _truncate(text: str, limit: int = FORUM_TEXT_LIMIT) -> str:
+    return text if len(text) <= limit else text[:limit].rstrip() + '...'
+
+
+def _forum_fields(item: Dict[str, Any]) -> Dict[str, Any]:
+    """forum_name, num_answers, score, question, top_comment from a discussion result's data."""
+    data = item.get('data') if isinstance(item.get('data'), dict) else {}
+    question = strip_html(data.get('question'))
+    top_comment = strip_html(data.get('top_comment'))
+    return {
+        'forum_name': data.get('forum_name'),
+        'num_answers': data.get('num_answers'),
+        'score': data.get('score'),
+        'question': _truncate(question) if question else None,
+        'top_comment': _truncate(top_comment) if top_comment else None,
+    }
 
 
 def _reset_seconds(headers) -> Optional[float]:

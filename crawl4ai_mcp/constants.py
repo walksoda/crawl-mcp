@@ -181,6 +181,10 @@ DEFAULT_CRAWL_CACHE_TTL_SECONDS = 3600
 # ("auto" tries the configured ones in SEARCH_ENGINE_ORDER).
 SEARCH_ENGINES = ("google_custom", "brave", "exa")
 
+# result_type values of the search tools. "discussions" is Brave's forum
+# post cluster and only the brave engine returns it.
+SEARCH_RESULT_TYPES = ("web", "discussions")
+
 SEARCH_GENRES: Dict[str, Dict[str, str]] = {
     "pdf": {
         "operator": "filetype:pdf",

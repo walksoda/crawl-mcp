@@ -95,6 +95,9 @@ def _get_search_cache_key(request: dict) -> str:
     # Normalize engine (None/'' mean the server default)
     engine = str(request.get('engine') or '').strip().lower()
 
+    # Normalize result_type (None/'' mean 'web')
+    result_type = str(request.get('result_type') or 'web').strip().lower()
+
     # Build cache key with all parameters that affect search results
     key_parts = [
         request.get('query', ''),
@@ -105,6 +108,7 @@ def _get_search_cache_key(request: dict) -> str:
         recent_days_str,
         str(safe_search),
         engine,
+        result_type,
     ]
     key_str = ":".join(key_parts)
     return hashlib.md5(key_str.encode()).hexdigest()

@@ -17,7 +17,8 @@ async def search_and_crawl(
     search_genre: Optional[str] = None,
     base_timeout: int = 30,
     recent_days: Optional[Any] = None,
-    engine: Optional[str] = None
+    engine: Optional[str] = None,
+    result_type: str = 'web'
 ) -> Dict[str, Any]:
     """
     Perform a web search and automatically crawl top results for full content analysis.
@@ -47,7 +48,8 @@ async def search_and_crawl(
             num_results=num_search_results,
             search_genre=search_genre,
             recent_days=recent_days_to_int(recent_days),
-            engine=engine
+            engine=engine,
+            result_type=result_type or 'web'
         )
 
         if not search_result['success']:
@@ -151,6 +153,7 @@ async def search_and_crawl(
             'success': True,
             'search_query': search_query,
             'engine': search_result.get('engine'),
+            'result_type': search_result.get('result_type'),
             'search_metadata': search_result.get('search_metadata', {}),
             'crawl_summary': {
                 'total_search_results': len(search_results),

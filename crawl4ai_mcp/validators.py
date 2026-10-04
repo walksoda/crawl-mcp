@@ -437,6 +437,31 @@ def validate_search_engine(engine: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def validate_search_result_type(result_type: Any) -> Optional[Dict[str, Any]]:
+    """
+    Validate the optional result_type parameter of the search tools.
+
+    None or an empty string means "web". Matching is case-insensitive.
+
+    Returns:
+        Error dictionary if invalid, None if valid
+    """
+    from .constants import SEARCH_RESULT_TYPES
+
+    if result_type is None or (isinstance(result_type, str) and not result_type.strip()):
+        return None
+
+    valid = list(SEARCH_RESULT_TYPES)
+    if not isinstance(result_type, str) or result_type.strip().lower() not in valid:
+        return {
+            "success": False,
+            "error": f"Invalid result_type: {result_type!r}. Must be one of: {', '.join(valid)}",
+            "error_code": "invalid_result_type",
+            "valid_result_types": valid,
+        }
+    return None
+
+
 def validate_content_slicing_params(
     content_limit: int,
     content_offset: int
