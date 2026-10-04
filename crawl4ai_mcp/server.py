@@ -5,6 +5,7 @@ Uses FastMCP 2.0.0 which doesn't have banner output issues.
 Clean STDIO transport compatible for perfect MCP communication.
 """
 
+import argparse
 import os
 import sys
 import warnings
@@ -21,7 +22,38 @@ warnings.filterwarnings("ignore")
 warnings.simplefilter("ignore")
 
 import logging
-logging.disable(logging.CRITICAL)
+
+# Logging is off by default: the stdio transport reserves stdout for MCP
+# messages and most clients surface stderr noise as errors. Set
+# CRAWL4AI_MCP_LOG_LEVEL (DEBUG, INFO, WARNING or ERROR) to log to stderr.
+LOG_LEVEL_ENV = "CRAWL4AI_MCP_LOG_LEVEL"
+_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+
+
+def _configure_logging() -> None:
+    """Disable logging unless CRAWL4AI_MCP_LOG_LEVEL asks for it.
+
+    When enabled, the root logger writes to stderr only, never stdout.
+    """
+    raw = os.environ.get(LOG_LEVEL_ENV, "").strip()
+    level = raw.upper()
+    if level not in _LOG_LEVELS:
+        if raw:
+            sys.stderr.write(
+                f"crawl4ai-mcp: ignoring {LOG_LEVEL_ENV}={raw!r} "
+                f"(expected one of {', '.join(_LOG_LEVELS)}); logging disabled\n"
+            )
+        logging.disable(logging.CRITICAL)
+        return
+
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    logging.basicConfig(level=level, handlers=[handler], force=True)
+
+
+_configure_logging()
 
 # Import FastMCP 2.0 - no banner output!
 from fastmcp import FastMCP
@@ -140,51 +172,54 @@ def _isolate_stdout_for_stdio() -> None:
     sys.stdout = _StdoutRedirectedToStderr(protocol_buffer, sys.stderr)
 
 
-def main():
-    """Clean main entry point - FastMCP 2.0 with no banner issues"""
-    if len(sys.argv) > 1 and sys.argv[1] == "--help":
-        print("Crawl4AI MCP Server - FastMCP 2.0 Version")
-        print("Usage: python -m crawl4ai_mcp.server [--transport TRANSPORT]")
-        print("Transports: stdio (default), streamable-http, sse")
-        return
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m crawl4ai_mcp.server",
+        description="Crawl4AI MCP Server",
+        epilog=(
+            f"Set {LOG_LEVEL_ENV}=DEBUG|INFO|WARNING|ERROR to log to stderr "
+            "(logging is disabled by default)."
+        ),
+    )
+    parser.add_argument(
+        "--transport",
+        choices=("stdio", "streamable-http", "http", "sse"),
+        default="stdio",
+        help="transport to serve (default: stdio; http is an alias of streamable-http)",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="host for HTTP transports (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="port for HTTP transports (default: 8000)",
+    )
+    return parser
 
-    # Parse args
-    transport = "stdio"
-    host = "127.0.0.1"
-    port = 8000
 
-    args = sys.argv[1:]
-    i = 0
-    while i < len(args):
-        if args[i] == "--transport" and i + 1 < len(args):
-            transport = args[i + 1]
-            i += 2
-        elif args[i] == "--host" and i + 1 < len(args):
-            host = args[i + 1]
-            i += 2
-        elif args[i] == "--port" and i + 1 < len(args):
-            port = int(args[i + 1])
-            i += 2
-        else:
-            i += 1
+def main(argv=None):
+    """Parse command line arguments and run the MCP server.
 
-    # Run server - clean FastMCP 2.0 execution
+    argparse writes --help to stdout and exits before any transport starts;
+    argument errors go to stderr with exit status 2.
+    """
+    args = _build_arg_parser().parse_args(argv)
+    transport = "streamable-http" if args.transport == "http" else args.transport
+
     try:
         if transport == "stdio":
             _isolate_stdout_for_stdio()
             mcp.run()
-        elif transport in ("streamable-http", "http"):
-            mcp.run(transport="streamable-http", host=host, port=port)
-        elif transport == "sse":
-            mcp.run(transport="sse", host=host, port=port)
         else:
-            print(f"Unknown transport: {transport}")
-            sys.exit(1)
+            mcp.run(transport=transport, host=args.host, port=args.port)
     except KeyboardInterrupt:
         pass
     except Exception as e:
-        if transport != "stdio":
-            print(f"Server error: {e}", file=sys.stderr)
+        print(f"Server error: {e}", file=sys.stderr)
         sys.exit(1)
 
 
