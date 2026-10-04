@@ -3,14 +3,14 @@
 > **⚠️ 重要**: これは優れた[crawl4ai](https://github.com/unclecode/crawl4ai)ライブラリの**非公式**MCPサーバー実装です。  
 > **元のcrawl4aiプロジェクトとは無関係**です。
 
-強力なcrawl4aiライブラリを高度なAI機能でラップする包括的なModel Context Protocol（MCP）サーバーです。**あらゆるソース**からコンテンツを抽出・分析：Webページ、PDF、Officeドキュメント、YouTube動画など。インテリジェント要約機能により、重要な情報を保持しながらトークン使用量を大幅削減。
+強力なcrawl4aiライブラリを高度なAI機能でラップする包括的なModel Context Protocol（MCP）サーバーです。**あらゆるソース**からコンテンツを抽出・分析：Webページ、PDF、Officeドキュメント、YouTube動画など。任意で有効にできるLLM要約（`auto_summarize`）とディスク保存（`output_path`）により、トークン使用量を抑えます。
 
 ## 🌟 主要機能
 
-- **🔍 Google検索連携**: Google公式オペレーターを使用した7つの最適化された検索ジャンル
+- **🔍 Google検索連携**: Google演算子を使用した6つの検索ジャンル（ファイル形式と言語のフィルタ）
 - **🔍 高度なWebクローリング**: JavaScript対応、深度サイトマッピング、エンティティ抽出
 - **🌐 汎用コンテンツ抽出**: Webページ、PDF、Word文書、Excel、PowerPoint、ZIPアーカイブ
-- **🤖 AI搭載要約機能**: 重要情報を保持しながらスマートなトークン削減
+- **🤖 AI搭載要約機能（オプトイン）**: `auto_summarize=true` 指定時にスマートなトークン削減（最大88.5%）。指定しない場合、大きなレスポンスは約25000トークンで切り詰められ、全文は `output_path` で保存可能
 - **💾 ディスク永続化（token-saver）**: 全文をディスクに保存しメタデータのみ返却。エージェントは必要時にファイルから読み込み、コンテキストを節約
 - **🎬 YouTube連携**: APIキー不要で動画内容・要約を抽出
 - **⚡ 本格運用対応**: 包括的エラーハンドリング付き19の専門ツール
@@ -23,15 +23,31 @@
 
 **Playwright用システム依存関係のインストール:**
 
-**Linux/macOS:**
+**Ubuntu 24.04 LTS（手動セットアップが必要）:**
 ```bash
-sudo bash scripts/prepare_for_uvx_playwright.sh
+# t64ライブラリ移行のため手動セットアップが必要
+sudo apt update && sudo apt install -y \
+  libnss3 libatk-bridge2.0-0 libxss1 libasound2t64 \
+  libgbm1 libgtk-3-0t64 libxshmfence-dev libxrandr2 \
+  libxcomposite1 libxcursor1 libxdamage1 libxi6 \
+  fonts-noto-color-emoji fonts-unifont python3-venv python3-pip
+
+python3 -m venv venv && source venv/bin/activate
+pip install playwright==1.55.0 && playwright install chromium
+sudo playwright install-deps
 ```
 
-**Windows（管理者として）:**
-```powershell
-scripts/prepare_for_uvx_playwright.ps1
+**その他のLinux（Chromiumとシステムライブラリをインストール）:**
+```bash
+uvx --from playwright==1.55.0 playwright install --with-deps chromium
 ```
+
+**macOS / Windows:**
+```bash
+uvx --from playwright==1.55.0 playwright install chromium
+```
+
+Python環境にPlaywrightがインストール済みの場合は、`python -m playwright install --with-deps chromium`（Linux）または `playwright install chromium`（macOS/Windows）でも構いません。
 
 ### インストール
 
@@ -67,6 +83,7 @@ docker run -it crawl4ai-mcp
 
 ### Claude Desktopセットアップ
 
+**UVXインストールの場合:**
 `claude_desktop_config.json`に追加：
 
 ```json
@@ -79,10 +96,7 @@ docker run -it crawl4ai-mcp
         "--from",
         "git+https://github.com/walksoda/crawl-mcp",
         "crawl-mcp"
-      ],
-      "env": {
-        "CRAWL4AI_LANG": "ja"
-      }
+      ]
     }
   }
 }
@@ -99,14 +113,6 @@ docker run -it crawl4ai-mcp
   }
 }
 ```
-
-**英語インターフェイス用:**
-```json
-"env": {
-  "CRAWL4AI_LANG": "en"
-}
-```
-
 
 ## 📖 ドキュメント
 
@@ -127,7 +133,7 @@ docker run -it crawl4ai-mcp
 ## 🛠️ ツール概要
 
 ### Webクローリング (3)
-- `crawl_url` - JavaScript対応のWebページコンテンツ抽出
+- `crawl_url` - JavaScript対応のWebページコンテンツ抽出（リモートの `.html`/`.htm` URLはブラウザでレンダリングし、ドキュメントURLはファイルとして変換）
 - `deep_crawl_site` - 深度設定可能なサイト複数ページクローリング
 - `crawl_url_with_fallback` - アンチボットサイト向けフォールバック戦略付きクローリング
 
@@ -137,13 +143,13 @@ docker run -it crawl4ai-mcp
 - `extract_structured_data` - CSSセレクターまたはLLMを使用した構造化データ抽出
 
 ### YouTube (4)
-- `extract_youtube_transcript` - タイムスタンプ付きYouTubeトランスクリプト抽出
+- `extract_youtube_transcript` - タイムスタンプ付きYouTubeトランスクリプト抽出（公開日時を `timezone` で変換）
 - `batch_extract_youtube_transcripts` - 複数YouTube動画のトランスクリプト抽出（最大3件）
-- `get_youtube_video_info` - YouTube動画メタデータとトランスクリプト可用性の取得
+- `get_youtube_video_info` - YouTube動画メタデータ（指定 `timezone` での `published_at` を含む）とトランスクリプト可用性の取得
 - `extract_youtube_comments` - ページネーション付きYouTube動画コメント抽出
 
 ### 検索 (4)
-- `search_google` - ジャンルフィルタ付きGoogle検索
+- `search_google` - ジャンルフィルタ付きGoogle検索（pdf, documents, presentations, spreadsheets, japanese, english）
 - `batch_search_google` - 複数Google検索の実行（最大3件）
 - `search_and_crawl` - Google検索と上位結果のクローリング
 - `get_search_genres` - 利用可能な検索ジャンルの取得
@@ -154,7 +160,7 @@ docker run -it crawl4ai-mcp
 - `enhanced_process_large_content` - チャンキングとBM25フィルタリングによる大容量コンテンツ処理
 
 ### バッチ操作 (2)
-- `batch_crawl` - フォールバック付き複数URLクローリング（最大3件）
+- `batch_crawl` - フォールバック付きで複数URLを順次クローリング（最大3件）
 - `multi_url_crawl` - パターンベース設定による複数URLクローリング（最大5URLパターン）
 
 ## 💾 大容量結果のディスク保存（token-saver）
@@ -165,9 +171,9 @@ docker run -it crawl4ai-mcp
 - 単一ファイル系ツール（例: `crawl_url`、`extract_youtube_transcript`）は1つの `.md`（JSON種別のツールは `.json`）を書き出します。絶対ファイルパスを渡してください。拡張子は省略すると自動付与されます。同じパスに通常ファイルが既に存在する場合、`overwrite=true` でない限り拒否されます。
 - バッチ系ツール（`batch_crawl`、`multi_url_crawl`、`deep_crawl_site`、`search_and_crawl`、`batch_extract_youtube_transcripts`）は絶対**ディレクトリ**パスを期待し、URLごとに1つの `.md` と `index.json` を書き出します。存在しないパスはディレクトリとして扱われ作成されます（`/tmp/run.v1` のようにドットを含む名前も可）。既に通常ファイルとして存在する場合は拒否されます。`batch_crawl` / `multi_url_crawl` は従来の `list` 戻り値形状を保ち、各成功項目に `output_file` キーを埋め込みます。
 - リクエスト辞書系ツール（`search_google`、`batch_search_google`、`search_and_crawl`、`batch_extract_youtube_transcripts`）は永続化キーをリクエスト辞書から直接読み取ります。
-- 共通パラメータ: `output_path`（絶対パス。`None` または `""` で永続化をスキップ）、`include_content_in_response`（既定 `false`。`true` の場合はレスポンスにも内容を含めるが、**`content_limit` / `content_offset` / `max_content_per_page` によるスライスは引き続き適用**）、`overwrite`（既定 `false`）。
+- 共通パラメータ: `output_path`（絶対パス。デフォルトは `None`、`""` でも永続化をスキップ）、`include_content_in_response`（既定 `false`。`true` の場合はレスポンスにも内容を含めるが、**`content_limit` / `content_offset` / `max_content_per_page` によるスライスは引き続き適用**）、`overwrite`（既定 `false`）。
 - 書き込みはファイルごとにアトミック（一時ファイル + `os.replace`）で、親ディレクトリは自動作成されます。スライスやツール内部の切り詰めの**前**にスライスなしの全文を永続化するため、レスポンスがスライスされてもディスク上のコピーは常に完全です。
-- バッチ辞書系ツール（`deep_crawl_site`、`search_and_crawl`、`batch_extract_youtube_transcripts`）は `success=false` の項目について項目単位の永続化をスキップします。これらの項目も `index.json` には `file: null` として現れるため、呼び出し側は試行リストを把握できます。
+- バッチ辞書系ツール（`deep_crawl_site`、`search_and_crawl`、`batch_extract_youtube_transcripts`）は `success=false` の項目について項目単位の永続化をスキップします。これらの項目も `index.json` には `file: null` として現れるため、呼び出し側は試行リストを把握できます（`batch_crawl` / `multi_url_crawl` も失敗項目は保存せず、`index.json` に `output_file: null` として記録します）。
 
 **Markdown単一ファイルの例:**
 ```json
@@ -231,7 +237,7 @@ batch_crawl → multi_url_crawl → 包括的データ
 ## 🚨 クイックトラブルシューティング
 
 **インストールの問題:**
-1. 適切な権限でセットアップスクリプトを再実行
+1. 上記のPlaywrightインストールコマンドを適切な権限で再実行
 2. 開発インストール手法を試行
 3. ブラウザ依存関係がインストールされているか確認
 

@@ -3,14 +3,14 @@
 > **⚠️ Important**: This is an **unofficial** MCP server implementation for the excellent [crawl4ai](https://github.com/unclecode/crawl4ai) library.  
 > **Not affiliated** with the original crawl4ai project.
 
-A comprehensive Model Context Protocol (MCP) server that wraps the powerful crawl4ai library with advanced AI capabilities. Extract and analyze content from **any source**: web pages, PDFs, Office documents, YouTube videos, and more. Features intelligent summarization to dramatically reduce token usage while preserving key information.
+A comprehensive Model Context Protocol (MCP) server that wraps the powerful crawl4ai library with advanced AI capabilities. Extract and analyze content from **any source**: web pages, PDFs, Office documents, YouTube videos, and more. Features opt-in LLM summarization (`auto_summarize`) and disk persistence (`output_path`) to keep token usage low.
 
 ## 🌟 Key Features
 
-- **🔍 Google Search Integration** - 7 optimized search genres with Google official operators
+- **🔍 Google Search Integration** - 6 search genres (file type and language filters) using Google operators
 - **🔍 Advanced Web Crawling**: JavaScript support, deep site mapping, entity extraction
 - **🌐 Universal Content Extraction**: Web pages, PDFs, Word docs, Excel, PowerPoint, ZIP archives
-- **🤖 AI-Powered Summarization**: Smart token reduction (up to 88.5%) while preserving essential information
+- **🤖 AI-Powered Summarization (opt-in)**: Smart token reduction (up to 88.5%) when `auto_summarize=true`; otherwise large responses are truncated at about 25000 tokens and the full content can be saved with `output_path`
 - **💾 Disk Persistence (token-saver)**: Save full results to disk and return slim metadata, so agents read them from a file on demand without spending context
 - **🎬 YouTube Integration**: Extract video transcripts and summaries without API keys  
 - **⚡ Production Ready**: 19 specialized tools with comprehensive error handling
@@ -37,15 +37,17 @@ pip install playwright==1.55.0 && playwright install chromium
 sudo playwright install-deps
 ```
 
-**Other Linux/macOS:**
+**Other Linux (installs Chromium and its system libraries):**
 ```bash
-sudo bash scripts/prepare_for_uvx_playwright.sh
+uvx --from playwright==1.55.0 playwright install --with-deps chromium
 ```
 
-**Windows (as Administrator):**
-```powershell
-scripts/prepare_for_uvx_playwright.ps1
+**macOS / Windows:**
+```bash
+uvx --from playwright==1.55.0 playwright install chromium
 ```
+
+If Playwright is already installed in a Python environment, `python -m playwright install --with-deps chromium` (Linux) or `playwright install chromium` (macOS/Windows) works as well.
 
 ### Installation
 
@@ -94,10 +96,7 @@ Add to your `claude_desktop_config.json`:
         "--from",
         "git+https://github.com/walksoda/crawl-mcp",
         "crawl-mcp"
-      ],
-      "env": {
-        "CRAWL4AI_LANG": "en"
-      }
+      ]
     }
   }
 }
@@ -112,13 +111,6 @@ Add to your `claude_desktop_config.json`:
       "baseUrl": "http://localhost:8000"
     }
   }
-}
-```
-
-**For Japanese interface:**
-```json
-"env": {
-  "CRAWL4AI_LANG": "ja"
 }
 ```
 
@@ -141,7 +133,7 @@ Add to your `claude_desktop_config.json`:
 ## 🛠️ Tool Overview
 
 ### Web Crawling (3)
-- `crawl_url` - Extract web page content with JavaScript support
+- `crawl_url` - Extract web page content with JavaScript support (remote `.html`/`.htm` URLs are rendered in the browser; document URLs are converted as files)
 - `deep_crawl_site` - Crawl multiple pages from a site with configurable depth
 - `crawl_url_with_fallback` - Crawl with fallback strategies for anti-bot sites
 
@@ -151,13 +143,13 @@ Add to your `claude_desktop_config.json`:
 - `extract_structured_data` - Extract structured data using CSS selectors or LLM
 
 ### YouTube (4)
-- `extract_youtube_transcript` - Extract YouTube transcripts with timestamps
+- `extract_youtube_transcript` - Extract YouTube transcripts with timestamps and timezone-converted publish time (`timezone`)
 - `batch_extract_youtube_transcripts` - Extract transcripts from multiple YouTube videos (max 3)
-- `get_youtube_video_info` - Get YouTube video metadata and transcript availability
+- `get_youtube_video_info` - Get YouTube video metadata (including `published_at` in the requested `timezone`) and transcript availability
 - `extract_youtube_comments` - Extract YouTube video comments with pagination
 
 ### Search (4)
-- `search_google` - Search Google with genre filtering
+- `search_google` - Search Google with genre filtering (pdf, documents, presentations, spreadsheets, japanese, english)
 - `batch_search_google` - Perform multiple Google searches (max 3)
 - `search_and_crawl` - Search Google and crawl top results
 - `get_search_genres` - Get available search genres
@@ -168,7 +160,7 @@ Add to your `claude_desktop_config.json`:
 - `enhanced_process_large_content` - Process large content with chunking and BM25 filtering
 
 ### Batch Operations (2)
-- `batch_crawl` - Crawl multiple URLs with fallback (max 3 URLs)
+- `batch_crawl` - Crawl multiple URLs sequentially with fallback (max 3 URLs)
 - `multi_url_crawl` - Multi-URL crawl with pattern-based config (max 5 URL patterns)
 
 ## 💾 Persist Large Results to Disk (token-saver)
@@ -179,9 +171,9 @@ All information-gathering tools accept an optional `output_path` parameter that 
 - Single-file tools (e.g. `crawl_url`, `extract_youtube_transcript`) write one `.md` (or `.json` for JSON-kind tools) — pass an absolute file path; the extension is auto-added if omitted. An existing regular file at that path is rejected unless `overwrite=true`.
 - Batch tools (`batch_crawl`, `multi_url_crawl`, `deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`) expect an absolute **directory** path and write one `.md` per URL plus `index.json`. Any non-existent path is treated as a directory and created — including names containing dots such as `/tmp/run.v1`. If the path already exists as a regular file, the call is rejected. `batch_crawl` / `multi_url_crawl` keep their `list` return shape and embed an `output_file` key on each success item.
 - Request-dict tools (`search_google`, `batch_search_google`, `search_and_crawl`, `batch_extract_youtube_transcripts`) read the persistence keys directly from their request dict.
-- Common parameters: `output_path` (absolute; `None` or `""` skips persistence), `include_content_in_response` (default `false` — when `true`, content is included in the response too, **still subject to any `content_limit`/`content_offset`/`max_content_per_page` slicing**), `overwrite` (default `false`).
+- Common parameters: `output_path` (absolute; default `None`, `""` also skips persistence), `include_content_in_response` (default `false` — when `true`, content is included in the response too, **still subject to any `content_limit`/`content_offset`/`max_content_per_page` slicing**), `overwrite` (default `false`).
 - Writes are atomic per file (temp file + `os.replace`); parent directories are auto-created; the full unsliced payload is persisted **before** any slicing or tool-internal truncation so the on-disk copy is always complete even when the response is sliced.
-- Batch dict tools (`deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`) skip per-item persistence for items that report `success=false`; these still appear in `index.json` with `file: null` so callers can reason about the attempt list.
+- Batch dict tools (`deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`) skip per-item persistence for items that report `success=false`; these still appear in `index.json` with `file: null` so callers can reason about the attempt list. (`batch_crawl` / `multi_url_crawl` also skip failed items and record them in `index.json` with `output_file: null`.)
 
 **Markdown single-file example:**
 ```json
@@ -245,7 +237,7 @@ batch_crawl → multi_url_crawl → comprehensive data
 ## 🚨 Quick Troubleshooting
 
 **Installation Issues:**
-1. Re-run setup scripts with proper privileges
+1. Re-run the Playwright install commands above with proper privileges
 2. Try development installation method
 3. Check browser dependencies are installed
 
