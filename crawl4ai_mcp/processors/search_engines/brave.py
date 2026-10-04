@@ -7,7 +7,7 @@ The query string accepts operators such as site:, filetype: and lang:.
 
 import asyncio
 import os
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Sequence
 
 import aiohttp
@@ -23,6 +23,9 @@ BRAVE_COUNTRIES = frozenset(
 )
 # search_lang codes that differ from the plain language code.
 _LANG_ALIASES = {'zh': 'zh-hans', 'pt': 'pt-pt'}
+# recent_days values that match Brave's rolling freshness windows (24 hours,
+# 7 days, 31 days, 365 days). Other values become a date range.
+_FRESHNESS_WINDOWS = {1: 'pd', 7: 'pw', 31: 'pm', 365: 'py'}
 # Forum post and FAQ answer text longer than this is cut, so a dozen entries stay readable.
 FORUM_TEXT_LIMIT = 1000
 # Result types read from sections of the web search response. "news" comes
@@ -104,9 +107,7 @@ class BraveSearchClient:
         if country:
             params['country'] = country if country in BRAVE_COUNTRIES else 'ALL'
         if recent_days and recent_days > 0:
-            today = date.today()
-            start = today - timedelta(days=recent_days)
-            params['freshness'] = f"{start.isoformat()}to{today.isoformat()}"
+            params['freshness'] = brave_freshness(recent_days)
         return params
 
     async def search(
@@ -255,6 +256,22 @@ class BraveSearchClient:
         return None
 
 
+def brave_freshness(recent_days: int) -> str:
+    """
+    Brave freshness for the past recent_days days.
+
+    1, 7, 31 and 365 use the rolling windows pd, pw, pm and py. Other values
+    become a UTC date range from recent_days days ago through today, which
+    can reach back up to one day further because whole days are counted.
+    """
+    window = _FRESHNESS_WINDOWS.get(recent_days)
+    if window:
+        return window
+    today = datetime.now(timezone.utc).date()
+    start = today - timedelta(days=recent_days)
+    return f"{start.isoformat()}to{today.isoformat()}"
+
+
 def _append_new(bucket: list, seen: set, rtype: str, items, limit: int) -> None:
     """Add items of one result type to bucket, skipping repeats and stopping at limit."""
     for item in items:
@@ -287,7 +304,8 @@ def _make_typed_result(rtype: str, rank: int, url: str, item: Dict[str, Any]) ->
     elif rtype == 'news':
         meta = item.get('meta_url') if isinstance(item.get('meta_url'), dict) else {}
         profile = item.get('profile') if isinstance(item.get('profile'), dict) else {}
-        extra.update(source=profile.get('name') or meta.get('hostname'), breaking=item.get('breaking'))
+        # News Search results carry no breaking flag, so none is added.
+        extra.update(source=profile.get('name') or meta.get('hostname'))
     return make_result(rank, url, strip_html(item.get('title')), strip_html(item.get('description')), **extra)
 
 

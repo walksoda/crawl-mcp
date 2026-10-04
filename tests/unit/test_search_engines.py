@@ -4,7 +4,7 @@ and auto fallback. HTTP is replaced with a fake aiohttp session."""
 from __future__ import annotations
 
 import asyncio
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
 
@@ -123,14 +123,28 @@ class TestBrave:
         monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "k")
         client = BraveSearchClient()
         params = client.build_params("q", 20, 1, "ja", "uk", True, 7)
-        today = date.today()
         assert params["count"] == 20
         assert params["offset"] == 1
         assert params["search_lang"] == "ja"
         assert params["country"] == "GB"
         assert params["safesearch"] == "moderate"
-        assert params["freshness"] == f"{(today - timedelta(days=7)).isoformat()}to{today.isoformat()}"
+        assert params["freshness"] == "pw"
         assert params["result_filter"] == "web"
+
+    @pytest.mark.parametrize("days,expected", [(1, "pd"), (7, "pw"), (31, "pm"), (365, "py")])
+    def test_freshness_rolling_windows(self, days, expected):
+        assert brave.brave_freshness(days) == expected
+
+    def test_freshness_other_days_use_utc_dates(self, monkeypatch):
+        from datetime import datetime as real_datetime, timezone
+
+        class FrozenDatetime(real_datetime):
+            @classmethod
+            def now(cls, tz=None):
+                # 2026-10-04 01:00 UTC is already 10:00 on 10-04 in JST and still 10-03 in US time.
+                return real_datetime(2026, 10, 4, 1, 0, tzinfo=timezone.utc).astimezone(tz)
+        monkeypatch.setattr(brave, "datetime", FrozenDatetime)
+        assert brave.brave_freshness(3) == "2026-10-01to2026-10-04"
 
     def test_unknown_country_becomes_all(self):
         params = BraveSearchClient().build_params("q", 10, region="xx", safe_search=False)
@@ -339,7 +353,8 @@ class TestBrave:
         assert (video["duration"], video["creator"], video["publisher"]) == ("06:53", "C", "YouTube")
         assert video["type"] == "video"
         item = extras["news"][0]
-        assert (item["source"], item["age"], item["breaking"]) == ("Example News", "2 days ago", False)
+        assert (item["source"], item["age"]) == ("Example News", "2 days ago")
+        assert "breaking" not in item
         assert item["published_date"] == "2026-10-02T00:00:00"
 
     @pytest.mark.asyncio
@@ -439,7 +454,10 @@ class TestExa:
         assert body["moderation"] is True
         assert body["type"] == "auto"
         assert body["contents"] == {"highlights": {"maxCharacters": 400}}
-        assert body["startPublishedDate"].endswith("T00:00:00.000Z")
+        from datetime import datetime, timezone
+        start = datetime.strptime(body["startPublishedDate"], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc)
+        # Exactly 30 days back, not floored to the start of that day.
+        assert abs((datetime.now(timezone.utc) - start) - timedelta(days=30)) < timedelta(minutes=1)
 
     def test_site_only_query_keeps_text(self):
         body = ExaSearchClient().build_body("site:arxiv.org", 10, None, False, None)

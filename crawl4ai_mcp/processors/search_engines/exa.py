@@ -74,8 +74,9 @@ class ExaSearchClient:
         if safe_search:
             body['moderation'] = True
         if recent_days and recent_days > 0:
+            # Exactly recent_days days before now (UTC), not the start of that day.
             start = datetime.now(timezone.utc) - timedelta(days=recent_days)
-            body['startPublishedDate'] = start.strftime('%Y-%m-%dT00:00:00.000Z')
+            body['startPublishedDate'] = start.strftime('%Y-%m-%dT%H:%M:%S.000Z')
         return body
 
     async def search(
