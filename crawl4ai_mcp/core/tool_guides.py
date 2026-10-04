@@ -69,10 +69,10 @@ TOOL_SELECTION_GUIDE = {
         "parameters": ["url", "languages", "translate_to", "auto_summarize", "include_timestamps"]
     },
     "search_operations": {
-        "tools": ["search_google", "search_and_crawl", "batch_search_google", "get_search_genres"],
+        "tools": ["search_web", "search_and_crawl", "batch_search_web", "get_search_genres"],
         "description": "Search and discover content on the web with advanced filtering",
         "use_cases": [
-            "Google search with genre-specific filtering",
+            "Web search (Google Custom Search, Brave, Exa) with genre-specific filtering",
             "Search result crawling and content extraction",
             "Batch search operations with analysis",
             "Academic, news, technical content discovery",
@@ -84,7 +84,7 @@ TOOL_SELECTION_GUIDE = {
         "parameters": ["query", "search_genre", "num_results", "crawl_top_results", "recent_days", "auto_summarize", "summary_length"]
     },
     "batch_operations": {
-        "tools": ["batch_crawl", "batch_extract_youtube_transcripts", "batch_search_google"],
+        "tools": ["batch_crawl", "batch_extract_youtube_transcripts", "batch_search_web"],
         "description": "Process multiple URLs, videos, or queries simultaneously",
         "use_cases": [
             "Bulk website crawling and analysis",
@@ -115,7 +115,7 @@ TOOL_SELECTION_GUIDE = {
 # Comprehensive workflow patterns
 WORKFLOW_GUIDE = {
     "research_workflow": {
-        "steps": ["search_google", "search_and_crawl", "intelligent_extract"],
+        "steps": ["search_web", "search_and_crawl", "intelligent_extract"],
         "description": "Comprehensive research workflow with targeted extraction",
         "use_case": "Academic research, competitive analysis, market research",
         "estimated_time": "Medium (5-15 minutes)",
@@ -129,7 +129,7 @@ WORKFLOW_GUIDE = {
         "output": "Site structure + processed content + summaries"
     },
     "competitive_analysis": {
-        "steps": ["search_google", "batch_crawl", "extract_structured_data"],
+        "steps": ["search_web", "batch_crawl", "extract_structured_data"],
         "description": "Analyze competitor websites and extract structured information",
         "use_case": "Business intelligence, market analysis, product comparison",
         "estimated_time": "Long (15-45 minutes)",
@@ -143,7 +143,7 @@ WORKFLOW_GUIDE = {
         "output": "Web content + documents + video transcripts"
     },
     "bulk_data_collection": {
-        "steps": ["batch_search_google", "batch_crawl", "batch_extract_youtube_transcripts"],
+        "steps": ["batch_search_web", "batch_crawl", "batch_extract_youtube_transcripts"],
         "description": "Large-scale data collection across multiple sources",
         "use_case": "Dataset creation, mass content analysis, research corpus building",
         "estimated_time": "Very Long (30+ minutes)",
@@ -160,7 +160,7 @@ COMPLEXITY_GUIDE = {
         "skill_level": "Beginner"
     },
     "moderate": {
-        "tools": ["intelligent_extract", "extract_entities", "extract_structured_data", "process_file", "search_google", "extract_youtube_transcript", "get_youtube_video_info"],
+        "tools": ["intelligent_extract", "extract_entities", "extract_structured_data", "process_file", "search_web", "extract_youtube_transcript", "get_youtube_video_info"],
         "description": "Operations requiring specific parameters or domain knowledge",
         "typical_time": "3-10 minutes",
         "skill_level": "Intermediate"
@@ -172,7 +172,7 @@ COMPLEXITY_GUIDE = {
         "skill_level": "Advanced"
     },
     "batch": {
-        "tools": ["batch_crawl", "batch_search_google", "batch_extract_youtube_transcripts"],
+        "tools": ["batch_crawl", "batch_search_web", "batch_extract_youtube_transcripts"],
         "description": "High-volume operations requiring careful resource management",
         "typical_time": "15-60+ minutes",
         "skill_level": "Expert"
@@ -187,7 +187,7 @@ PERFORMANCE_GUIDE = {
         "resource_usage": "Low"
     },
     "medium": {
-        "tools": ["intelligent_extract", "extract_entities", "process_file", "search_google"],
+        "tools": ["intelligent_extract", "extract_entities", "process_file", "search_web"],
         "typical_response_time": "30 seconds - 3 minutes",
         "resource_usage": "Medium"
     },
@@ -197,7 +197,7 @@ PERFORMANCE_GUIDE = {
         "resource_usage": "High"
     },
     "very_slow": {
-        "tools": ["batch_crawl", "batch_search_google", "batch_extract_youtube_transcripts"],
+        "tools": ["batch_crawl", "batch_search_web", "batch_extract_youtube_transcripts"],
         "typical_response_time": "15+ minutes",
         "resource_usage": "Very High"
     }
@@ -282,8 +282,8 @@ async def get_tool_selection_guide() -> Dict[str, Any]:
                     "example": '{"url": "https://youtube.com/watch?v=abc123", "auto_summarize": true}'
                 },
                 "search": {
-                    "tool": "search_google",
-                    "description": "Search Google with genre filtering and date ranges",
+                    "tool": "search_web",
+                    "description": "Search the web with genre filtering and date ranges",
                     "example": '{"request": {"query": "AI research", "search_genre": "academic"}, "recent_days": 30}'
                 },
                 "search_crawl": {
@@ -313,9 +313,9 @@ async def get_tool_selection_guide() -> Dict[str, Any]:
                 "documents": {"tool": "process_file", "when": "PDF, Word, Excel under 100MB"},
                 "large_documents": {"tool": "enhanced_process_large_content", "when": "Large docs needing chunking"},
                 "youtube": {"tool": "extract_youtube_transcript", "when": "Video transcripts"},
-                "search": {"tool": "search_google", "when": "Search results with URLs"},
+                "search": {"tool": "search_web", "when": "Search results with URLs"},
                 "search_crawl": {"tool": "search_and_crawl", "when": "Search + full page content"},
-                "batch": {"tool": "batch_crawl/batch_search_google", "when": "Multiple items"}
+                "batch": {"tool": "batch_crawl/batch_search_web", "when": "Multiple items"}
             },
             "best_practices": {
                 "parameter_optimization": [

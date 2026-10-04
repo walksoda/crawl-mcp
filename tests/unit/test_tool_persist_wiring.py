@@ -682,7 +682,7 @@ class TestSearchGoogleWiring:
     async def test_persists_full_results(self, tmp_path):
         search = MagicMock()
         big_results = [{"title": f"t{i}", "url": f"https://e.com/{i}", "snippet": "s"} for i in range(50)]
-        search.search_google = AsyncMock(return_value={
+        search.search_web = AsyncMock(return_value={
             "success": True,
             "query": "python",
             "results": big_results,
@@ -707,7 +707,7 @@ class TestBatchSearchGoogleWiring:
     @pytest.mark.asyncio
     async def test_persists(self, tmp_path):
         search = MagicMock()
-        search.batch_search_google = AsyncMock(return_value={
+        search.batch_search_web = AsyncMock(return_value={
             "success": True,
             "results": {"q1": [{"title": "t"}], "q2": [{"title": "u"}]},
         })

@@ -2,12 +2,19 @@
 Search MCP Tools Test Suite.
 
 Tests for search-related MCP tools:
-- search_google
-- batch_search_google
+- search_web (and the search_google alias)
+- batch_search_web
 - search_and_crawl
+
+The tools call search engine APIs, so the suite is skipped when no engine
+has an API key (GOOGLE_SEARCH_API_KEY + GOOGLE_SEARCH_ENGINE_ID,
+BRAVE_SEARCH_API_KEY or EXA_API_KEY, from the environment or .env).
 """
 
 import pytest
+
+import crawl4ai_mcp.config  # noqa: F401  (loads .env)
+from crawl4ai_mcp.processors.web_search import WebSearchProcessor
 
 from tests.mcp.conftest import (
     extract_mcp_content,
@@ -17,11 +24,16 @@ from tests.mcp.conftest import (
     parse_mcp_json,
 )
 
+pytestmark = pytest.mark.skipif(
+    not WebSearchProcessor().configured_engines(),
+    reason="no search engine API key configured",
+)
+
 
 @pytest.mark.mcp
 @pytest.mark.search
-class TestSearchGoogle:
-    """Tests for search_google tool."""
+class TestSearchWeb:
+    """Tests for search_web tool."""
 
     @pytest.mark.asyncio
     async def test_basic_search(self, mcp_client, search_test_queries):
@@ -29,7 +41,7 @@ class TestSearchGoogle:
         query_info = search_test_queries["technical"]
 
         result = await mcp_client.call_tool(
-            "search_google",
+            "search_web",
             {
                 "request": {
                     "query": query_info["query"],
@@ -44,12 +56,25 @@ class TestSearchGoogle:
         assert len(content) > 50
 
     @pytest.mark.asyncio
+    async def test_search_google_alias(self, mcp_client, search_test_queries):
+        """The deprecated search_google name returns the same result shape."""
+        result = await mcp_client.call_tool(
+            "search_google",
+            {"request": {"query": search_test_queries["technical"]["query"], "num_results": 2}}
+        )
+
+        assert_tool_success(result)
+        data = parse_mcp_json(result)
+        assert data["success"] is True
+        assert data["engine"] in ("google_custom", "brave", "exa")
+
+    @pytest.mark.asyncio
     async def test_search_with_genre(self, mcp_client, search_test_queries):
         """Test search with specific genre."""
         query_info = search_test_queries["technical"]
 
         result = await mcp_client.call_tool(
-            "search_google",
+            "search_web",
             {
                 "request": {
                     "query": query_info["query"],
@@ -68,7 +93,7 @@ class TestSearchGoogle:
         query_info = search_test_queries["technical"]
 
         result = await mcp_client.call_tool(
-            "search_google",
+            "search_web",
             {
                 "request": {
                     "query": query_info["query"],
@@ -87,7 +112,7 @@ class TestSearchGoogle:
         query_info = search_test_queries["news"]
 
         result = await mcp_client.call_tool(
-            "search_google",
+            "search_web",
             {
                 "request": {
                     "query": query_info["query"],
@@ -105,7 +130,7 @@ class TestSearchGoogle:
         query_info = search_test_queries["technical"]
 
         result = await mcp_client.call_tool(
-            "search_google",
+            "search_web",
             {
                 "request": {
                     "query": query_info["query"],
@@ -131,7 +156,7 @@ class TestSearchGoogle:
         query_info = search_test_queries["technical"]
 
         result = await mcp_client.call_tool(
-            "search_google",
+            "search_web",
             {
                 "request": {
                     "query": query_info["query"],
@@ -159,7 +184,7 @@ class TestSearchGoogle:
 
         # Get first chunk (0-100)
         first_chunk = await mcp_client.call_tool(
-            "search_google",
+            "search_web",
             {
                 "request": {
                     "query": query_info["query"],
@@ -173,7 +198,7 @@ class TestSearchGoogle:
 
         # Get second chunk (100-200) - continuation
         second_chunk = await mcp_client.call_tool(
-            "search_google",
+            "search_web",
             {
                 "request": {
                     "query": query_info["query"],
@@ -206,7 +231,7 @@ class TestSearchGoogle:
 
         # First request - should be cache miss
         first_result = await mcp_client.call_tool(
-            "search_google",
+            "search_web",
             {
                 "request": {
                     "query": query_info["query"],
@@ -224,7 +249,7 @@ class TestSearchGoogle:
 
         # Second request with different slicing - should be cache hit
         second_result = await mcp_client.call_tool(
-            "search_google",
+            "search_web",
             {
                 "request": {
                     "query": query_info["query"],
@@ -240,8 +265,8 @@ class TestSearchGoogle:
 
 @pytest.mark.mcp
 @pytest.mark.search
-class TestBatchSearchGoogle:
-    """Tests for batch_search_google tool."""
+class TestBatchSearchWeb:
+    """Tests for batch_search_web tool."""
 
     @pytest.mark.asyncio
     @pytest.mark.slow
@@ -253,7 +278,7 @@ class TestBatchSearchGoogle:
         ]
 
         result = await mcp_client.call_tool(
-            "batch_search_google",
+            "batch_search_web",
             {
                 "request": {
                     "queries": queries,
@@ -273,7 +298,7 @@ class TestBatchSearchGoogle:
         queries = [search_test_queries["technical"]["query"]]
 
         result = await mcp_client.call_tool(
-            "batch_search_google",
+            "batch_search_web",
             {
                 "request": {
                     "queries": queries,

@@ -177,6 +177,10 @@ DEFAULT_CRAWL_CACHE_TTL_SECONDS = 3600
 # Single source of truth for the search_genre values. Each genre appends
 # its operator to the query as " (<operator>)". Any other value is rejected
 # by validators.validate_search_genre.
+# Search engine APIs selectable with SEARCH_ENGINE or the engine request key
+# ("auto" tries the configured ones in SEARCH_ENGINE_ORDER).
+SEARCH_ENGINES = ("google_custom", "brave", "exa")
+
 SEARCH_GENRES: Dict[str, Dict[str, str]] = {
     "pdf": {
         "operator": "filetype:pdf",

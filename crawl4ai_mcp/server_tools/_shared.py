@@ -23,6 +23,7 @@ from ..validators import (
     validate_content_slicing_params,
     validate_output_path,
     validate_search_genre,
+    validate_search_engine,
     validate_crawl_depth,
     validate_max_pages,
 )
@@ -59,6 +60,7 @@ __all__ = [
     "validate_content_slicing_params",
     "validate_output_path",
     "validate_search_genre",
+    "validate_search_engine",
     "validate_crawl_depth",
     "validate_max_pages",
     # file persistence

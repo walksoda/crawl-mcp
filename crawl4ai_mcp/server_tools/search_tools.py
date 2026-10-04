@@ -2,13 +2,14 @@
 Search tool registrations.
 """
 
-from ..constants import SEARCH_GENRES
+from ..constants import SEARCH_ENGINES, SEARCH_GENRES
 from ._shared import (
     Annotated, Dict, Field, Any,
     apply_token_limit,
     validate_content_slicing_params,
     validate_output_path,
     validate_search_genre,
+    validate_search_engine,
     _apply_search_content_slicing,
     _get_search_cache_key,
     _get_cached_search_result,
@@ -29,6 +30,28 @@ _GENRE_DESC = (
     + "; adds a filetype/language operator to the query, other values return an error)"
 )
 
+# Text for the engine key in the request descriptions.
+_ENGINE_DESC = (
+    "engine (optional, one of: auto, " + ", ".join(SEARCH_ENGINES)
+    + "; default from SEARCH_ENGINE, auto tries the engines that have API keys in SEARCH_ENGINE_ORDER"
+    " and moves to the next one on errors other than zero results)"
+)
+
+_SEARCH_REQUEST_DESC = (
+    "Dict with: query (required), num_results, " + _GENRE_DESC + ", " + _ENGINE_DESC
+    + ", language, region, recent_days, content_limit (int), content_offset (int). Optional persistence keys: output_path (absolute file path, auto .json extension — full unsliced results written to disk BEFORE content_limit/content_offset slicing), include_content_in_response (bool, default False — when True keeps results in the response too, still subject to slicing), overwrite (bool, default False)."
+)
+
+_BATCH_REQUEST_DESC = (
+    "Dict with: queries (max 3), num_results_per_query, " + _GENRE_DESC + ", " + _ENGINE_DESC
+    + ", recent_days. Optional persistence keys: output_path (absolute file path, auto .json extension — full result set written to disk), include_content_in_response (bool, default False — when True keeps results in the response too), overwrite (bool, default False)."
+)
+
+
+def _validate_search_request(request: Dict[str, Any]):
+    """search_genre and engine checks shared by the search tools (before any network access)."""
+    return validate_search_genre(request.get('search_genre')) or validate_search_engine(request.get('engine'))
+
 
 def _extract_persist_opts(request: Dict[str, Any]):
     """Pull (output_path, include_content_in_response, overwrite) from a request dict."""
@@ -42,14 +65,10 @@ def _extract_persist_opts(request: Dict[str, Any]):
 def register_search_tools(mcp, get_modules):
     """Register search-related MCP tools."""
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
-    async def search_google(
-        request: Annotated[Dict[str, Any], Field(description="Dict with: query (required), num_results, " + _GENRE_DESC + ", language, region, recent_days, content_limit (int), content_offset (int). Optional persistence keys: output_path (absolute file path, auto .json extension — full unsliced results written to disk BEFORE content_limit/content_offset slicing), include_content_in_response (bool, default False — when True keeps results in the response too, still subject to slicing), overwrite (bool, default False).")]
-    ) -> Dict[str, Any]:
-        """Search Google with optional search_genre filtering (file types or language; see get_search_genres). Supply output_path in the request to persist the full unsliced result set to disk as JSON and receive a slim response."""
-        genre_error = validate_search_genre(request.get('search_genre'))
-        if genre_error:
-            return genre_error
+    async def _search_web(request: Dict[str, Any], source_tool: str) -> Dict[str, Any]:
+        request_error = _validate_search_request(request)
+        if request_error:
+            return request_error
 
         # Output path validation (Guard A)
         output_path, include_content_in_response, overwrite = _extract_persist_opts(request)
@@ -71,7 +90,7 @@ def register_search_tools(mcp, get_modules):
                 include_content_in_response=include_content_in_response,
                 overwrite=overwrite,
                 tool_kind=KIND_SEARCH_JSON,
-                source_tool="search_google",
+                source_tool=source_tool,
             )
 
         try:
@@ -112,7 +131,7 @@ def register_search_tools(mcp, get_modules):
                     return apply_token_limit(result_copy, max_tokens=25000)
 
             # Execute search
-            result = await search.search_google(request)
+            result = await search.search_web(request)
 
             # Store in cache if slicing is requested and search succeeded
             if result.get('success') and cache_key:
@@ -136,22 +155,32 @@ def register_search_tools(mcp, get_modules):
         except Exception as e:
             return {
                 "success": False,
-                "error": f"Google search error: {str(e)}"
+                "error": f"Web search error: {str(e)}"
             }
 
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
-    async def batch_search_google(
-        request: Annotated[Dict[str, Any], Field(description="Dict with: queries (max 3), num_results_per_query, " + _GENRE_DESC + ", recent_days. Optional persistence keys: output_path (absolute file path, auto .json extension — full result set written to disk), include_content_in_response (bool, default False — when True keeps results in the response too), overwrite (bool, default False).")]
+    async def search_web(
+        request: Annotated[Dict[str, Any], Field(description=_SEARCH_REQUEST_DESC)]
     ) -> Dict[str, Any]:
-        """Perform multiple Google searches. Max 3 queries per call. Supply output_path in the request to persist the full result set to disk as JSON and receive a slim response."""
+        """Search the web with Google Custom Search, Brave or Exa (engine key, or the server default). Optional search_genre filtering (file types or language; see get_search_genres). Supply output_path in the request to persist the full unsliced result set to disk as JSON and receive a slim response."""
+        return await _search_web(request, "search_web")
+
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    async def search_google(
+        request: Annotated[Dict[str, Any], Field(description=_SEARCH_REQUEST_DESC)]
+    ) -> Dict[str, Any]:
+        """Deprecated alias of search_web (same request keys and results; the engine is not limited to Google). Use search_web."""
+        return await _search_web(request, "search_google")
+
+    async def _batch_search_web(request: Dict[str, Any], source_tool: str) -> Dict[str, Any]:
         # Query limit check (MCP best practice: bounded toolsets)
         queries = request.get('queries', [])
         if len(queries) > 3:
             return {"success": False, "error": "Maximum 3 queries allowed per batch. Split into multiple calls."}
 
-        genre_error = validate_search_genre(request.get('search_genre'))
-        if genre_error:
-            return genre_error
+        request_error = _validate_search_request(request)
+        if request_error:
+            return request_error
 
         # Output path validation (Guard A)
         output_path, include_content_in_response, overwrite = _extract_persist_opts(request)
@@ -165,7 +194,7 @@ def register_search_tools(mcp, get_modules):
         web_crawling, search, youtube, file_processing, utilities = modules
 
         try:
-            result = await search.batch_search_google(request)
+            result = await search.batch_search_web(request)
             if output_path:
                 result = finalize_tool_response(
                     result,
@@ -173,7 +202,7 @@ def register_search_tools(mcp, get_modules):
                     include_content_in_response=include_content_in_response,
                     overwrite=overwrite,
                     tool_kind=KIND_SEARCH_JSON,
-                    source_tool="batch_search_google",
+                    source_tool=source_tool,
                 )
             return apply_token_limit(result, max_tokens=25000)
         except Exception as e:
@@ -183,13 +212,27 @@ def register_search_tools(mcp, get_modules):
             }
 
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
-    async def search_and_crawl(
-        request: Annotated[Dict[str, Any], Field(description="Dict with: search_query (required), crawl_top_results, " + _GENRE_DESC + ", recent_days, generate_markdown, max_content_per_page. Optional persistence keys: output_path (absolute directory — per-page .md files + index.json, the full page bodies are written BEFORE max_content_per_page truncation; dot-containing dir names are fine), include_content_in_response (bool, default False — when True keeps crawled_pages in the response too, still subject to max_content_per_page truncation), overwrite (bool, default False). Failed pages appear in index.json with file=null.")]
+    async def batch_search_web(
+        request: Annotated[Dict[str, Any], Field(description=_BATCH_REQUEST_DESC)]
     ) -> Dict[str, Any]:
-        """Search Google and crawl top results. Combines search with full content extraction. Supply output_path (directory) in the request to persist per-page markdown (unsliced) + index.json and receive a slim response."""
-        genre_error = validate_search_genre(request.get('search_genre'))
-        if genre_error:
-            return genre_error
+        """Perform multiple web searches. Max 3 queries per call. Supply output_path in the request to persist the full result set to disk as JSON and receive a slim response."""
+        return await _batch_search_web(request, "batch_search_web")
+
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    async def batch_search_google(
+        request: Annotated[Dict[str, Any], Field(description=_BATCH_REQUEST_DESC)]
+    ) -> Dict[str, Any]:
+        """Deprecated alias of batch_search_web (same request keys and results). Use batch_search_web."""
+        return await _batch_search_web(request, "batch_search_google")
+
+    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    async def search_and_crawl(
+        request: Annotated[Dict[str, Any], Field(description="Dict with: search_query (required), crawl_top_results, " + _GENRE_DESC + ", " + _ENGINE_DESC + ", recent_days, generate_markdown, max_content_per_page. Optional persistence keys: output_path (absolute directory — per-page .md files + index.json, the full page bodies are written BEFORE max_content_per_page truncation; dot-containing dir names are fine), include_content_in_response (bool, default False — when True keeps crawled_pages in the response too, still subject to max_content_per_page truncation), overwrite (bool, default False). Failed pages appear in index.json with file=null.")]
+    ) -> Dict[str, Any]:
+        """Search the web (engine as in search_web) and crawl top results. Combines search with full content extraction. Supply output_path (directory) in the request to persist per-page markdown (unsliced) + index.json and receive a slim response."""
+        request_error = _validate_search_request(request)
+        if request_error:
+            return request_error
 
         # Output path validation (Guard A)
         output_path, include_content_in_response, overwrite = _extract_persist_opts(request)
@@ -234,7 +277,8 @@ def register_search_tools(mcp, get_modules):
                 crawl_top_results=crawl_top_results,
                 search_genre=search_genre,
                 recent_days=recent_days,
-                generate_markdown=generate_markdown
+                generate_markdown=generate_markdown,
+                engine=request.get('engine')
             )
 
             # Check for failed crawls and apply fallback
@@ -284,9 +328,10 @@ def register_search_tools(mcp, get_modules):
             # If search_and_crawl fails entirely, try with fallback crawling
             try:
                 # First try to get search results only
-                search_result = await search.search_google({
+                search_result = await search.search_web({
                     "query": request.get('search_query', ''),
-                    "num_results": request.get('crawl_top_results', 2)
+                    "num_results": request.get('crawl_top_results', 2),
+                    "engine": request.get('engine')
                 })
 
                 if search_result.get("success", False) and "results" in search_result:

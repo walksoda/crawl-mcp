@@ -92,6 +92,9 @@ def _get_search_cache_key(request: dict) -> str:
     # Normalize search_genre (None/'' both mean no genre filter)
     search_genre = request.get('search_genre') or ''
 
+    # Normalize engine (None/'' mean the server default)
+    engine = str(request.get('engine') or '').strip().lower()
+
     # Build cache key with all parameters that affect search results
     key_parts = [
         request.get('query', ''),
@@ -101,6 +104,7 @@ def _get_search_cache_key(request: dict) -> str:
         region,
         recent_days_str,
         str(safe_search),
+        engine,
     ]
     key_str = ":".join(key_parts)
     return hashlib.md5(key_str.encode()).hexdigest()

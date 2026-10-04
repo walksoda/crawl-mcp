@@ -73,8 +73,10 @@ from .fallback_strategies import (
 
 # Search tools
 from .search import (
+    search_web,
+    batch_search_web,
     search_google,
-    batch_search_google, 
+    batch_search_google,
     search_and_crawl,
     get_search_genres
 )
@@ -141,6 +143,8 @@ __all__ = [
     'get_fallback_stage_info',
 
     # Search tools
+    'search_web',
+    'batch_search_web',
     'search_google',
     'batch_search_google',
     'search_and_crawl',

@@ -121,12 +121,12 @@ TOOL_SELECTION_GUIDE = {
     "transcript_availability": "get_youtube_video_info",
     
     # === SEARCH OPERATIONS ===
-    "search_only": "search_google",
-    "google_search_results": "search_google",
-    "research_queries": "search_google",
-    "fact_checking": "search_google",
-    "genre_specific_search": "search_google",
-    "academic_search": "search_google",
+    "search_only": "search_web",
+    "google_search_results": "search_web",
+    "research_queries": "search_web",
+    "fact_checking": "search_web",
+    "genre_specific_search": "search_web",
+    "academic_search": "search_web",
     
     # === SEARCH + CONTENT EXTRACTION ===
     "search_plus_content": "search_and_crawl",
@@ -137,9 +137,9 @@ TOOL_SELECTION_GUIDE = {
     "search_and_analyze": "search_and_crawl",
     
     # === BATCH SEARCH OPERATIONS ===
-    "multiple_search_queries": "batch_search_google",
-    "bulk_search_analysis": "batch_search_google",
-    "comparative_search": "batch_search_google",
+    "multiple_search_queries": "batch_search_web",
+    "bulk_search_analysis": "batch_search_web",
+    "comparative_search": "batch_search_web",
     
     # === BATCH CONTENT PROCESSING ===
     "multiple_urls_processing": "batch_crawl",
@@ -171,19 +171,19 @@ TOOL_SELECTION_GUIDE = {
 # Workflow-based tool selection guide
 WORKFLOW_GUIDE = {
     # === RESEARCH WORKFLOWS ===
-    "market_research_workflow": ["search_google", "search_and_crawl", "intelligent_extract"],
+    "market_research_workflow": ["search_web", "search_and_crawl", "intelligent_extract"],
     "competitive_analysis_workflow": ["search_and_crawl", "deep_crawl_site", "intelligent_extract"],
-    "academic_research_workflow": ["search_google", "process_file", "extract_youtube_transcript"],
-    "lead_generation_workflow": ["search_google", "extract_entities", "intelligent_extract"],
+    "academic_research_workflow": ["search_web", "process_file", "extract_youtube_transcript"],
+    "lead_generation_workflow": ["search_web", "extract_entities", "intelligent_extract"],
     
     # === CONTENT ANALYSIS WORKFLOWS ===
     "website_audit_workflow": ["crawl_url", "deep_crawl_site", "extract_entities"],
     "document_analysis_workflow": ["process_file", "intelligent_extract", "extract_entities"],
     "video_content_workflow": ["extract_youtube_transcript", "intelligent_extract"],
-    "bulk_processing_workflow": ["batch_crawl", "batch_search_google", "batch_extract_youtube_transcripts"],
+    "bulk_processing_workflow": ["batch_crawl", "batch_search_web", "batch_extract_youtube_transcripts"],
     
     # === DATA EXTRACTION WORKFLOWS ===
-    "contact_discovery_workflow": ["search_google", "extract_entities", "intelligent_extract"],
+    "contact_discovery_workflow": ["search_web", "extract_entities", "intelligent_extract"],
     "pricing_analysis_workflow": ["search_and_crawl", "intelligent_extract"],
     "product_research_workflow": ["search_and_crawl", "deep_crawl_site", "intelligent_extract"],
     "documentation_extraction_workflow": ["deep_crawl_site", "process_file", "intelligent_extract"],
@@ -191,8 +191,8 @@ WORKFLOW_GUIDE = {
 
 # Task complexity mapping
 COMPLEXITY_GUIDE = {
-    "simple_single_task": ["crawl_url", "extract_entities", "search_google", "process_file"],
+    "simple_single_task": ["crawl_url", "extract_entities", "search_web", "process_file"],
     "moderate_multi_step": ["intelligent_extract", "deep_crawl_site", "search_and_crawl"],
-    "complex_bulk_operations": ["batch_crawl", "batch_search_google", "batch_extract_youtube_transcripts"],
+    "complex_bulk_operations": ["batch_crawl", "batch_search_web", "batch_extract_youtube_transcripts"],
     "advanced_workflows": ["crawl_url_with_fallback", "extract_structured_data"],
 }

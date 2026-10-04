@@ -399,7 +399,7 @@ def register_batch_tools(mcp, get_modules):
         return {
             "web_crawling": ["crawl_url", "deep_crawl_site", "crawl_url_with_fallback", "intelligent_extract", "extract_entities", "extract_structured_data"],
             "youtube": ["extract_youtube_transcript", "batch_extract_youtube_transcripts", "get_youtube_video_info", "get_youtube_api_setup_guide"],
-            "search": ["search_google", "batch_search_google", "search_and_crawl", "get_search_genres"],
+            "search": ["search_web", "batch_search_web", "search_and_crawl", "get_search_genres"],
             "batch": ["batch_crawl", "multi_url_crawl"],
             "files": ["process_file", "get_supported_file_formats", "enhanced_process_large_content"],
             "config": ["get_llm_config_info", "get_tool_selection_guide"],

@@ -1,32 +1,45 @@
 """Core search functions for Crawl4AI MCP Server."""
 
-import asyncio
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime
+from typing import Any, Dict, Optional
 
-from ..constants import SEARCH_GENRES
-from ..processors.google_search import GoogleSearchProcessor
+from ..constants import SEARCH_ENGINES, SEARCH_GENRES
+from ..processors.web_search import FILE_TYPE_GENRES, WebSearchProcessor
+from ..utils.time_parser import parse_time_period
 from .crawler_summarizer import summarize_web_content
 
-# Initialize Google search processor
-google_search_processor = GoogleSearchProcessor()
+# One processor shared by search_web, batch_search_web and search_and_crawl
+web_search_processor = WebSearchProcessor()
 
 
-async def search_google(
+def recent_days_to_int(value: Any) -> Optional[int]:
+    """
+    Normalize recent_days to a number of days (None when unset or invalid).
+
+    Accepts an int or the strings parse_time_period understands
+    ("7", "2w", "3mo", "1y").
+    """
+    parsed = parse_time_period(value)
+    if parsed is None:
+        return None
+    if isinstance(parsed, str):
+        try:
+            parsed = (date.today() - datetime.strptime(parsed, "%Y-%m-%d").date()).days
+        except ValueError:
+            return None
+    return parsed if parsed > 0 else None
+
+
+async def search_web(
     request: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
-    Perform Google search with genre filtering and extract structured results with metadata.
+    Run a web search on the selected engine and return structured results.
 
-    Returns web search results with titles, snippets, URLs, and metadata.
-    Supports targeted search genres for better results.
-
-    Date Filtering:
-    - recent_days: Filters to recent results (e.g., 7 for last week, 30 for last month)
-    - Set to None to search all dates without filtering
+    Request keys: query, num_results, search_genre, language, region,
+    safe_search, recent_days, engine (auto, google_custom, brave, exa).
     """
     try:
-        # Extract parameters from request dictionary
         query = request.get('query', '')
         if not query:
             return {
@@ -35,63 +48,54 @@ async def search_google(
                 "error": "Query parameter is required"
             }
 
-        num_results = max(1, min(100, request.get('num_results', 10)))
-        search_genre = request.get('search_genre')
-        language = request.get('language', 'en')
-        region = request.get('region', 'us')
-        safe_search = request.get('safe_search', True)
-        recent_days = request.get('recent_days')
-
-        # Process query for date filtering
-        enhanced_query = query
-
-        # Add date filtering if recent_days is specified
-        if recent_days and recent_days > 0:
-            from datetime import datetime, timedelta
-            # Calculate start date for filtering
-            start_date = (datetime.now() - timedelta(days=recent_days)).strftime("%Y-%m-%d")
-            # Add date range to query for more focused results
-            enhanced_query = f"{query} after:{start_date}"
-
-        # Perform search using GoogleSearchProcessor
-        result = await google_search_processor.search_google(
-            query=enhanced_query,
-            num_results=num_results,
-            language=language,
-            region=region,
-            safe_search=safe_search,
-            search_genre=search_genre
+        result = await web_search_processor.search(
+            query=query,
+            num_results=max(1, min(100, request.get('num_results', 10))),
+            language=request.get('language', 'en'),
+            region=request.get('region', 'us'),
+            safe_search=request.get('safe_search', True),
+            search_genre=request.get('search_genre'),
+            recent_days=recent_days_to_int(request.get('recent_days')),
+            engine=request.get('engine'),
         )
 
         if result['success']:
-            return {
+            response = {
                 "success": True,
                 "query": result['query'],
+                "engine": result['engine'],
                 "total_results": result['total_results'],
                 "results": result['results'],
                 "search_metadata": result['search_metadata']
             }
         else:
-            return {
+            response = {
                 "success": False,
                 "query": query,
                 "error": result.get('error'),
-                "suggestion": result.get('suggestion')
+                "suggestion": result.get('suggestion'),
             }
+            for key in ('error_code', 'engine', 'configured_engines', 'alternative_queries'):
+                if key in result:
+                    response[key] = result[key]
+        for key in ('fallback_info', 'cost_dollars'):
+            if key in result:
+                response[key] = result[key]
+        return response
 
     except Exception as e:
         return {
             "success": False,
             "query": request.get('query', ''),
-            "error": f"Google search error: {str(e)}"
+            "error": f"Web search error: {str(e)}"
         }
 
 
-async def batch_search_google(
+async def batch_search_web(
     request: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
-    Perform multiple Google searches in batch with optional AI summarization.
+    Perform multiple web searches in batch with optional AI summarization.
 
     Process multiple search queries concurrently with controlled rate limiting.
     Includes batch processing statistics and result analysis.
@@ -119,40 +123,27 @@ async def batch_search_google(
             }
 
         # Validate and limit parameters
-        max_concurrent = max(1, min(5, request.get('max_concurrent', 3)))  # Be respectful to Google
+        max_concurrent = max(1, min(5, request.get('max_concurrent', 3)))
         num_results = max(1, min(100, request.get('num_results_per_query', 10)))
         search_genre = request.get('search_genre')
         language = request.get('language', 'en')
         region = request.get('region', 'us')
         recent_days = request.get('recent_days')
+        engine = request.get('engine')
         auto_summarize = request.get('auto_summarize', False)
         summary_length = request.get('summary_length', 'medium')
         llm_provider = request.get('llm_provider')
         llm_model = request.get('llm_model')
 
-        # Process queries for date enhancement
-        enhanced_queries = []
-        for query in queries:
-            enhanced_query = query
-
-            # Add date filtering if recent_days is specified
-            if recent_days and recent_days > 0:
-                from datetime import datetime, timedelta
-                # Calculate start date for filtering
-                start_date = (datetime.now() - timedelta(days=recent_days)).strftime("%Y-%m-%d")
-                # Add date range to query for more focused results
-                enhanced_query = f"{query} after:{start_date}"
-
-            enhanced_queries.append(enhanced_query)
-
-        # Perform batch search using GoogleSearchProcessor
-        batch_results = await google_search_processor.batch_search(
-            queries=enhanced_queries,
+        batch_results = await web_search_processor.batch_search(
+            queries=queries,
             num_results_per_query=num_results,
             max_concurrent=max_concurrent,
             language=language,
             region=region,
-            search_genre=search_genre
+            search_genre=search_genre,
+            recent_days=recent_days_to_int(recent_days),
+            engine=engine,
         )
 
         # Process results and count successes/failures
@@ -163,24 +154,30 @@ async def batch_search_google(
         for result in batch_results:
             if result.get('success', False):
                 successful += 1
-                processed_results.append({
+                entry = {
                     "success": True,
                     "query": result['query'],
+                    "engine": result.get('engine'),
                     "total_results": result.get('total_results', 0),
                     "results": result.get('results', []),
                     "search_metadata": result.get('search_metadata', {})
-                })
+                }
             else:
                 failed += 1
-                processed_results.append({
+                entry = {
                     "success": False,
                     "query": result.get('query', ''),
+                    "engine": result.get('engine'),
                     "error": result.get('error', 'Unknown error'),
+                    "error_code": result.get('error_code'),
                     "suggestion": result.get('suggestion')
-                })
+                }
+            for key in ('fallback_info', 'cost_dollars'):
+                if key in result:
+                    entry[key] = result[key]
+            processed_results.append(entry)
 
-        # Generate analysis using GoogleSearchProcessor
-        analysis_result = google_search_processor.analyze_search_results(batch_results)
+        analysis_result = web_search_processor.analyze_search_results(batch_results)
 
         # Apply AI summarization if requested
         summarization_result = None
@@ -237,6 +234,7 @@ async def batch_search_google(
             "analysis": analysis_result.get('analysis') if analysis_result.get('success') else None,
             "batch_metadata": {
                 "max_concurrent_used": max_concurrent,
+                "engine": engine or web_search_processor.default_engine,
                 "num_results_per_query": num_results,
                 "search_genre": search_genre,
                 "language": language,
@@ -271,7 +269,7 @@ async def get_search_genres() -> Dict[str, Any]:
     language). Any other search_genre value is rejected by the search tools.
     """
     try:
-        config = google_search_processor.get_search_configuration()
+        config = web_search_processor.get_search_configuration()
 
         return {
             "success": True,
@@ -284,9 +282,20 @@ async def get_search_genres() -> Dict[str, Any]:
                 "enhanced_query": f"technical documentation ({SEARCH_GENRES['pdf']['operator']})",
             },
             "configuration": {
-                "search_mode": config.get("search_mode", "hybrid"),
+                "default_engine": config["default_engine"],
+                "auto_order": config["auto_order"],
+                "configured_engines": config["configured_engines"],
+                "engines": list(SEARCH_ENGINES),
+                "genre_support": {
+                    "google_custom": "all genres (operators added to the query)",
+                    "brave": "all genres (operators added to the query)",
+                    "exa": (
+                        "japanese (sets userLocation=JP) and english (no effect); "
+                        + ", ".join(sorted(FILE_TYPE_GENRES))
+                        + " are not supported, auto mode skips exa for them"
+                    ),
+                },
                 "rate_limiting_enabled": True,
-                "fallback_support": config.get("custom_search_api", {}).get("available", False),
                 "supported_languages": ["en", "ja", "es", "fr", "de", "it", "pt", "ru", "zh", "ko"],
                 "supported_regions": ["us", "uk", "jp", "de", "fr", "ca", "au", "in"]
             },
@@ -294,6 +303,7 @@ async def get_search_genres() -> Dict[str, Any]:
                 "search_genre is optional; omit it for an unfiltered search",
                 "Other search_genre values return an invalid_search_genre error",
                 "Use recent_days for date filtering",
+                "Pass engine in the request to pick a search engine for one call",
             ],
         }
 
@@ -302,3 +312,8 @@ async def get_search_genres() -> Dict[str, Any]:
             "success": False,
             "error": f"Failed to get search genres: {str(e)}"
         }
+
+
+# Former names, kept for callers of the search_google / batch_search_google tools
+search_google = search_web
+batch_search_google = batch_search_web

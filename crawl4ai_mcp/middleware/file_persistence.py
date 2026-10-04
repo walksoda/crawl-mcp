@@ -72,7 +72,7 @@ KIND_YOUTUBE_COMMENTS = "youtube_comments"
 ``extracted_data.comments``)."""
 
 KIND_SEARCH_JSON = "search_json"
-"""search_google / batch_search_google — persist as JSON."""
+"""search_web / batch_search_web (and the search_google aliases) — persist as JSON."""
 
 
 _JSON_KINDS = {KIND_STRUCTURED_JSON, KIND_YOUTUBE_COMMENTS, KIND_SEARCH_JSON}

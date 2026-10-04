@@ -1,19 +1,27 @@
 """Processors package for Crawl4AI MCP Server.
 
-External service wrappers for file processing, YouTube, and Google Search.
+External service wrappers for file processing, YouTube, and web search.
 """
 
 from .file_processor import FileProcessor
 from .youtube_processor import YouTubeProcessor
-from .google_search import GoogleSearchProcessor
-from .google_search_helpers import SearchRequest, RateLimiter
-from .google_custom_search import CustomSearchAPIClient
+from .web_search import WebSearchProcessor, GoogleSearchProcessor
+from .search_engines import (
+    BraveSearchClient,
+    CustomSearchAPIClient,
+    ExaSearchClient,
+    RateLimiter,
+    SearchRequest,
+)
 
 __all__ = [
     "FileProcessor",
     "YouTubeProcessor",
+    "WebSearchProcessor",
     "GoogleSearchProcessor",
+    "BraveSearchClient",
+    "CustomSearchAPIClient",
+    "ExaSearchClient",
     "SearchRequest",
     "RateLimiter",
-    "CustomSearchAPIClient",
 ]

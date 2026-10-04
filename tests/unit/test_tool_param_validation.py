@@ -15,7 +15,7 @@ from crawl4ai_mcp.core.extraction_entity import (
     ENTITY_PATTERNS,
     normalize_entity_types,
 )
-from crawl4ai_mcp.processors.google_search import GoogleSearchProcessor
+from crawl4ai_mcp.processors.web_search import WebSearchProcessor
 from crawl4ai_mcp.server_tools.crawl_tools import register_crawl_tools
 from crawl4ai_mcp.server_tools.search_tools import register_search_tools
 from crawl4ai_mcp.validators import validate_search_genre
@@ -52,7 +52,7 @@ class TestSearchGenreSource:
         assert set(SEARCH_GENRES) == EXPECTED_GENRES
 
     def test_every_genre_changes_the_query(self):
-        proc = GoogleSearchProcessor()
+        proc = WebSearchProcessor()
         for name, spec in SEARCH_GENRES.items():
             assert proc._enhance_query_with_genre("q", name) == f"q ({spec['operator']})"
         assert proc._enhance_query_with_genre("q", "PDF") == "q (filetype:pdf)"
@@ -83,8 +83,8 @@ class TestSearchToolsRejectUnknownGenre:
     def _search_mock(self):
         search = MagicMock()
         boom = AsyncMock(side_effect=AssertionError("must not search"))
-        search.search_google = boom
-        search.batch_search_google = boom
+        search.search_web = boom
+        search.batch_search_web = boom
         search.search_and_crawl = boom
         return search
 
@@ -104,11 +104,11 @@ class TestSearchToolsRejectUnknownGenre:
     @pytest.mark.asyncio
     async def test_valid_genre_passes_through(self):
         search = MagicMock()
-        search.search_google = AsyncMock(return_value={"success": True, "results": []})
+        search.search_web = AsyncMock(return_value={"success": True, "results": []})
         tools = self._tools(search)
         result = await tools["search_google"](request={"query": "x", "search_genre": "pdf"})
         assert result["success"] is True
-        search.search_google.assert_awaited_once()
+        search.search_web.assert_awaited_once()
 
     def test_descriptions_list_only_real_genres(self):
         from crawl4ai_mcp.server_tools import search_tools

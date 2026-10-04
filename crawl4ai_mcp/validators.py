@@ -410,6 +410,33 @@ def validate_search_genre(search_genre: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def validate_search_engine(engine: Any) -> Optional[Dict[str, Any]]:
+    """
+    Validate the optional engine parameter of the search tools.
+
+    None or an empty string means the server default (SEARCH_ENGINE).
+    Matching is case-insensitive.
+
+    Returns:
+        Error dictionary if invalid, None if valid
+    """
+    from .constants import SEARCH_ENGINES
+
+    valid_engines = ["auto", *SEARCH_ENGINES]
+
+    if engine is None or (isinstance(engine, str) and not engine.strip()):
+        return None
+
+    if not isinstance(engine, str) or engine.strip().lower() not in valid_engines:
+        return {
+            "success": False,
+            "error": f"Invalid engine: {engine!r}. Must be one of: {', '.join(valid_engines)}",
+            "error_code": "invalid_search_engine",
+            "valid_engines": valid_engines,
+        }
+    return None
+
+
 def validate_content_slicing_params(
     content_limit: int,
     content_offset: int

@@ -1,16 +1,11 @@
 """Core search and crawl integration for Crawl4AI MCP Server."""
 
 import asyncio
-from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from ..models import CrawlRequest
-from ..processors.google_search import GoogleSearchProcessor
 from .crawler_core import _internal_crawl_url
-from ..utils.time_parser import parse_time_period
-
-# Initialize Google search processor
-google_search_processor = GoogleSearchProcessor()
+from .search import recent_days_to_int, web_search_processor
 
 
 async def search_and_crawl(
@@ -21,10 +16,11 @@ async def search_and_crawl(
     generate_markdown: bool = True,
     search_genre: Optional[str] = None,
     base_timeout: int = 30,
-    recent_days: Optional[int] = None
+    recent_days: Optional[Any] = None,
+    engine: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Perform Google search and automatically crawl top results for full content analysis.
+    Perform a web search and automatically crawl top results for full content analysis.
 
     Combines search discovery with full content extraction. Auto-scales timeout based on crawl count.
     Returns both search results and full page content.
@@ -45,38 +41,22 @@ async def search_and_crawl(
         # Base timeout + additional time per URL (15s per additional URL after the first)
         dynamic_timeout = base_timeout + max(0, (crawl_top_results - 1) * 15)
 
-        # Process query for OR conditions and date enhancement
-        enhanced_query = search_query
-
-        # Convert space-separated keywords to OR conditions
-        keywords = search_query.split()
-        if len(keywords) > 1:
-            # Use OR between keywords for more flexible search
-            enhanced_query = " OR ".join(keywords)
-
-        # Optionally add date filtering for recent results
-        parsed_period = parse_time_period(recent_days)
-        if parsed_period:
-            # parse_time_period returns either int (days) or string (date)
-            if isinstance(parsed_period, int):
-                # It's a number of days
-                date_filter = (datetime.now() - timedelta(days=parsed_period)).strftime("%Y-%m-%d")
-            else:
-                # It's already a date string
-                date_filter = parsed_period
-            enhanced_query = f"{enhanced_query} after:{date_filter}"
-
-        # Step 1: Perform Google search
-        search_result = await google_search_processor.search_google(
-            query=enhanced_query,
+        # Step 1: Search
+        search_result = await web_search_processor.search(
+            query=search_query,
             num_results=num_search_results,
-            search_genre=search_genre
+            search_genre=search_genre,
+            recent_days=recent_days_to_int(recent_days),
+            engine=engine
         )
 
         if not search_result['success']:
             return {
                 'success': False,
                 'error': f"Search failed: {search_result.get('error')}",
+                'error_code': search_result.get('error_code'),
+                'engine': search_result.get('engine'),
+                'search_fallback_info': search_result.get('fallback_info'),
                 'search_query': search_query,
                 'suggestion': search_result.get('suggestion')
             }
@@ -167,10 +147,10 @@ async def search_and_crawl(
         # Step 3: Generate comprehensive summary
         failed_crawls = len(crawl_results) - successful_crawls
 
-        return {
+        response = {
             'success': True,
             'search_query': search_query,
-            'enhanced_query': enhanced_query,
+            'engine': search_result.get('engine'),
             'search_metadata': search_result.get('search_metadata', {}),
             'crawl_summary': {
                 'total_search_results': len(search_results),
@@ -191,6 +171,9 @@ async def search_and_crawl(
                 'content_extraction_success_rate': f"{(successful_crawls/len(crawl_results)*100):.1f}%" if crawl_results else "0%"
             }
         }
+        if 'fallback_info' in search_result:
+            response['search_fallback_info'] = search_result['fallback_info']
+        return response
 
     except Exception as e:
         return {
