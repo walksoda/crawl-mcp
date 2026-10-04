@@ -1,170 +1,95 @@
 # Installation Guide
 
-This guide provides detailed installation instructions for the Crawl4AI MCP Server.
+How to install the Crawl4AI MCP Server and connect it to an MCP client.
 
-## 🔧 Prerequisites Setup (Required First)
+## Prerequisites
 
-**Python 3.11 or later is required (FastMCP dependency baseline)**
+- Python 3.11 or later (`requires-python = ">=3.11"`; tested on 3.11 and 3.12)
+- Playwright Chromium and its system libraries. The project pins `playwright==1.55.0`. Install the browser build that matches that version before first use.
 
-**Before using any installation method, you MUST prepare system dependencies for Playwright:**
+### Install Chromium for Playwright
 
-### 🐧 Linux/macOS
-
-#### Ubuntu 24.04 LTS Users (Manual Installation Required)
-
-**⚠️ IMPORTANT:** Due to Ubuntu 24.04's t64 library transition, the automated setup scripts are deprecated. Please use manual installation:
+On Linux, this installs the browser and the system libraries and requires sudo:
 
 ```bash
-# Ubuntu 24.04 LTS Manual Setup (required due to t64 transition)
-sudo apt update && sudo apt install -y \
-  libnss3 \
-  libatk-bridge2.0-0 \
-  libxss1 \
-  libasound2t64 \
-  libgbm1 \
-  libgtk-3-0t64 \
-  libxshmfence-dev \
-  libxrandr2 \
-  libxcomposite1 \
-  libxcursor1 \
-  libxdamage1 \
-  libxi6 \
-  fonts-noto-color-emoji \
-  fonts-unifont \
-  python3-venv \
-  python3-pip
-
-# Install Playwright and browsers
-python3 -m venv venv
-source venv/bin/activate
-pip install playwright==1.55.0
-playwright install chromium
-sudo playwright install-deps
+uvx --from playwright==1.55.0 playwright install --with-deps chromium
 ```
 
-#### Other Linux Distributions/macOS (Automated Script)
+On macOS and Windows:
 
 ```bash
-# Install system dependencies for Playwright (required for all methods)
-sudo bash scripts/prepare_for_uvx_playwright.sh
-
-# For Japanese language (optional)
-export CRAWL4AI_LANG=ja
-sudo bash scripts/prepare_for_uvx_playwright.sh
+uvx --from playwright==1.55.0 playwright install chromium
 ```
 
-### 🪟 Windows
+If you already have an environment with the package installed (see Methods 2 and 3), you can run the same command inside it instead: `python -m playwright install --with-deps chromium` (Linux) or `python -m playwright install chromium`.
 
-```powershell
-# Run as Administrator in PowerShell (required for all methods)
-scripts/prepare_for_uvx_playwright.ps1
+#### Manual system libraries (Ubuntu 24.04 LTS)
 
-# If execution policy blocks the script, use:
-# powershell -ExecutionPolicy Bypass -File "scripts/prepare_for_uvx_playwright.ps1"
-```
+If `--with-deps` is not available to you (for example, no sudo during the Playwright step), install the libraries manually. Ubuntu 24.04 uses the `t64` package names:
 
-### System Preparation Features
-
-- **Cross-platform**: Linux (apt/yum/pacman/apk) + Windows  
-- **Minimal Dependencies**: Only installs essential Playwright system libraries
-- **UVX Optimized**: Designed specifically for UVX execution environment
-- **Multi-language**: English (default) + Japanese (`CRAWL4AI_LANG=ja`)
-- **Version Synchronization**: Versions are managed in pyproject.toml
-- **Smart Installation**: Manual installation instructions use correct pinned versions
-- **Enhanced Error Handling**: Improved Chromium version compatibility messages for MCP clients
-
-## 🚀 Installation Methods
-
-### Method 1: UVX (Recommended - Easiest & Production Ready) ⭐
-
-**Most convenient single-command installation:**
-
-```bash
-# After system preparation above - that's it!
-uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
-```
-
-**✅ Benefits:** Zero configuration, automatic dependency management, isolated environment
-
-### Method 2: Development Environment
-
-```bash
-# After system preparation above, create development environment
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt  # Uses pinned versions for stability
-python -m playwright install chromium
-python -m crawl4ai_mcp.server
-```
-
-**Use case:** Local development and customization
-
-### Method 3: Direct Installation
-
-```bash
-# After system preparation above
-pip install -r requirements.txt  # Recommended: uses pinned versions
-# Alternative: pip install "crawl4ai>=0.8.0,<0.9" playwright==1.55.0
-python -m playwright install chromium
-python -m crawl4ai_mcp.server
-```
-
-**Use case:** Global installation or system-wide deployment
-
-## 🔧 Development Setup
-
-### Local Development Setup
-
-```bash
-git clone https://github.com/walksoda/crawl-mcp.git
-cd crawl-mcp
-uv sync
-```
-
-### Quick Setup (Traditional)
-
-**Linux/macOS:**
-```bash
-./setup.sh
-```
-
-**Windows:**
-```cmd
-setup_windows.bat
-```
-
-### Manual Installation
-
-1. **Create and activate virtual environment:**
-```bash
-python3 -m venv venv
-source venv/bin/activate  # Linux/macOS
-# or
-venv\Scripts\activate.bat  # Windows
-```
-
-2. **Install Python dependencies:**
-```bash
-pip install -r requirements.txt  # Installs pinned versions for stability
-```
-
-3. **Install Playwright browser dependencies (Linux/WSL):**
-
-**Ubuntu 24.04 LTS:**
 ```bash
 sudo apt update && sudo apt install -y \
-  libnss3 libatk-bridge2.0-0 libxss1 libasound2t64 \
+  libnss3 libnspr4 libatk-bridge2.0-0 libxss1 libasound2t64 \
   libgbm1 libgtk-3-0t64 libxshmfence-dev libxrandr2 \
   libxcomposite1 libxcursor1 libxdamage1 libxi6 \
   fonts-noto-color-emoji fonts-unifont
 ```
 
-**Other Linux distributions:**
+On older Debian/Ubuntu releases, use the non-`t64` names (`libasound2`, `libgtk-3-0`).
+
+## Installation Methods
+
+### Method 1: UVX (Recommended)
+
 ```bash
-sudo apt-get update
-sudo apt-get install libnss3 libnspr4 libasound2 libatk-bridge2.0-0 libdrm2 libgtk-3-0 libgbm1
+uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
 ```
 
-## ⚙️ Claude Desktop Integration
+UVX resolves the dependencies and runs the server in its own isolated environment, so there is no virtual environment to set up.
+
+### Method 2: Development Environment
+
+```bash
+git clone https://github.com/walksoda/crawl-mcp.git
+cd crawl-mcp
+python3 -m venv venv && source venv/bin/activate
+pip install -e .
+python -m playwright install chromium
+python -m crawl4ai_mcp.server
+```
+
+Use this method for local development. See the [Development Guide](DEVELOPMENT.md) for test dependencies.
+
+### Method 3: pip Installation
+
+```bash
+pip install git+https://github.com/walksoda/crawl-mcp
+# or, from a cloned repository: pip install .
+python -m playwright install chromium
+crawl-mcp
+```
+
+Use this method to install into an existing Python environment.
+
+`pyproject.toml` defines the dependencies with constrained versions (for example `crawl4ai>=0.9.4,<0.10`, `fastmcp>=2.14.2,<3`, `playwright==1.55.0`). `requirements.txt` mirrors them for Docker builds.
+
+### Setup Scripts (Traditional)
+
+The repository also contains setup scripts. They create `venv` and install `requirements.txt`, which does not install the package itself, so run the server from the repository root.
+
+Linux/macOS:
+
+```bash
+bash scripts/setup.sh
+```
+
+Windows:
+
+```cmd
+scripts\setup_windows.bat
+```
+
+## Claude Desktop Integration
 
 ### Basic Configuration
 
@@ -174,16 +99,12 @@ Add to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "crawl-mcp": {
-      "transport": "stdio",
       "command": "uvx",
       "args": [
         "--from",
         "git+https://github.com/walksoda/crawl-mcp",
         "crawl-mcp"
-      ],
-      "env": {
-        "CRAWL4AI_LANG": "en"
-      }
+      ]
     }
   }
 }
@@ -191,74 +112,44 @@ Add to your `claude_desktop_config.json`:
 
 ### Configuration File Locations
 
-**Windows:**
+Windows:
+
 ```
 %APPDATA%\Claude\claude_desktop_config.json
 ```
 
-**macOS:**
+macOS:
+
 ```
 ~/Library/Application Support/Claude/claude_desktop_config.json
 ```
 
-**Linux:**
-```
-~/.config/claude-desktop/claude_desktop_config.json
-```
-
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### Common Installation Issues
 
-If installation fails:
-
-1. **Check Chromium**: Re-run the Chromium setup scripts above
-2. **Browser Issues**: Re-run the Chromium setup scripts above
-3. **Permissions**: Ensure scripts run with proper privileges (sudo/Administrator)
-4. **Alternative Methods**: Try Method 2 (Development) or Method 3 (Direct) if UVX fails
-5. **UVX Success**: After system preparation, UVX (Method 1) typically works reliably
+1. Browser not found, or executable doesn't exist: re-run the Chromium install command above with `playwright==1.55.0`. A different Playwright version downloads a different Chromium build.
+2. Missing system libraries on Linux: use `--with-deps`, or install the libraries manually (see Prerequisites).
+3. Permission errors: `--with-deps` needs sudo on Linux.
+4. If UVX fails, try Method 2 or Method 3.
 
 ### Specific Error Solutions
 
-**ModuleNotFoundError:**
-- Ensure virtual environment is activated
-- Verify PYTHONPATH is set correctly
-- Install dependencies: `pip install -r requirements.txt`
+`ModuleNotFoundError`: activate the virtual environment and install the package with `pip install -e .` (or `pip install .`). If you run from a source checkout without installing, run from the repository root.
 
-**Playwright Browser Errors (Ubuntu 24.04 LTS):**
-- Use t64 library names: `sudo apt-get install libnss3 libnspr4 libasound2t64 libgtk-3-0t64`
-- Manual installation required due to t64 transition (see Prerequisites section)
-- For WSL: Ensure X11 forwarding or headless mode
+Playwright browser errors on Linux or WSL: on Ubuntu 24.04, use the `t64` library names (`libasound2t64`, `libgtk-3-0t64`). The server runs Chromium headless, so WSL does not need an X server.
 
-**Playwright Browser Errors (Other Linux):**
-- Install system dependencies: `sudo apt-get install libnss3 libnspr4 libasound2`
-- For WSL: Ensure X11 forwarding or headless mode
+JSON parsing errors in the MCP client (STDIO): over STDIO, the server keeps stdout for MCP messages only. All diagnostics, including the `.env` loading notices, go to stderr. If a client still reports invalid JSON, check for a wrapper script or shell profile that prints to stdout before the server starts.
 
-**JSON Parsing Errors:**
-- **Resolved**: Output suppression implemented in latest version
-- All crawl4ai verbose output is now properly suppressed
+Cached results that look like 16-character hash strings: crawl4ai's legacy cache migration could corrupt an existing cache database. The server disables that migration on startup, so upgrading crawl4ai no longer rewrites `~/.crawl4ai/crawl4ai.db`. If an earlier run already damaged the cache, you can delete the crawl4ai cache (`~/.crawl4ai/`); it is rebuilt on the next crawl.
 
-### PowerShell Execution Policy (Windows)
+## Next Steps
 
-If you encounter execution policy errors on Windows:
+After installation:
 
-```powershell
-# Option 1: Bypass execution policy for this script only
-powershell -ExecutionPolicy Bypass -File "scripts/prepare_for_uvx_playwright.ps1"
+1. Check the installation: run `python -m crawl4ai_mcp.server --help` (or `crawl-mcp --help`)
+2. Configure your MCP client: add the server configuration shown above
+3. Try a simple `crawl_url` call
+4. See the [API Reference](API_REFERENCE.md) for the available tools
 
-# Option 2: Temporarily change execution policy (run as Administrator)
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-# Then restore after setup
-Set-ExecutionPolicy -ExecutionPolicy Restricted -Scope CurrentUser
-```
-
-## 📚 Next Steps
-
-After successful installation:
-
-1. **Verify Installation**: Run `python -m crawl4ai_mcp.server --help`
-2. **Test Basic Functionality**: Try a simple crawl operation
-3. **Configure Claude Desktop**: Add the MCP server configuration
-4. **Explore Documentation**: Check the [API Reference](API_REFERENCE.md) for available tools
-
-For detailed usage instructions, see the main [README](../README.md) or [Advanced Usage Guide](ADVANCED_USAGE.md).
+For usage, see the main [README](../README.md) or the [Usage Patterns](ADVANCED_USAGE.md).

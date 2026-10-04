@@ -1,255 +1,203 @@
 # Development Guide
 
-Complete guide for developers contributing to and working with the Crawl4AI MCP Server project.
+How to set up, test, and contribute to the Crawl4AI MCP Server.
 
-## 🏗️ Project Architecture
+## Project Architecture
 
 ### Repository Structure
 
 ```
 crawl-mcp/
-├── crawl4ai_mcp/              # Main server implementation
-│   ├── server.py              # Primary MCP server (FastMCP entry point)
-│   ├── config.py              # Configuration management
-│   ├── server_tools/          # MCP tool registrations (public interface)
-│   │   ├── __init__.py        # Tool registration orchestrator
-│   │   ├── _shared.py         # Shared utilities and annotations
-│   │   ├── crawl_tools.py     # Web crawling tools
-│   │   ├── extraction_tools.py # Data extraction tools
-│   │   ├── youtube_tools.py   # YouTube tools
-│   │   ├── search_tools.py    # Search tools
-│   │   ├── file_tools.py      # File processing tools
-│   │   └── batch_tools.py     # Batch operation tools
-│   ├── tools/                 # Legacy facade (delegates to core/)
-│   ├── core/                  # Business logic implementations
-│   ├── infra/                 # Infrastructure (browser, config)
-│   ├── middleware/             # Request/response middleware
-│   └── processors/            # Content processors
-├── tests/                     # pytest test suite
-├── Dockerfile                 # Docker container configuration
-├── docker-compose.yml         # Docker Compose configuration
-├── pyproject.toml             # Package config (source of truth for deps)
-└── CLAUDE.md                  # Developer instructions
+├── crawl4ai_mcp/
+│   ├── __init__.py              # Version detection; installs crawl4ai_guard on import
+│   ├── server.py                # FastMCP entry point (main(): --transport/--host/--port)
+│   ├── config.py                # .env loading and LLM provider configuration
+│   ├── constants.py             # Shared limits and summary-length settings
+│   ├── validators.py            # Input validation (validate_*_params, validate_output_path)
+│   ├── crawl4ai_guard.py        # Disables crawl4ai's legacy cache migration
+│   ├── suppress_output.py       # Keeps library output off the MCP stdout channel
+│   ├── server_tools/            # @mcp.tool() adapters (the schema clients see)
+│   │   ├── __init__.py          # register_all_tools()
+│   │   ├── _shared.py           # Shared imports, readOnlyHint annotations, modules_unavailable_error()
+│   │   ├── crawl_tools.py       # crawl_url, crawl_url_with_fallback, deep_crawl_site
+│   │   ├── extraction_tools.py  # intelligent_extract, extract_entities, extract_structured_data
+│   │   ├── youtube_tools.py     # YouTube transcript/info/comments tools
+│   │   ├── search_tools.py      # search_google, batch_search_google, search_and_crawl
+│   │   ├── file_tools.py        # process_file, enhanced_process_large_content, ...
+│   │   └── batch_tools.py       # batch_crawl, multi_url_crawl
+│   ├── tools/                   # Backward-compatible re-export facade (no logic)
+│   ├── core/                    # Business logic (crawl, fallback, extraction, YouTube, search, files, batch)
+│   ├── processors/              # YouTube, Google search, and file conversion processors
+│   ├── infra/                   # Browser config, fallback strategies, fingerprint, sessions, strategy/content cache
+│   ├── utils/                   # LLM client, token counting, time parsing
+│   ├── models/                  # Pydantic request/response models
+│   ├── middleware/              # Response helpers and output_path persistence; see note below
+│   ├── server_helpers.py        # Re-exports helpers used by server_tools (slicing, transforms, search cache)
+│   ├── prompts/                 # MCP prompts
+│   ├── youtube_processor.py     # Compatibility shims re-exporting processors/
+│   ├── file_processor.py        #   (kept for older imports)
+│   └── google_search_processor.py
+├── tests/
+│   ├── unit/                    # Fast unit tests (no MCP connection)
+│   └── mcp/                     # Tool tests: start the server over stdio and hit the network
+├── scripts/run_tests.sh         # Test runner wrapper
+├── Dockerfile / docker-compose.yml
+├── pyproject.toml               # Package config (source of truth for dependencies and version)
+└── requirements.txt             # Mirror of the dependencies, used by the Docker build
 ```
 
-### Key Components
+The `ToolPipeline` classes in `middleware/pipeline.py` (and the pipeline step modules) are defined but not wired into any tool. The tool handlers call plain helper functions directly instead: `finalize_tool_response` from `middleware/file_persistence.py` (writing results to `output_path`), plus `_convert_result_to_dict` / `_process_content_fields` (`response_transform.py`), `_apply_content_slicing` (`content_slicing.py`), `_apply_search_content_slicing` (`search_slicing.py`), and the search result cache (`cache.py`), which reach `server_tools/_shared.py` through `server_helpers.py`.
 
-**Server Implementation:**
-- `server.py` - FastMCP entry point and server configuration
-- `config.py` - Environment and configuration management
+### Request Flow
 
-**MCP Public Interface:**
-- `server_tools/` - MCP tool registrations exposed to clients
-- `server_tools/_shared.py` - Shared utilities and readOnlyHint annotations
+A tool call passes through these layers:
 
-**Business Logic Layers:**
-- `core/` - Business logic implementations
-- `infra/` - Infrastructure (browser management, config)
-- `middleware/` - Request/response middleware
-- `processors/` - Content processors
+1. `server.py` creates `FastMCP("Crawl4AI")` and calls `register_all_tools(mcp, _get_modules)`. Logging, warnings, and the FastMCP banner are suppressed before the imports.
+2. `server_tools/*_tools.py` are thin `@mcp.tool()` adapters. Parameters are declared with `Annotated[..., Field(description=...)]`, which becomes the schema MCP clients see. `get_modules()` lazily loads `tools/`; on failure the handler returns `modules_unavailable_error()`.
+3. `tools/` re-exports functions from `core/` for backward compatibility.
+4. `core/` implements the logic and uses `processors/`, `infra/`, `utils/`, and `models/`.
 
-**Legacy:**
-- `tools/` - Legacy facade that delegates to `core/`
+### Tool Handler Pattern
 
-## 🔄 Development & Distribution
+When adding or changing a tool, follow the order used by `crawl_url` in `server_tools/crawl_tools.py`:
 
-This project supports **multiple distribution methods**:
+1. Validate input with `validators.py`: `validate_*_params`, `validate_content_slicing_params`, and `validate_output_path(output_path, overwrite)`. Do this before any network access.
+2. Call the core function through `get_modules()`.
+3. Normalize the result with `_convert_result_to_dict`, then `_process_content_fields`.
+4. Persist the result with `finalize_tool_response(..., tool_kind=KIND_*)` right before the successful return and before any slicing or truncation, so the file on disk holds the full, unsliced content. `KIND_*` constants are defined at the top of `middleware/file_persistence.py`.
+5. Slice and limit the response with `_apply_content_slicing` (`content_limit` / `content_offset`) and `apply_token_limit` (about 25,000 tokens).
 
-1. **Development**: `crawl4ai_mcp/server.py`
-   - Direct Python execution for development
-   - Virtual environment setup
-   - Easy debugging and modification
+Tools that support `output_path` expose all three parameters: `output_path`, `include_content_in_response`, and `overwrite`.
 
-2. **UVX Distribution**: PyPI package
-   - Distributed via GitHub releases
-   - Automatic UVX compatibility
-   - Easy installation for end users
+### STDIO Output Rule
 
-3. **Docker Distribution**: Container deployment
-   - Production-ready container images
-   - Multi-browser headless support
-   - Easy scaling and deployment
+Over the STDIO transport, stdout is reserved for MCP JSON-RPC messages, so server code must never print to stdout. Write diagnostics to stderr (`print(..., file=sys.stderr)`). `server.py` redirects stray stdout writes to stderr while running over STDIO, and `suppress_output.py` silences noisy library output. Logging is disabled at import (`logging.disable(logging.CRITICAL)`), so `FASTMCP_LOG_LEVEL` does not produce log output.
+
+## Development & Distribution
+
+1. Development: edit logic in `crawl4ai_mcp/core/` and tool registrations in `crawl4ai_mcp/server_tools/`.
+2. UVX distribution: installed from the GitHub repository (`uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp`).
+3. Docker distribution: container image built from `Dockerfile`.
 
 ### Development Workflow
 
-**Standard development process**:
-
 ```bash
-# 1. Set up development environment
-source ./venv/bin/activate
+# 1. Create a branch
+git switch -c feat/your-feature
 
 # 2. Develop and test
-vim crawl4ai_mcp/server.py
-python -m crawl4ai_mcp.server
+venv/bin/pytest tests/unit/
+venv/bin/pytest tests/mcp/ -m "not slow"
 
 # 3. Test with Docker (optional)
 docker-compose up --build
 
-# 4. Update version
-vim pyproject.toml  # Update version number
-
-# 5. Commit and tag
-git add .
-git commit -m "feat: Add new functionality"
-git tag -a v0.1.4 -m "Release v0.1.4"
-
-# 6. Push (triggers automatic distribution)
-git push origin main --tags
+# 4. Commit (stage files by name; avoid `git add .` so .env or venv/ are never included)
+git add crawl4ai_mcp/core/your_module.py tests/unit/test_your_module.py
+git commit -m "feat: add new functionality"
 ```
 
-### Changes Requiring Synchronization
+### Release
 
-- **Tool descriptions** - Ensure LLM can properly select tools
-- **New features** - New MCP tools or parameters
-- **Bug fixes** - Security fixes and behavior improvements
-- **Dependencies** - pyproject.toml updates (source of truth for dependencies)
-- **Configuration** - Default values and timeout adjustments
-- **Packaging** - pyproject.toml for UVX compatibility
-
-## 🛠️ Development Environment Setup
-
-### Prerequisites
-
-**System Dependencies:**
 ```bash
-# Linux/macOS
-sudo bash scripts/prepare_for_uvx_playwright.sh
+# 1. Update the version in pyproject.toml (the single source of the version)
+# 2. Commit and tag
+git add pyproject.toml
+git commit -m "release: bump version to X.Y.Z"
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
 
-# Windows (as Administrator)
-powershell -ExecutionPolicy Bypass -File scripts/prepare_for_uvx_playwright.ps1
+# 3. Push the branch and the tag together
+git push --atomic origin main vX.Y.Z
 ```
+
+## Development Environment Setup
 
 ### Local Development Setup
 
-**Method 1: UV Package Manager (Recommended)**
-```bash
-git clone https://github.com/walksoda/crawl-mcp.git
-cd crawl-mcp
-uv sync
-source .venv/bin/activate  # Linux/macOS
-# or .venv\Scripts\activate  # Windows
-```
+Use a virtual environment named `venv` in the repository root. The MCP test client in `tests/conftest.py` starts the server with `./venv/bin/python`.
 
-**Method 2: Traditional Virtual Environment**
 ```bash
 git clone https://github.com/walksoda/crawl-mcp.git
 cd crawl-mcp
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# or venv\Scripts\activate.bat  # Windows
-pip install -e .
+python -m venv venv            # or: uv venv venv
+source venv/bin/activate       # Windows: venv\Scripts\activate
+pip install -e ".[test]"       # with uv: uv pip install --python venv/bin/python -e ".[test]"
 python -m playwright install chromium
 ```
 
-### Required Virtual Environment
-
-**⚠️ CRITICAL**: Always use the `./venv` virtual environment for development:
+Verify the environment:
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
-
-# Verify correct environment
-which python  # Should point to ./venv/bin/python
-python -c "import sys; print(sys.prefix)"  # Should show venv path
+which python                                          # should point to ./venv/bin/python
+python -c "import crawl4ai_mcp; print(crawl4ai_mcp.__file__)"   # should point into this checkout
 ```
 
-## 🧪 Testing and Quality Assurance
+## Testing
 
-### Test Commands
-
-**Basic Server Testing:**
 ```bash
-# Test main server startup
-python -m crawl4ai_mcp.server
+venv/bin/pytest tests/unit/                          # Unit tests (fast, no MCP connection)
+venv/bin/pytest tests/mcp/ -m "not slow"             # MCP tool tests (stdio server, real network)
+venv/bin/pytest tests/unit/test_file_persistence.py::<test_name>   # Single test
 
-# Test HTTP server
-python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
-
-# Test with MCP client
-claude mcp test crawl4ai
+./scripts/run_tests.sh quick                         # Unit tests
+./scripts/run_tests.sh mcp                           # MCP tool tests, excluding slow
+./scripts/run_tests.sh full cov                      # Everything, with coverage
+./scripts/run_tests.sh youtube|crawl|search|file|utility   # One tool group
 ```
 
-**HTTP API Testing:**
+- `pytest.ini`: `asyncio_mode = auto`, default timeout 120 seconds, markers `slow`, `mcp`, `youtube`, `crawl`, `search`, `file`, `utility`.
+- CI (Python 3.11 and 3.12) runs `tests/unit/`, then `tests/mcp/ -m "not slow"`, then `-m slow` (failures allowed).
+
+Manual server checks:
+
 ```bash
-# Pure StreamableHTTP test
-python examples/pure_http_test.py
-
-# Legacy HTTP test
-curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com"}'
-
-# Health check
-curl http://127.0.0.1:8000/health
-```
-
-**YouTube Integration Testing:**
-```bash
-# Direct API test
-python test_youtube_transcript_direct.py "https://www.youtube.com/watch?v=VIDEO_ID"
-
-# MCP integration test
-python test_mcp_youtube.py
-```
-
-### Pre-commit Quality Checks
-
-**Required before commits:**
-```bash
-# 1. Lint commit messages with textlint
-npx textlint commit-message.txt
-
-# 2. Test Docker build
-docker build -t crawl4ai-mcp:test . --quiet
-
-# 3. Verify Docker functionality
-echo "Docker build: $(docker build -t crawl4ai-mcp:test . --quiet > /dev/null 2>&1 && echo "✅" || echo "❌")"
-
-# 4. Test UVX installation
 python -m crawl4ai_mcp.server --help
-uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --help
+python -m crawl4ai_mcp.server                                               # STDIO
+python -m crawl4ai_mcp.server --transport streamable-http --host 127.0.0.1 --port 8000   # HTTP at /mcp
 ```
 
-## 🔧 Development Tools and Configuration
+See the [HTTP Integration Guide](HTTP_INTEGRATION.md) for calling the HTTP server with curl or an MCP client.
+
+### Documentation Check
+
+`scripts/check_docs.py` compares the docs with the code. It checks that every tool parameter (and every key of the `request` dict tools) appears in `docs/API_REFERENCE.md` and `docs/ja/API_REFERENCE.md`, that dependency pins match `pyproject.toml`, that repository paths, links and anchors exist, that environment variables used in examples are read by the server, and that the prose has no emoji or hype words. `tests/unit/test_docs_sync.py` runs it in CI.
+
+```bash
+venv/bin/python scripts/check_docs.py              # docs against code
+venv/bin/python scripts/check_docs.py --release    # also: CHANGELOG covers code changes since the latest tag
+git config core.hooksPath .githooks                # run the --release check before every push
+```
+
+When you change a tool's parameters or behavior, update both API references, both READMEs and the `[Unreleased]` section of `CHANGELOG.md` in the same change.
+
+## Configuration for Development
 
 ### Environment Variables
 
+`config.py` loads `.env` from the project root (see `.env.example`).
+
 ```bash
-# Development logging
-export FASTMCP_LOG_LEVEL=DEBUG
-
-# Language settings
-export CRAWL4AI_LANG=en  # or 'ja' for Japanese
-
-# API keys (development)
+# LLM providers (either per-provider keys or a full MCP_LLM_CONFIG JSON)
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
 export AZURE_OPENAI_API_KEY="your-key"
 export AZURE_OPENAI_ENDPOINT="https://resource.openai.azure.com"
 
-# Python environment
-export PYTHONPATH="/path/to/crawl:$PYTHONPATH"
-export PYTHONUNBUFFERED=1
+# Google search
+export GOOGLE_SEARCH_MODE=hybrid            # googlesearch_only | custom_search_only | hybrid (default)
+export GOOGLE_SEARCH_API_KEY="..."
+export GOOGLE_SEARCH_ENGINE_ID="..."
 ```
 
-### Debug Configuration
+### Local MCP Client Configuration
 
-**High-verbosity debugging:**
 ```json
 {
   "mcpServers": {
-    "crawl4ai-debug": {
-      "command": "/path/to/crawl/venv/bin/python",
+    "crawl4ai-dev": {
+      "command": "/path/to/crawl-mcp/venv/bin/python",
       "args": ["-m", "crawl4ai_mcp.server"],
-      "cwd": "/path/to/crawl",
-      "env": {
-        "FASTMCP_LOG_LEVEL": "DEBUG",
-        "PYTHONPATH": "/path/to/crawl",
-        "DEBUG": "1",
-        "PYTHONUNBUFFERED": "1",
-        "PLAYWRIGHT_DEBUG": "1"
-      }
+      "cwd": "/path/to/crawl-mcp"
     }
   }
 }
@@ -257,69 +205,41 @@ export PYTHONUNBUFFERED=1
 
 ### Code Style and Standards
 
-**Python Code Standards:**
-- Follow PEP 8 style guidelines
+- Follow PEP 8
 - Use type hints where appropriate
 - Document functions with docstrings
-- Handle errors gracefully with try/catch
+- Return structured error dicts from tools instead of raising
 - Use async/await for I/O operations
 
-**Commit Message Standards:**
-- English language only
-- No emojis in commit messages
-- Format: `type: brief description`
-- Examples:
-  - `feat: Add YouTube batch processing`
-  - `fix: Resolve memory leak in large file processing`
-  - `docs: Update API reference documentation`
+Write commit messages in English, keep them short, and do not use emoji. Use the format `type: brief description`, for example:
+- `feat: add YouTube batch processing`
+- `fix: resolve memory leak in large file processing`
+- `docs: update API reference`
 
-## 📦 Build and Packaging
+## Build and Packaging
 
-### Docker Container Management
+### Docker
 
-**Building Docker Images:**
 ```bash
-# Build development image
-docker build -t crawl4ai-mcp:dev .
-
-# Build production image with multi-browser support
+# Build the image
 docker build -t crawl4ai-mcp:latest .
 
-# Verify image contents
-docker images | grep crawl4ai-mcp
-```
-
-**Testing Docker Containers:**
-```bash
-# Test STDIO mode (default)
+# STDIO mode (default)
 docker-compose up --build
+docker run -i crawl4ai-mcp:latest
 
-# Test HTTP mode
+# HTTP mode
 docker-compose --profile http up --build crawl4ai-mcp-http
-
-# Test individual container
-docker run -it crawl4ai-mcp:latest
+docker run -p 8000:8000 crawl4ai-mcp:latest \
+  python -m crawl4ai_mcp.server --transport http --host 0.0.0.0 --port 8000
 ```
 
-**Version Management:**
-```bash
-# Update version in pyproject.toml
-vim pyproject.toml
+The Docker build installs dependencies from `requirements.txt`.
 
-# Update Docker tags
-docker tag crawl4ai-mcp:latest crawl4ai-mcp:v0.1.4
+### Packaging and Dependencies
 
-# Push to registry (if applicable)
-# docker push crawl4ai-mcp:v0.1.4
+Excerpt from `pyproject.toml`:
 
-# Tag git release
-git tag -a v0.1.4 -m "Release v0.1.4 - Docker support"
-git push origin v0.1.4
-```
-
-### UVX Compatibility
-
-**pyproject.toml Configuration:**
 ```toml
 [build-system]
 requires = ["hatchling"]
@@ -327,195 +247,98 @@ build-backend = "hatchling.build"
 
 [project]
 name = "crawl-mcp"
-version = "0.3.3"
+requires-python = ">=3.11"
 dependencies = [
-    "crawl4ai>=0.8.0,<0.9",
+    "crawl4ai>=0.9.4,<0.10",
     "fastmcp>=2.14.2,<3",
     "playwright==1.55.0",
+    # ...
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0", "pytest-timeout>=2.3.1", "pytest-cov>=5.0.0"]
 
 [project.scripts]
 crawl-mcp = "crawl4ai_mcp.server:main"
 ```
 
-Note: `pyproject.toml` is the source of truth for dependencies. There is no `requirements.txt`.
+`pyproject.toml` is the source of truth for dependencies and the version. `requirements.txt` mirrors the dependencies for the Docker build and must be kept in sync when `pyproject.toml` changes.
 
-## 🔍 Debugging and Troubleshooting
+## Debugging and Troubleshooting
 
-### Common Development Issues
+Import errors:
 
-**Import Errors:**
 ```bash
-# Ensure virtual environment is active
 source venv/bin/activate
-
-# Check Python path
-python -c "import sys; print('\\n'.join(sys.path))"
-
-# Install missing dependencies
-pip install -e .
+pip install -e ".[test]"
+python -c "import crawl4ai_mcp; print(crawl4ai_mcp.__file__)"
 ```
 
-**Browser Issues:**
-```bash 
-# Reinstall Playwright browsers
+Browser issues:
+
+```bash
 python -m playwright install chromium
-
-# System dependencies (Linux)
-sudo apt-get install libnss3 libnspr4 libasound2 libatk-bridge2.0-0
-
-# Check browser installation
-python -c "from playwright.sync_api import sync_playwright; print('Browser check: OK')"
+python -m playwright install --with-deps chromium   # Linux: also installs system libraries (sudo)
 ```
 
-**Server Startup Issues:**
+Server startup issues:
+
 ```bash
-# Check port availability
-lsof -i :8000
-
-# Kill existing process
-kill -9 $(lsof -t -i:8000)
-
-# Check server logs
-export FASTMCP_LOG_LEVEL=DEBUG
-python -m crawl4ai_mcp.server
+lsof -i :8000               # Check port availability
+kill <PID>
 ```
 
-### Performance Profiling
+The server writes diagnostics to stderr, and Python logging is disabled at import. To investigate, run the server in a terminal and watch stderr, or add temporary `print(..., file=sys.stderr)` calls. Never print to stdout.
 
-**Memory and CPU Monitoring:**
+CPU profiling:
+
 ```bash
-# Monitor memory usage
-python -m memory_profiler crawl4ai_mcp/server.py
-
-# CPU profiling
 python -m cProfile -o profile.prof -m crawl4ai_mcp.server
-
-# Analyze profile
 python -m pstats profile.prof
 ```
 
-**Request Tracing:**
-```bash
-# Enable request tracing
-export CRAWL4AI_TRACE=1
-export FASTMCP_LOG_LEVEL=DEBUG
+## Contributing Guidelines
 
-# Monitor request patterns
-tail -f server.log | grep -E "(REQUEST|RESPONSE|ERROR)"
-```
-
-## 🤝 Contributing Guidelines
-
-### Development Workflow
-
-1. **Fork and Clone**
+1. Fork and clone the repository.
    ```bash
    git clone https://github.com/your-username/crawl-mcp.git
    cd crawl-mcp
    git remote add upstream https://github.com/walksoda/crawl-mcp.git
    ```
 
-2. **Create Feature Branch**
+2. Create a feature branch.
    ```bash
-   git checkout -b feature/your-feature-name
+   git switch -c feat/your-feature-name
    ```
 
-3. **Develop and Test**
+3. Change `crawl4ai_mcp/core/` (logic) and `crawl4ai_mcp/server_tools/` (tool parameters and registration), and add tests under `tests/unit/`.
+
+4. Run the tests.
    ```bash
-   # Make changes to crawl4ai_mcp/server.py
-   # Test thoroughly
-   python -m crawl4ai_mcp.server
+   venv/bin/pytest tests/unit/
+   venv/bin/pytest tests/mcp/ -m "not slow"
+   docker build -t crawl4ai-mcp:test .     # optional
    ```
 
-4. **Test and Build**
+5. Commit, push, and open a pull request.
    ```bash
-   # Test with Docker
-   docker-compose up --build
-   
-   # Test UVX installation
-   uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --help
+   git add <changed files>
+   git commit -m "feat: add new feature description"
+   git push origin feat/your-feature-name
    ```
 
-5. **Quality Checks**
-   ```bash
-   # Run tests
-   python examples/pure_http_test.py
-   
-   # Test Docker build
-   docker build -t crawl4ai-mcp:test .
-   
-   # Lint commit message
-   npx textlint commit-message.txt
-   ```
+### Pull Request Checklist
 
-6. **Submit Pull Request**
-   ```bash
-   git add .
-   git commit -m "feat: Add new feature description"
-   git push origin feature/your-feature-name
-   ```
-
-### Code Review Process
-
-**Before Submitting:**
-- [ ] Changes tested in development environment
-- [ ] Docker containers build successfully
-- [ ] Documentation updated if needed
-- [ ] Commit messages follow standards
+- [ ] Unit tests and MCP tool tests pass
+- [ ] `scripts/check_docs.py` passes, and behavior changes are described in the docs and `CHANGELOG.md`
+- [ ] `requirements.txt` updated if dependencies changed
+- [ ] Commit messages follow the standards above
 - [ ] No breaking changes without discussion
 
-**Review Criteria:**
-- Code quality and style
-- Test coverage
-- Documentation completeness
-- Performance impact
-- Security considerations
-- Backward compatibility
+## Related Resources
 
-## 📊 Monitoring and Analytics
-
-### Development Metrics
-
-**Server Performance:**
-```bash
-# Request processing time
-grep "Processing time" server.log | awk '{print $4}' | sort -n
-
-# Memory usage patterns
-ps aux | grep crawl4ai_mcp | awk '{print $6}' # RSS memory
-
-# Success/failure rates
-grep -c "SUCCESS" server.log
-grep -c "ERROR" server.log
-```
-
-**Tool Usage Statistics:**
-```bash
-# Most used tools
-grep "Tool called:" server.log | awk '{print $3}' | sort | uniq -c | sort -nr
-
-# Average response sizes
-grep "Response size:" server.log | awk '{sum+=$3; count++} END {print sum/count}'
-```
-
-## 🔗 Related Resources
-
-- **API Reference**: [API_REFERENCE.md](API_REFERENCE.md)
-- **Configuration Examples**: [CONFIGURATION_EXAMPLES.md](CONFIGURATION_EXAMPLES.md)
-- **Advanced Usage**: [ADVANCED_USAGE.md](ADVANCED_USAGE.md)
-- **Installation Guide**: [INSTALLATION.md](INSTALLATION.md)
-- **HTTP Integration**: [HTTP_INTEGRATION.md](HTTP_INTEGRATION.md)
-
-## 💡 Development Best Practices
-
-1. **Always use virtual environment** - Essential for dependency isolation
-2. **Test multiple deployment methods** - UVX and Docker must work correctly
-3. **Test before committing** - Ensure all functionality works
-4. **Follow commit message standards** - English only, no emojis, clear descriptions
-5. **Profile performance regularly** - Monitor memory and CPU usage
-6. **Document thoroughly** - Update docs with new features
-7. **Use debug logging during development** - `FASTMCP_LOG_LEVEL=DEBUG`
-8. **Test edge cases** - Large files, network issues, rate limits
-9. **Monitor resource usage** - Memory leaks and performance degradation
-10. **Version dependencies carefully** - Pin versions for stability
+- [API Reference](API_REFERENCE.md)
+- [Configuration Examples](CONFIGURATION_EXAMPLES.md)
+- [Usage Patterns](ADVANCED_USAGE.md)
+- [Installation Guide](INSTALLATION.md)
+- [HTTP Integration](HTTP_INTEGRATION.md)

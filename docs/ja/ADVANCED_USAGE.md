@@ -1,23 +1,32 @@
-# 高度な使用ガイド
+# 使い方の応用
 
-Crawl4AI MCPサーバーのパワーユーザー向けの高度なパターン、技術、ワークフローです。
+複数のツールを組み合わせる使い方とワークフローをまとめています。
 
-## 🚁 高度なWebクローリング技術
+各例は1回のツール呼び出しに渡す `arguments` オブジェクトです。キーはどれも、記載したツールに実在するパラメータです。全パラメータは [APIリファレンス](API_REFERENCE.md) に載っています。
 
-### 深度サイト探索
+## Webクロール
 
-**戦略的フィルタリング付きマルチ深度クローリング:**
+### サイトのクロール
+
+`deep_crawl_site` は開始ページからリンクをたどります。
+
 ```json
 {
   "url": "https://docs.example.com",
-  "max_depth": 3,
+  "max_depth": 2,
+  "max_pages": 10,
   "crawl_strategy": "best_first",
   "url_pattern": "*docs*",
-  "score_threshold": 0.7
+  "score_threshold": 0.3
 }
 ```
 
-**JavaScript重要サイトの最適化:**
+`max_depth` は1か2、`max_pages` は10まで指定でき、`crawl_strategy` には `bfs`、`dfs`、`best_first` のいずれかを使います。`url_pattern` に渡せるパターンは1つだけで、サーバーはそれを1つのフィルタとして扱うため、カンマ区切りで並べても分割されません。
+
+### JavaScriptを多用するページ
+
+シングルページアプリケーションでは `crawl_url` に `wait_for_js` を付けます。目印になる要素があれば `wait_for_selector` も指定してください。
+
 ```json
 {
   "url": "https://spa-application.com",
@@ -27,9 +36,14 @@ Crawl4AI MCPサーバーのパワーユーザー向けの高度なパターン�
 }
 ```
 
-### 困難サイト向けフォールバック戦略
+### HTMLページとドキュメントURL
 
-**自動フォールバック付きマルチ戦略クローリング:**
+`crawl_url` はリモートの `.html` / `.htm` URLを、ほかのWebページと同じくブラウザでレンダリングします。PDF、DOCX、XLSX、PPTX、ZIPなどのドキュメントURLはダウンロードしてファイルとして変換し、ブラウザのフォールバックは通りません。これらのURLは `process_file` に直接渡してもかまいません。
+
+### ボット対策のあるサイト
+
+まず `crawl_url` で検出回避ブラウザを試します。
+
 ```json
 {
   "url": "https://protected-site.com",
@@ -39,34 +53,58 @@ Crawl4AI MCPサーバーのパワーユーザー向けの高度なパターン�
 }
 ```
 
-**最大信頼性のためのcrawl_url_with_fallback使用:**
-- 複数戦略の自動試行
-- アンチボット保護への対応
-- 詳細な失敗分析
-- タイムアウト時の部分結果返却
+うまくいかなければ、同じURLで `crawl_url_with_fallback` を呼びます。
 
-## 🧠 AI搭載コンテンツ処理
+```json
+{
+  "url": "https://protected-site.com",
+  "wait_for_js": true,
+  "timeout": 90
+}
+```
 
-### インテリジェントコンテンツ抽出
+`crawl_url_with_fallback` は最大7段階を順に試します。静的な高速パス、通常のヘッドレスブラウザ、Chromiumのステルスモード、ユーザー操作のシミュレーション、モバイルのユーザーエージェント、AMP版やRSS版の取得、静的なHTML/JSON抽出の順です。成功した段階はドメインごとにキャッシュされ、次回はその段階から始まります。どの段階で取得できたかは、レスポンスの `extracted_data.fallback_strategy_used` と `fallback_stage` でわかります。
 
-**カスタム指示付き意味的理解:**
+## LLMによる抽出
+
+### 必要な情報だけを抜き出す
+
+`intelligent_extract` には抽出の目的と、必要なら追加の指示を渡します。
+
 ```json
 {
   "url": "https://research-paper.com",
   "extraction_goal": "学術論文から手法、結果、結論を抽出",
   "content_filter": "llm",
-  "custom_instructions": "定量的結果、統計的有意性、実用的含意に焦点を当てる。参考文献と著者情報は無視する。",
+  "custom_instructions": "定量的結果、統計的有意性、実用上の含意に絞る。参考文献と著者情報は無視する。",
   "use_llm": true,
   "llm_provider": "openai",
-  "llm_model": "gpt-4"
+  "llm_model": "gpt-4.1"
 }
 ```
 
-**マルチプロバイダーLLM設定:**
+`content_filter` は `bm25`、`pruning`、`llm` から選びます。先にBM25でページを絞り込んでからLLMにかけたい場合は、`bm25` と `filter_query` を組み合わせます。
+
+```json
+{
+  "url": "https://docs.example.com/reference",
+  "extraction_goal": "実際に使える技術情報を抽出",
+  "content_filter": "bm25",
+  "filter_query": "技術ドキュメント APIリファレンス",
+  "use_llm": true
+}
+```
+
+### LLMプロバイダー
+
+使うプロバイダーのAPIキーを、MCPクライアントの設定に書きます。
+
 ```json
 {
   "mcpServers": {
-    "crawl4ai-multi-llm": {
+    "crawl4ai": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/walksoda/crawl-mcp", "crawl-mcp"],
       "env": {
         "OPENAI_API_KEY": "sk-...",
         "ANTHROPIC_API_KEY": "sk-ant-...",
@@ -78,49 +116,137 @@ Crawl4AI MCPサーバーのパワーユーザー向けの高度なパターン�
 }
 ```
 
-### 大容量コンテンツの自動要約
+デフォルトのプロバイダーは `openai`、モデルは `gpt-4.1` です。指定したプロバイダーにAPIキーがなければ、`openai`、`aoai`、`anthropic`、`ollama` の順に切り替えます。`MCP_LLM_CONFIG` の書き方は [設定例](CONFIGURATION_EXAMPLES.md#環境変数) を参照してください。
 
-**異なるコンテンツタイプ向け設定:**
+## 大きなコンテンツ
+
+サーバーは、頼まれない限り大きなページを要約しません。`auto_summarize` を付けずに約25,000トークンを超えた場合、レスポンスは切り詰められ、`recommendations` フィールドが付きます。全文が必要なら方法は2つあります。
+
+1つ目は `content_limit` と `content_offset` による分割取得です。`content_offset` を 20000、40000 と進めながら繰り返し呼び出します。
+
 ```json
 {
-  "auto_summarize": true,
-  "max_content_tokens": 50000,
-  "summary_length": "long",
-  "llm_provider": "anthropic",
-  "chunk_content": true,
-  "chunk_strategy": "topic"
+  "url": "https://example.com/very-long-article",
+  "content_limit": 20000,
+  "content_offset": 0
 }
 ```
 
-**要約長の最適化:**
-- `"short"`: 1-2段落（500-1000トークン）
-- `"medium"`: 3-5段落（1500-3000トークン）
-- `"long"`: 包括的分析（5000-10000トークン）
+2つ目は `output_path` で全文をファイルに書き出す方法です。レスポンスにはメタデータとファイルパスだけが返ります。
 
-## 🔄 バッチ処理操作
+```json
+{
+  "url": "https://example.com/very-long-article",
+  "output_path": "/absolute/path/article.md"
+}
+```
 
-### 大規模クローリングワークフロー
+ファイルには常にスライス前の全文が入ります。レスポンスにも本文を残したいときは `include_content_in_response` を、既存ファイルを上書きするときは `overwrite` を指定してください。
 
-**URL管理付きバッチクローリング:**
+### 要約（オプトイン）
+
+`auto_summarize: true` を付けると、`crawl_url` は約15,000トークンを超えるページをデフォルトのLLMプロバイダーで要約します。`content_limit` か `content_offset` を指定したときは要約しません。
+
+```json
+{
+  "url": "https://example.com/very-long-article",
+  "auto_summarize": true
+}
+```
+
+`process_file` と `extract_youtube_transcript` では、しきい値、長さ、プロバイダーも指定できます。
+
+```json
+{
+  "url": "https://example.com/report.pdf",
+  "auto_summarize": true,
+  "max_content_tokens": 15000,
+  "summary_length": "long",
+  "llm_provider": "anthropic"
+}
+```
+
+| `summary_length` | 目安 | 内容 |
+|------------------|------|------|
+| `short` | 2〜3段落、約400トークン | 要点と主な結論 |
+| `medium`（デフォルト） | 4〜6段落、約1000トークン | 重要な詳細を含む概要 |
+| `long` | 8〜12段落、約2000トークン | 例や背景を含む分析 |
+
+### 長い文書のチャンク処理
+
+`enhanced_process_large_content` はページをチャンクに分け、関連の高いものを残し、必要なら要約もします。
+
+```json
+{
+  "url": "https://example.com/long-report",
+  "chunking_strategy": "topic",
+  "filtering_strategy": "bm25",
+  "filter_query": "results methodology conclusions",
+  "max_chunk_tokens": 2000,
+  "chunk_overlap": 200,
+  "extract_top_chunks": 10,
+  "similarity_threshold": 0.5,
+  "summarize_chunks": true,
+  "merge_strategy": "hierarchical",
+  "final_summary_length": "medium"
+}
+```
+
+`chunking_strategy` は `topic`、`sentence`、`overlap`、`regex`、`filtering_strategy` は `bm25`、`pruning`、`llm`、`merge_strategy` は `hierarchical` か `linear` です。
+
+## バッチ処理
+
+### 1回あたりの上限
+
+| ツール | 1回あたりの上限 |
+|--------|------------------|
+| `batch_crawl` | URL 3件（1件ずつ順に処理） |
+| `multi_url_crawl` | URL設定 5件（1件ずつ順に処理） |
+| `batch_extract_youtube_transcripts` | URL 3件。`max_concurrent` は任意（デフォルト3、上限5） |
+| `batch_search_google` | クエリ 3件。`max_concurrent` は任意（デフォルト3、上限5） |
+| `search_and_crawl` | `crawl_top_results` は3まで |
+| `deep_crawl_site` | `max_depth` 1〜2、`max_pages` 10まで |
+
+上限を超える処理は、何回かの呼び出しに分けてください。
+
+### 複数URLのクロール
+
+`batch_crawl` には3件までのURLと、オプションをそのまま並べて渡します。
+
 ```json
 {
   "urls": [
     "https://site1.com/page1",
     "https://site1.com/page2",
-    "https://site2.com/api-docs",
-    "https://site3.com/tutorials"
+    "https://site2.com/api-docs"
   ],
-  "config": {
-    "generate_markdown": true,
-    "extract_media": false,
-    "timeout": 45,
-    "auto_summarize": true
-  },
-  "base_timeout": 60
+  "generate_markdown": true,
+  "extract_media": false,
+  "wait_for_js": false,
+  "base_timeout": 60,
+  "output_path": "/absolute/path/batch-run"
 }
 ```
 
-**YouTubeトランスクリプトバッチ処理:**
+この場合の `output_path` はディレクトリです。成功したURLごとにMarkdownファイルができ、全結果の一覧は `index.json` に入ります。
+
+URLごとに設定を変えたいときは `multi_url_crawl` を使います。
+
+```json
+{
+  "url_configurations": {
+    "https://spa.example.com/dashboard": {"wait_for_js": true, "timeout": 60},
+    "https://docs.example.com/guide": {"css_selector": "main"},
+    "https://blog.example.com/post": {"extract_media": true}
+  },
+  "base_timeout": 30
+}
+```
+
+キーにはURLをそのまま書きます。値で設定できるのは `generate_markdown`、`extract_media`、`wait_for_js`、`timeout`、`use_undetected_browser`、`css_selector` です。
+
+### YouTubeトランスクリプト
+
 ```json
 {
   "request": {
@@ -131,27 +257,31 @@ Crawl4AI MCPサーバーのパワーユーザー向けの高度なパターン�
     ],
     "languages": ["ja", "en"],
     "include_timestamps": true,
-    "max_concurrent": 3,
-    "translate_to": "ja"
+    "translate_to": "ja",
+    "timezone": "Asia/Tokyo"
   }
 }
 ```
 
-### 検索とクロールワークフロー
+`timezone` にはIANAのタイムゾーン名を指定し、省略時は `UTC` です。各動画の公開日時をこのタイムゾーンに変換し、`metadata.published_at` に入れて返します。`extract_youtube_transcript` と `get_youtube_video_info` も同じパラメータに対応しています。
 
-**競合分析パイプライン:**
+### 検索とクロール
+
+検索系のツールは `request` オブジェクトを1つ受け取ります。`search_and_crawl` は検索したうえで上位の結果をクロールします。
+
 ```json
 {
-  "search_query": "企業API ドキュメント ベストプラクティス 2024",
-  "num_search_results": 10,
-  "crawl_top_results": 5,
-  "search_genre": "technical",
-  "extract_media": false,
-  "generate_markdown": true
+  "request": {
+    "search_query": "企業API ドキュメント ベストプラクティス",
+    "crawl_top_results": 3,
+    "generate_markdown": true,
+    "max_content_per_page": 5000
+  }
 }
 ```
 
-**コンテンツ研究ワークフロー:**
+`batch_search_google` は3件までのクエリをまとめて検索します。
+
 ```json
 {
   "request": {
@@ -160,341 +290,151 @@ Crawl4AI MCPサーバーのパワーユーザー向けの高度なパターン�
       "AI導入 企業調査",
       "深層学習フレームワーク比較"
     ],
-    "num_results_per_query": 15,
-    "search_genre": "academic",
-    "max_concurrent": 2
+    "num_results_per_query": 10,
+    "search_genre": "pdf",
+    "recent_days": 365
   }
 }
 ```
 
-## 🎯 複雑なワークフローパターン
+`search_genre` でクエリが変わるのは `pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` だけです。ほかの値ではクエリはそのままです。
 
-### マルチステージコンテンツ分析
+## ワークフロー
 
-**1. 発見フェーズ:**
-```bash
-# 関連コンテンツを検索
-search_google: "トピック キーワード 研究論文"
-```
+### 複数の情報源を調べる
 
-**2. 収集フェーズ:**
-```bash
-# フォールバック保護付きで上位結果をクロール
-search_and_crawl: 上位5結果 → 包括的分析生成
-```
+1. `search_google` でページを探す。
+2. `search_and_crawl`（3件まで）か `batch_crawl`（3 URLまで）で集める。`output_path` を付ければ全文がディスクに残る。
+3. `extract_structured_data` や `intelligent_extract` で必要な項目を取り出す。
+4. 保存したMarkdownファイルを見比べる。長い文書には `enhanced_process_large_content` が向いている。
 
-**3. 分析フェーズ:**
-```bash
-# 構造化洞察を抽出
-extract_structured_data: "手法、発見、含意"
-```
+### ドキュメントサイトの構成を把握する
 
-**4. 統合フェーズ:**
-```bash
-# 関連コンテンツをバッチ処理
-batch_crawl: 関連URL → 自動要約 → 比較分析
-```
+まず `deep_crawl_site` でページを集めます。
 
-### サイトドキュメントマッピング
-
-**完全なドキュメント抽出:**
 ```json
 {
   "url": "https://api-docs.example.com",
-  "max_depth": 4,
+  "max_depth": 2,
+  "max_pages": 10,
   "crawl_strategy": "bfs",
-  "url_pattern": "*docs*,*api*,*guide*",
+  "url_pattern": "*docs*",
   "extract_media": true,
-  "content_filter": "bm25",
-  "filter_query": "API エンドポイント パラメータ 例 チュートリアル",
-  "auto_summarize": false,
-  "generate_markdown": true
+  "output_path": "/absolute/path/api-docs"
 }
 ```
 
-### エンティティ抽出ワークフロー
+次に、主要なページから `intelligent_extract` で詳細を取り出します。
 
-**連絡先情報マイニング:**
+```json
+{
+  "url": "https://api-docs.example.com/reference",
+  "extraction_goal": "APIエンドポイントとパラメータ、使用例を一覧にする",
+  "content_filter": "bm25",
+  "filter_query": "API エンドポイント パラメータ 例 チュートリアル"
+}
+```
+
+### 連絡先の抽出
+
+`extract_entities` は、標準では正規表現で抽出します。
+
 ```json
 {
   "url": "https://company-directory.com",
-  "entity_types": ["emails", "phones", "social_media"],
+  "entity_types": ["emails", "phones", "urls"],
   "deduplicate": true,
   "include_context": true,
   "custom_patterns": {
     "linkedin": "linkedin\\.com/in/[\\w-]+",
-    "github": "github\\.com/[\\w-]+",
-    "departments": "部署:\\s*([\\w\\s]+)"
+    "github": "github\\.com/[\\w-]+"
   }
 }
 ```
 
-## 🔧 パフォーマンス最適化
+組み込みのタイプは `emails`、`phones`、`urls`、`dates`、`ips`、`prices`、`credit_cards`、`coordinates` の8つです。`custom_patterns` のエントリは新しいタイプとして扱われ、その名前を `entity_types` に入れたときだけ抽出されます。`social_media` のように組み込みにないタイプを使うには `"use_llm": true` が要ります。
 
-### メモリと処理管理
+## タイムアウト
 
-**大容量ドキュメント処理:**
-```json
-{
-  "chunk_content": true,
-  "chunk_size": 8000,
-  "chunk_strategy": "topic",
-  "overlap_rate": 0.1,
-  "max_content_tokens": 100000,
-  "auto_summarize": true
-}
-```
+| ツール | パラメータ | デフォルト |
+|--------|------------|------------|
+| `crawl_url`、`crawl_url_with_fallback` | `timeout`（秒） | 60 |
+| `extract_structured_data` | `timeout`（秒） | 30 |
+| `batch_crawl`、`multi_url_crawl` | URLごとの `base_timeout` | 30 |
+| `deep_crawl_site` | ページごとの `base_timeout` | 60 |
+| `extract_youtube_transcript` | ページクロールで代替するときの `fallback_timeout` | 60 |
 
-**タイムアウト最適化戦略:**
-```json
-{
-  "timeout": 120,
-  "base_timeout": 45,
-  "wait_for_js": true
-}
-```
+## エラーと診断
 
-### 並行処理制御
+どのツールも `success` を返し、失敗時は `error` にメッセージが入ります。`error_code` や `suggestions` が付くことも少なくありません。
 
-**バッチ操作制限:**
-- `max_concurrent`: 3（デフォルト、安定）
-- `max_concurrent`: 5（最大、安定性に影響の可能性）
-- `max_concurrent`: 1（順次、最も信頼性が高い）
+クロールに失敗したら、次の順に試してください。
 
-**レート制限の考慮事項:**
-- YouTube API: 3並行リクエスト
-- Google検索: 2並行クエリ
-- 一般クローリング: 5並行URL
+1. デフォルト設定の `crawl_url`
+2. `use_undetected_browser: true` を付けた `crawl_url`、または `crawl_url_with_fallback`
+3. `wait_for_js` を外し、`timeout` を短くした設定
+4. PDFやOfficeのURLなら `process_file`
 
-## 🛡️ エラー処理と復元力
+STDIOで動かしている間、stdoutにはMCPメッセージしか流れず、診断はstderrに出ます。Pythonのloggingはimport時に止めてあるので、ログレベルの環境変数を変えても何も出ません。問題を調べるときは、MCPクライアント側に残るサーバーログ（stderr）を見てください。
 
-### 堅牢な設定パターン
+ヘルスチェック用のエンドポイントはありません。HTTPサーバーが動いているかどうかは、`get_supported_file_formats` のような軽いツールを呼んで確かめます。手順は [HTTP統合ガイド](HTTP_INTEGRATION.md) にあります。
 
-**エラー回復付き本番対応セットアップ:**
-```json
-{
-  "mcpServers": {
-    "crawl4ai-production": {
-      "transport": "stdio",
-      "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/walksoda/crawl-mcp",
-        "crawl-mcp"
-      ],
-      "env": {
-        "CRAWL4AI_LANG": "ja",
-        "FASTMCP_LOG_LEVEL": "ERROR",
-        "PYTHONUNBUFFERED": "1"
-      }
-    }
-  }
-}
-```
+## リトライ付きのPythonクライアント
 
-**フォールバック戦略実装:**
-1. **主要試行**: 標準crawl_url
-2. **フォールバック1**: crawl_url_with_fallback
-3. **フォールバック2**: 簡略化パラメータ（JS無し、基本抽出）
-4. **最終フォールバック**: 手動URL検証と基本HTTP取得
+`--transport streamable-http` で起動したサーバーに、このプロジェクトの依存関係である `fastmcp` のクライアントで接続する例です。
 
-### 監視と診断
-
-**ヘルスチェック設定:**
-```json
-{
-  "url": "http://127.0.0.1:8000/health",
-  "timeout": 5000,
-  "expected_status": 200,
-  "check_interval": 30000
-}
-```
-
-**トラブルシューティング用デバッグ設定:**
-```json
-{
-  "env": {
-    "FASTMCP_LOG_LEVEL": "DEBUG",
-    "DEBUG": "1",
-    "PYTHONUNBUFFERED": "1",
-    "PLAYWRIGHT_DEBUG": "1"
-  }
-}
-```
-
-## 🎨 高度なコンテンツフィルタリング
-
-### マルチステージフィルタリングパイプライン
-
-**BM25 + LLM組み合わせ:**
-```json
-{
-  "content_filter": "bm25",
-  "filter_query": "技術ドキュメント APIリファレンス",
-  "use_llm": true,
-  "custom_instructions": "BM25フィルタリング後、意味分析を適用して実用的な技術情報のみを抽出"
-}
-```
-
-**階層的コンテンツ処理:**
-```json
-{
-  "filtering_strategy": "llm",
-  "extract_top_chunks": 15,
-  "similarity_threshold": 0.8,
-  "chunking_strategy": "topic",
-  "merge_strategy": "hierarchical"
-}
-```
-
-## 📊 分析とレポーティング
-
-### 高度なメトリクス収集
-
-**パフォーマンス追跡:**
-- URL当たりの処理時間
-- 成功/失敗率
-- 操作別トークン使用量
-- キャッシュヒット率
-- メモリ使用パターン
-
-**コンテンツ品質メトリクス:**
-- 抽出完全性
-- 関連性スコアリング
-- 重複検出率
-- フォーマット変換成功率
-
-### カスタムレポーティングワークフロー
-
-**包括サイト分析:**
-```bash
-1. deep_crawl_site → 構造マッピング
-2. extract_structured_data → コンテンツカテゴリ化
-3. batch_crawl → 複数ページ抽出
-4. multi_url_crawl → 比較分析
-5. generate_report → 構造化出力
-```
-
-## 🔗 統合パターン
-
-### API統合例
-
-**エラー処理付きPython統合:**
 ```python
 import asyncio
+import json
 import logging
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
-async def robust_crawl_workflow(url: str, max_retries: int = 3) -> Optional[Dict[Any, Any]]:
-    """自動フォールバックとリトライロジック付き高度クローリング"""
-    
+from fastmcp import Client
+
+SERVER_URL = "http://127.0.0.1:8000/mcp"
+
+
+async def crawl_with_retries(url: str) -> Optional[Dict[str, Any]]:
+    """crawl_url を設定を変えて試し、最後に crawl_url_with_fallback を使う"""
     strategies = [
         {"wait_for_js": True, "timeout": 60},
         {"wait_for_js": False, "timeout": 30},
-        {"use_undetected_browser": True, "timeout": 15}
+        {"use_undetected_browser": True, "timeout": 60},
     ]
-    
-    for attempt, strategy in enumerate(strategies):
-        try:
-            result = await crawl_url(url, **strategy)
-            if result.get("success"):
-                return result
-        except Exception as e:
-            logging.warning(f"試行 {attempt + 1} 失敗: {e}")
-            if attempt < len(strategies) - 1:
-                await asyncio.sleep(2 ** attempt)  # 指数バックオフ
-            
-    # crawl_url_with_fallbackを使用した最終フォールバック
-    try:
-        return await crawl_url_with_fallback(url)
-    except Exception as e:
-        logging.error(f"{url}のすべてのクローリング戦略が失敗: {e}")
-        return None
+
+    async with Client(SERVER_URL) as client:
+        for attempt, strategy in enumerate(strategies):
+            result = await client.call_tool("crawl_url", {"url": url, **strategy})
+            data = json.loads(result.content[0].text)
+            if data.get("success"):
+                return data
+            logging.warning("試行 %d 失敗: %s", attempt + 1, data.get("error"))
+            await asyncio.sleep(2 ** attempt)  # 指数バックオフ
+
+        result = await client.call_tool("crawl_url_with_fallback", {"url": url})
+        data = json.loads(result.content[0].text)
+        return data if data.get("success") else None
+
+
+print(asyncio.run(crawl_with_retries("https://example.com")))
 ```
 
-**Node.jsバッチ処理:**
-```javascript
-async function processUrlBatch(urls, options = {}) {
-  const batchSize = options.batchSize || 5;
-  const results = [];
-  
-  for (let i = 0; i < urls.length; i += batchSize) {
-    const batch = urls.slice(i, i + batchSize);
-    
-    try {
-      const batchResults = await Promise.allSettled(
-        batch.map(url => crawlUrl(url, options))
-      );
-      
-      results.push(...batchResults);
-      
-      // レート制限遅延
-      if (i + batchSize < urls.length) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    } catch (error) {
-      console.error(`バッチ処理エラー:`, error);
-    }
-  }
-  
-  return results;
-}
-```
+同じ呼び出しをcurlで行う方法は [HTTP統合ガイド](HTTP_INTEGRATION.md) で説明しています。
 
-## 🚨 高度なトラブルシューティング
+## ヒント
 
-### 複雑な問題解決
+1. まずはオプションなしの `crawl_url` から始め、ページに応じて設定を足す。
+2. 長いページは `output_path` で保存するか、`content_limit` と `content_offset` で分割して読む。
+3. バッチは1回あたり3 URL、3クエリまでに収める。
+4. ボット対策のあるサイトでは `crawl_url_with_fallback` を使う。
+5. PDFやOfficeファイルは `process_file` に渡す。
+6. `auto_summarize` は必要なときだけ有効にする。LLMのAPIキーが要り、トークンも消費する。
+7. 外部サービスのレート制限とクォータを守る。
 
-**大規模操作のメモリ管理:**
-```json
-{
-  "chunk_content": true,
-  "max_content_tokens": 25000,
-  "auto_summarize": true,
-  "cache_mode": "bypass",
-  "timeout": 300
-}
-```
+## 関連ドキュメント
 
-**ネットワークと接続の問題:**
-```json
-{
-  "user_agent": "Mozilla/5.0 (compatible; Bot/1.0)",
-  "headers": {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "ja-JP,ja;q=0.9,en;q=0.8",
-    "Accept-Encoding": "gzip, deflate",
-    "Connection": "keep-alive"
-  },
-  "use_undetected_browser": true,
-  "timeout": 90
-}
-```
-
-### パフォーマンスプロファイリング
-
-**ボトルネックの特定:**
-1. DEBUGログを有効化
-2. トークン使用パターンを監視
-3. 操作別処理時間を追跡
-4. バッチ操作中のメモリ使用量を分析
-5. ネットワークリクエストパターンをプロファイル
-
-## 📚 関連ドキュメント
-
-- **設定例**: [CONFIGURATION_EXAMPLES.md](CONFIGURATION_EXAMPLES.md)
-- **APIリファレンス**: [API_REFERENCE.md](API_REFERENCE.md)
-- **HTTP統合**: [HTTP_INTEGRATION.md](HTTP_INTEGRATION.md)
-- **開発ガイド**: [DEVELOPMENT.md](DEVELOPMENT.md)
-- **インストールガイド**: [INSTALLATION.md](INSTALLATION.md)
-
-## 💡 プロのコツ
-
-1. **シンプルから始めて複雑さを段階的に追加** - 基本クローリングから始め、機能を段階的に追加
-2. **リソース使用量を監視** - 最適化のためメモリと処理時間を追跡
-3. **適切なツールを使用** - タスク要件にツールの複雑さを合わせる
-4. **フォールバックを実装** - 重要なワークフローには常にバックアップ戦略を用意
-5. **戦略的にキャッシュ** - パフォーマンスとコンテンツの新鮮さのバランスを保つ
-6. **十分にテスト** - 開発環境で複雑なワークフローを検証
-7. **パターンを文書化** - 成功した設定を再利用のために記録
-8. **API制限を監視** - 外部サービスのレート制限とクォータを尊重
+- [設定例](CONFIGURATION_EXAMPLES.md)
+- [APIリファレンス](API_REFERENCE.md)
+- [HTTP統合ガイド](HTTP_INTEGRATION.md)
+- [開発ガイド](DEVELOPMENT.md)
+- [インストールガイド](INSTALLATION.md)

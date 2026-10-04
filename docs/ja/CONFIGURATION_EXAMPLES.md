@@ -1,189 +1,99 @@
 # 設定例
 
-異なるインストール方法、プラットフォーム、使用ケースに対応する包括的な設定例です。
+インストール方法やプラットフォーム別のMCPクライアント設定と、サーバーが読み込む環境変数をまとめています。
 
-## 🚀 UVXインストール設定
+## UVX（推奨）
 
-### 基本UVX設定（推奨）
+Claude Desktop（`claude_desktop_config.json`）の場合は次のとおりです。
 
-**英語環境用:**
 ```json
 {
   "mcpServers": {
     "crawl-mcp": {
-      "transport": "stdio",
       "command": "uvx",
       "args": [
         "--from",
         "git+https://github.com/walksoda/crawl-mcp",
         "crawl-mcp"
-      ],
-      "env": {
-        "CRAWL4AI_LANG": "en"
-      }
+      ]
     }
   }
 }
 ```
 
-**日本語環境用:**
+Claude Code ならコマンドラインから追加できます。
+
+```bash
+claude mcp add crawl-mcp -- uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
+```
+
+プロジェクトの `.mcp.json` に書く場合、Claude Code は `type` フィールドを必要とします。
+
 ```json
 {
   "mcpServers": {
     "crawl-mcp": {
-      "transport": "stdio",
+      "type": "stdio",
       "command": "uvx",
       "args": [
         "--from",
         "git+https://github.com/walksoda/crawl-mcp",
         "crawl-mcp"
-      ],
-      "env": {
-        "CRAWL4AI_LANG": "ja"
-      }
+      ]
     }
   }
 }
 ```
 
-### デバッグログ付きUVX
+## ローカルのチェックアウト
 
-```json
-{
-  "mcpServers": {
-    "crawl-mcp-debug": {
-      "transport": "stdio",
-      "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/walksoda/crawl-mcp",
-        "crawl-mcp"
-      ],
-      "env": {
-        "CRAWL4AI_LANG": "ja",
-        "FASTMCP_LOG_LEVEL": "DEBUG"
-      }
-    }
-  }
-}
-```
+クライアントには、チェックアウト内の仮想環境にあるPythonを指定します。その環境にパッケージをインストール済み（`pip install -e .`）なら、`PYTHONPATH` も作業ディレクトリも要りません。
 
-## 🖥️ 開発環境設定
+Linux と macOS では次のように書きます。
 
-### ローカル開発セットアップ
-
-**Linux/macOS:**
 ```json
 {
   "mcpServers": {
     "crawl4ai-dev": {
-      "command": "/home/user/prj/crawl/venv/bin/python",
-      "args": ["-m", "crawl4ai_mcp.server"],
-      "cwd": "/home/user/prj/crawl",
-      "env": {
-        "FASTMCP_LOG_LEVEL": "DEBUG"
-      }
+      "command": "/path/to/crawl-mcp/venv/bin/python",
+      "args": ["-m", "crawl4ai_mcp.server"]
     }
   }
 }
 ```
 
-**Windows:**
+Windows では `python.exe` のパスを指定します。
+
 ```json
 {
   "mcpServers": {
     "crawl4ai-dev": {
-      "command": "C:\\path\\to\\your\\crawl\\venv\\Scripts\\python.exe",
+      "command": "C:\\path\\to\\crawl-mcp\\venv\\Scripts\\python.exe",
+      "args": ["-m", "crawl4ai_mcp.server"]
+    }
+  }
+}
+```
+
+インストールせずにソースのまま動かすなら、`PYTHONPATH` にはリポジトリのルートを指定してください（`site-packages` ではありません）。
+
+```json
+{
+  "mcpServers": {
+    "crawl4ai-source": {
+      "command": "/path/to/crawl-mcp/venv/bin/python",
       "args": ["-m", "crawl4ai_mcp.server"],
-      "cwd": "C:\\path\\to\\your\\crawl",
       "env": {
-        "FASTMCP_LOG_LEVEL": "DEBUG"
+        "PYTHONPATH": "/path/to/crawl-mcp"
       }
     }
   }
 }
 ```
-
-### カスタムPythonパス付き開発環境
-
-```json
-{
-  "mcpServers": {
-    "crawl4ai-custom": {
-      "command": "python",
-      "args": ["-m", "crawl4ai_mcp.server"],
-      "cwd": "/path/to/crawl",
-      "env": {
-        "PYTHONPATH": "/path/to/crawl/venv/lib/python3.11/site-packages"
-      }
-    }
-  }
-}
-```
-
-## 🌐 HTTPトランスポート設定
-
-### HTTP STDIO設定
-
-```json
-{
-  "mcpServers": {
-    "crawl4ai-stdio": {
-      "command": "python",
-      "args": ["-m", "crawl4ai_mcp.server"],
-      "cwd": "/home/user/prj/crawl",
-      "env": {
-        "PYTHONPATH": "/home/user/prj/crawl/venv/lib/python3.11/site-packages"
-      }
-    }
-  }
-}
-```
-
-### Legacy HTTP設定
-
-```json
-{
-  "mcpServers": {
-    "crawl4ai-legacy-http": {
-      "url": "http://127.0.0.1:8001/mcp"
-    }
-  }
-}
-```
-
-### Pure StreamableHTTP設定
-
-```json
-{
-  "mcpServers": {
-    "crawl4ai-pure-http": {
-      "url": "http://127.0.0.1:8000/mcp"
-    }
-  }
-}
-```
-
-### カスタムポート付きHTTP
-
-```json
-{
-  "mcpServers": {
-    "crawl4ai-http-custom": {
-      "command": "python",
-      "args": ["-m", "crawl4ai_mcp.server", "--transport", "http", "--port", "8080"],
-      "cwd": "/path/to/project",
-      "env": {
-        "PYTHONPATH": "/path/to/venv/lib/python3.11/site-packages"
-      }
-    }
-  }
-}
-```
-
-## 🖥️ プラットフォーム固有設定
 
 ### WSL（Windows Subsystem for Linux）
+
+Windows版のClaude Desktopから、WSL内のサーバーを起動する設定です。
 
 ```json
 {
@@ -191,115 +101,97 @@
     "crawl4ai-wsl": {
       "command": "wsl",
       "args": [
-        "-e",
-        "bash",
-        "-c",
-        "cd /home/user/prj/crawl && source venv/bin/activate && PYTHONPATH=/home/user/prj/crawl:$PYTHONPATH python -m crawl4ai_mcp.server"
-      ],
-      "env": {
-        "FASTMCP_LOG_LEVEL": "DEBUG"
-      }
-    }
-  }
-}
-```
-
-### シンプルなWSLコマンド
-
-```json
-{
-  "mcpServers": {
-    "crawl4ai-wsl-simple": {
-      "command": "wsl",
-      "args": [
-        "/home/user/prj/crawl/venv/bin/python",
+        "/home/user/crawl-mcp/venv/bin/python",
         "-m",
         "crawl4ai_mcp.server"
-      ],
-      "env": {
-        "FASTMCP_LOG_LEVEL": "ERROR"
-      }
+      ]
     }
   }
 }
 ```
 
-### macOS設定
+`env` ブロックの変数はWindows側の `wsl.exe` に設定されるだけで、`WSLENV` に列挙しない限りLinux側のプロセスには届きません。APIキーはリポジトリのルートにある `.env` に書いておけば、サーバーが起動時に読み込みます。
+
+## HTTPトランスポート
+
+トランスポート、ホスト、ポートはコマンドラインのフラグで指定します。環境変数では設定できません。
+
+```bash
+python -m crawl4ai_mcp.server --transport streamable-http --host 127.0.0.1 --port 8000
+```
+
+`--transport http` は `streamable-http` の別名で、エンドポイントは `http://127.0.0.1:8000/mcp` です。先にサーバーを起動してから、クライアントにURLを設定します。
 
 ```json
 {
   "mcpServers": {
-    "crawl4ai-macos": {
-      "command": "/home/user/prj/crawl/venv/bin/python",
-      "args": ["-m", "crawl4ai_mcp.server"],
-      "cwd": "/home/user/prj/crawl",
-      "env": {}
+    "crawl4ai-http": {
+      "url": "http://127.0.0.1:8000/mcp"
     }
   }
 }
 ```
 
-## 🔧 環境変数
+ポートを変えるときは、`--port` とURLの両方を書き換えてください。古いクライアント向けには、`--transport sse` で `/sse` に旧来のSSEトランスポートを立てられます。HTTPサーバーは複数のクライアントで共有でき、1つのクライアントにSTDIOとHTTPのエントリを並べて書いてもかまいません。curlやPythonからの使い方は [HTTP統合ガイド](HTTP_INTEGRATION.md) にあります。
 
-### 利用可能な環境変数
+## 環境変数
+
+サーバーはリポジトリのルート、またはカレントディレクトリにある `.env` を読み込みます。すでに設定済みの変数は上書きしません。`.env.example` がひな形です。MCPクライアント設定の `env` ブロックに書いても同じように効きます。
+
+| 変数 | デフォルト | 用途 |
+|------|------------|------|
+| `OPENAI_API_KEY` | なし | OpenAIのAPIキー |
+| `ANTHROPIC_API_KEY` | なし | AnthropicのAPIキー |
+| `AZURE_OPENAI_API_KEY` | なし | Azure OpenAIのAPIキー |
+| `AZURE_OPENAI_ENDPOINT` | なし | Azure OpenAIのエンドポイントURL |
+| `AZURE_OPENAI_API_VERSION` | `2024-02-15-preview` | 要約クライアントがAzure OpenAIで使うAPIバージョン |
+| `MCP_LLM_CONFIG` | なし | LLM設定一式のJSON（後述）。組み込みのプロバイダー一覧を置き換える |
+| `GOOGLE_SEARCH_MODE` | `hybrid` | `googlesearch_only`、`custom_search_only`、`hybrid`（googlesearch-pythonを使い、失敗時にCustom Search APIへ切り替え） |
+| `GOOGLE_SEARCH_API_KEY` | なし | Google Custom Search APIのキー |
+| `GOOGLE_SEARCH_ENGINE_ID` | なし | カスタム検索エンジンのID |
+| `GOOGLESEARCH_PYTHON_RPM` | `60` | googlesearch-pythonの1分あたりのリクエスト数 |
+| `CUSTOM_SEARCH_API_RPM` | `100` | Custom Search APIの1分あたりのリクエスト数 |
+| `GOOGLE_SEARCH_MAX_RETRIES` | `3` | 検索方式をあきらめるまでのリトライ回数 |
+| `GOOGLE_SEARCH_FALLBACK_DELAY` | `2.0` | 検索方式を切り替える前の待ち時間（秒） |
+| `CRAWL4AI_BROWSER_TYPE` | 未設定 | `chromium`、`firefox`、`webkit` のどれかを指定するとそのブラウザだけを使う。未設定ならWebKit、Chromiumの順に試す。検出回避ブラウザは常にChromium |
+| `CRAWL4AI_CACHE_TTL_SECONDS` | `3600` | 取得したページを新しいとみなす秒数。過ぎると、次にそのURLをクロールしたときにキャッシュを使わず取り直す。`0` なら期限なしで、キャッシュを使い続ける |
+
+`.env.example` には `FASTMCP_LOG_LEVEL` も載っていますが、サーバーがimport時にPythonのloggingを止めているため効きません。診断はstderrに出ます。
+
+### LLMの設定
+
+何も設定しなければ、デフォルトのプロバイダーは `openai`、モデルは `gpt-4.1` です。APIキーの変数が設定されたプロバイダーが使える状態になります。指定したプロバイダーにキーがない場合は、`openai`、`aoai`、`anthropic`、`ollama` の順に試します。Ollamaはキー不要で、`http://localhost:11434` に接続します。
+
+デフォルトのプロバイダーやモデルを変えたいときは、`MCP_LLM_CONFIG` にJSON文字列を渡します。
 
 ```json
 {
   "mcpServers": {
-    "crawl4ai-full-env": {
+    "crawl4ai": {
       "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/walksoda/crawl-mcp",
-        "crawl-mcp"
-      ],
+      "args": ["--from", "git+https://github.com/walksoda/crawl-mcp", "crawl-mcp"],
       "env": {
-        "CRAWL4AI_LANG": "ja",
-        "FASTMCP_LOG_LEVEL": "INFO",
-        "MCP_TRANSPORT": "stdio",
-        "MCP_HOST": "127.0.0.1",
-        "MCP_PORT": "8000"
+        "ANTHROPIC_API_KEY": "sk-ant-...",
+        "MCP_LLM_CONFIG": "{\"default_provider\": \"anthropic\", \"default_model\": \"claude-3-5-sonnet-20241022\", \"providers\": {\"anthropic\": {\"api_key_env\": \"ANTHROPIC_API_KEY\", \"models\": [\"claude-3-5-sonnet-20241022\"]}}}"
       }
     }
   }
 }
 ```
 
-### 本番環境
+各プロバイダーのエントリに書けるのは `api_key` または `api_key_env`、`base_url` または `base_url_env`、`api_version`、`models`、`extra_headers` です。プロバイダー名は `openai`、`anthropic`、`ollama`、`aoai`（Azure OpenAI）の4つです。
 
-```json
-{
-  "mcpServers": {
-    "crawl4ai-production": {
-      "transport": "stdio",
-      "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/walksoda/crawl-mcp",
-        "crawl-mcp"
-      ],
-      "env": {
-        "CRAWL4AI_LANG": "ja",
-        "FASTMCP_LOG_LEVEL": "ERROR"
-      }
-    }
-  }
-}
-```
+`MCP_LLM_CONFIG` が未設定の場合、サーバーはリポジトリのルートかカレントディレクトリにある `claude_desktop_config.json` を探し、`mcpServers.crawl4ai.llm_config` を読みます。形式は `configs/claude_desktop_config.json` が参考になります。ただし中のパスは例なので、使う前に書き換えてください。
 
-## 🛠️ 高度な設定例
-
-### LLM設定付き構成
+APIキーだけを設定する例です。
 
 ```json
 {
   "mcpServers": {
     "crawl4ai-llm": {
-      "command": "python",
+      "command": "/path/to/crawl-mcp/venv/bin/python",
       "args": ["-m", "crawl4ai_mcp.server"],
-      "cwd": "/path/to/crawl",
       "env": {
-        "PYTHONPATH": "/path/to/crawl/venv/lib/python3.11/site-packages",
         "OPENAI_API_KEY": "your-api-key-here",
         "ANTHROPIC_API_KEY": "your-api-key-here"
       }
@@ -308,214 +200,116 @@
 }
 ```
 
-### マルチインスタンス設定
+## 設定ファイルの場所
 
-```json
-{
-  "mcpServers": {
-    "crawl4ai-primary": {
-      "transport": "stdio",
-      "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/walksoda/crawl-mcp",
-        "crawl-mcp"
-      ],
-      "env": {
-        "CRAWL4AI_LANG": "ja"
-      }
-    },
-    "crawl4ai-secondary": {
-      "url": "http://127.0.0.1:8000/mcp"
-    }
-  }
-}
-```
+Claude Desktopは次のファイルから設定を読みます。
 
-### テスト設定
+- Windows は `%APPDATA%\Claude\claude_desktop_config.json`
+- macOS は `~/Library/Application Support/Claude/claude_desktop_config.json`
 
-```json
-{
-  "mcpServers": {
-    "crawl4ai-test": {
-      "command": "/home/user/prj/crawl/venv/bin/python",
-      "args": ["-m", "crawl4ai_mcp.server"],
-      "cwd": "/home/user/prj/crawl",
-      "env": {
-        "FASTMCP_LOG_LEVEL": "DEBUG",
-        "PYTEST_CURRENT_TEST": "true"
-      }
-    }
-  }
-}
-```
+ディレクトリがなければ先に作り、ファイルにサーバーのエントリを追加します。Windows PowerShellでは次のように操作します。
 
-## 📂 設定ファイルの場所
-
-### プラットフォーム固有のパス
-
-**Windows:**
-```
-%APPDATA%\Claude\claude_desktop_config.json
-```
-
-**macOS:**
-```
-~/Library/Application Support/Claude/claude_desktop_config.json
-```
-
-**Linux:**
-```
-~/.config/claude-desktop/claude_desktop_config.json
-```
-
-### 設定ファイルセットアップコマンド
-
-**Linux/macOS:**
-```bash
-# 設定ファイルをコピー
-cp configs/claude_desktop_config.json ~/.config/claude-desktop/claude_desktop_config.json
-
-# ディレクトリが存在しない場合は作成
-mkdir -p ~/.config/claude-desktop/
-```
-
-**Windows PowerShell:**
 ```powershell
-# 設定ファイルをコピー
-Copy-Item "configs\claude_desktop_config.json" "$env:APPDATA\Claude\claude_desktop_config.json"
-
-# ディレクトリが存在しない場合は作成
 New-Item -ItemType Directory -Force -Path "$env:APPDATA\Claude"
+notepad "$env:APPDATA\Claude\claude_desktop_config.json"
 ```
 
-## 🔍 ツールパラメータ設定例
+macOSでは次のとおりです。
 
-### 基本的なWebクローリング設定
+```bash
+mkdir -p ~/Library/Application\ Support/Claude
+open -e ~/Library/Application\ Support/Claude/claude_desktop_config.json
+```
+
+編集後はClaude Desktopを再起動してください。
+
+## ツールパラメータの例
+
+1回のツール呼び出しに渡す `arguments` オブジェクトの例です。全パラメータは [APIリファレンス](API_REFERENCE.md) で確認できます。
+
+基本的なページを `crawl_url` で取得する例です。
 
 ```json
 {
+  "url": "https://example.com",
   "wait_for_js": true,
-  "simulate_user": true, 
   "timeout": 30,
   "generate_markdown": true
 }
 ```
 
-### JavaScript重要サイト用設定
+JavaScriptを多用するページでは、待機の設定を加えます。
 
 ```json
 {
+  "url": "https://spa.example.com",
   "wait_for_js": true,
-  "simulate_user": true,
   "timeout": 60,
   "wait_for_selector": ".content-loaded",
-  "execute_js": "window.scrollTo(0, document.body.scrollHeight);",
   "generate_markdown": true
 }
 ```
 
-### 高度なクローリング設定
+`deep_crawl_site` の `max_depth` は1〜2、`max_pages` は10までです。
 
 ```json
 {
   "url": "https://example.com",
   "max_depth": 2,
-  "crawl_strategy": "bfs",
+  "max_pages": 10,
+  "crawl_strategy": "bfs"
+}
+```
+
+`intelligent_extract` でBM25による絞り込みを使う場合はこうなります。
+
+```json
+{
+  "url": "https://example.com/article",
+  "extraction_goal": "主な論点をまとめる",
   "content_filter": "bm25",
   "filter_query": "重要なコンテンツキーワード",
-  "chunk_content": true,
+  "chunk_content": true
+}
+```
+
+`process_file` で要約を有効にする例も挙げておきます。
+
+```json
+{
+  "url": "https://example.com/report.pdf",
   "auto_summarize": true,
   "summary_length": "medium"
 }
 ```
 
-## 🚨 トラブルシューティング設定
-
-### デバッグ設定
-
-```json
-{
-  "mcpServers": {
-    "crawl4ai-debug": {
-      "command": "/home/user/prj/crawl/venv/bin/python",
-      "args": ["-m", "crawl4ai_mcp.server"],
-      "cwd": "/home/user/prj/crawl",
-      "env": {
-        "FASTMCP_LOG_LEVEL": "DEBUG",
-        "PYTHONPATH": "/home/user/prj/crawl",
-        "DEBUG": "1"
-      }
-    }
-  }
-}
-```
-
-### エラー分離設定
-
-```json
-{
-  "mcpServers": {
-    "crawl4ai-isolated": {
-      "transport": "stdio",
-      "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/walksoda/crawl-mcp",
-        "crawl-mcp"
-      ],
-      "env": {
-        "CRAWL4AI_LANG": "ja",
-        "FASTMCP_LOG_LEVEL": "ERROR",
-        "PYTHONUNBUFFERED": "1"
-      }
-    }
-  }
-}
-```
-
-## 📊 設定の検証
-
-### 検証コマンド
+## 設定の確認
 
 ```bash
-# 設定構文をテスト
+# JSONの構文を確認
 python -m json.tool claude_desktop_config.json
 
-# サーバー起動をテスト
+# サーバーが起動するか確認
 python -m crawl4ai_mcp.server --help
 
-# UVXインストールをテスト
+# UVXでのインストールを確認
 uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --help
 ```
 
-### ヘルスチェック設定
+ヘルスチェック用のエンドポイントはありません。起動中のHTTPサーバーを確かめるには、`get_supported_file_formats` のような軽いツールを呼びます。やり方は [HTTP統合ガイド](HTTP_INTEGRATION.md) を参照してください。
 
-```json
-{
-  "mcpServers": {
-    "crawl4ai-health": {
-      "url": "http://127.0.0.1:8000/mcp",
-      "timeout": 30000
-    }
-  }
-}
-```
+## ヒント
 
-## 🔗 関連ドキュメント
+1. たいていの場合、UVXがいちばん手軽です。
+2. クライアント設定のパスは絶対パスで書きます。
+3. APIキーは `env` ブロックか `.env` に置き、共有するファイルには書かないでください。
+4. クライアントを再起動する前に、JSONの構文を確認しておきます。
+5. STDIOでは、ラッパースクリプトがstdoutに何か出すとMCPの通信が壊れます。そうした出力はstderrに回してください。
 
-- **インストールガイド**: [INSTALLATION.md](INSTALLATION.md)
-- **HTTP統合**: [HTTP_INTEGRATION.md](HTTP_INTEGRATION.md)
-- **APIリファレンス**: [API_REFERENCE.md](API_REFERENCE.md)
-- **高度な使用法**: [ADVANCED_USAGE.md](ADVANCED_USAGE.md)
-- **開発ガイド**: [DEVELOPMENT.md](DEVELOPMENT.md)
+## 関連ドキュメント
 
-## 💡 設定のコツ
-
-1. **UVXを簡単に使用**: ほとんどのユーザーに推奨
-2. **まずローカルでデバッグ**: 開発環境から始める
-3. **ファイルパスをチェック**: すべてのパスが絶対パスで正しいことを確認
-4. **環境変数**: 機密データには環境変数を使用
-5. **設定をテスト**: 使用前にJSON構文を検証
-6. **プラットフォーム考慮**: OSごとに異なるパス
-7. **ログレベル**: トラブルシューティングにはDEBUG、本番にはERROR
+- [インストールガイド](INSTALLATION.md)
+- [HTTP統合ガイド](HTTP_INTEGRATION.md)
+- [APIリファレンス](API_REFERENCE.md)
+- [使い方の応用](ADVANCED_USAGE.md)
+- [開発ガイド](DEVELOPMENT.md)

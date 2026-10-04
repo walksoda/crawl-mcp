@@ -1,29 +1,28 @@
 # Crawl-MCP: crawl4ai用非公式MCPサーバー
 
-> **⚠️ 重要**: これは優れた[crawl4ai](https://github.com/unclecode/crawl4ai)ライブラリの**非公式**MCPサーバー実装です。  
-> **元のcrawl4aiプロジェクトとは無関係**です。
+> [crawl4ai](https://github.com/unclecode/crawl4ai)ライブラリを使った**非公式**のMCPサーバーです。元のcrawl4aiプロジェクトとは関係ありません。
 
-強力なcrawl4aiライブラリを高度なAI機能でラップする包括的なModel Context Protocol（MCP）サーバーです。**あらゆるソース**からコンテンツを抽出・分析：Webページ、PDF、Officeドキュメント、YouTube動画など。任意で有効にできるLLM要約（`auto_summarize`）とディスク保存（`output_path`）により、トークン使用量を抑えます。
+crawl4aiをラップしたModel Context Protocol（MCP）サーバーで、Webページ、PDF、Officeドキュメント、YouTube動画などからコンテンツを取り出します。レスポンスのトークン数は、任意で有効にするLLM要約（`auto_summarize`）とディスク保存（`output_path`）で抑えられます。
 
-## 🌟 主要機能
+## 主な機能
 
-- **🔍 Google検索連携**: Google演算子を使用した6つの検索ジャンル（ファイル形式と言語のフィルタ）
-- **🔍 高度なWebクローリング**: JavaScript対応、深度サイトマッピング、エンティティ抽出
-- **🌐 汎用コンテンツ抽出**: Webページ、PDF、Word文書、Excel、PowerPoint、ZIPアーカイブ
-- **🤖 AI搭載要約機能（オプトイン）**: `auto_summarize=true` 指定時にスマートなトークン削減（最大88.5%）。指定しない場合、大きなレスポンスは約25000トークンで切り詰められ、全文は `output_path` で保存可能
-- **💾 ディスク永続化（token-saver）**: 全文をディスクに保存しメタデータのみ返却。エージェントは必要時にファイルから読み込み、コンテキストを節約
-- **🎬 YouTube連携**: APIキー不要で動画内容・要約を抽出
-- **⚡ 本格運用対応**: 包括的エラーハンドリング付き19の専門ツール
+- Google検索の結果を、Googleの検索演算子を使った6つのジャンル（ファイル形式と言語）で絞り込めます
+- JavaScriptを実行するWebクローリング、指定した深さでのサイト巡回、エンティティ抽出
+- Webページ、PDF、Word、Excel、PowerPoint、ZIPアーカイブからのコンテンツ抽出
+- LLMによる要約は `auto_summarize=true` を指定したときだけ動きます。指定しない場合、大きなレスポンスは約25000トークンで切り詰められ、全文は `output_path` で保存できます
+- ディスク保存（token-saver）。`output_path` を指定すると全文をディスクに書き出し、レスポンスはメタデータだけになります。エージェントは必要になったときにファイルを読めばよく、コンテキストを消費しません
+- YouTube動画のトランスクリプトや情報を、APIキーなしで取得します
+- ツールは全部で19個あります
 
-## 🚀 クイックスタート
+## クイックスタート
 
-### 前提条件（最初に必須）
+### 前提条件
 
 - Python 3.11 以上（FastMCP が Python 3.11+ を要求）
 
-**Playwright用システム依存関係のインストール:**
+先にPlaywright用のシステム依存パッケージを入れます。
 
-**Ubuntu 24.04 LTS（手動セットアップが必要）:**
+Ubuntu 24.04 LTSでは手動のセットアップが必要です。
 ```bash
 # t64ライブラリ移行のため手動セットアップが必要
 sudo apt update && sudo apt install -y \
@@ -37,27 +36,27 @@ pip install playwright==1.55.0 && playwright install chromium
 sudo playwright install-deps
 ```
 
-**その他のLinux（Chromiumとシステムライブラリをインストール）:**
+その他のLinuxでは、Chromiumとシステムライブラリをまとめて入れます。
 ```bash
 uvx --from playwright==1.55.0 playwright install --with-deps chromium
 ```
 
-**macOS / Windows:**
+macOSとWindowsの場合:
 ```bash
 uvx --from playwright==1.55.0 playwright install chromium
 ```
 
-Python環境にPlaywrightがインストール済みの場合は、`python -m playwright install --with-deps chromium`（Linux）または `playwright install chromium`（macOS/Windows）でも構いません。
+Python環境にPlaywrightがインストール済みの場合は、`python -m playwright install --with-deps chromium`（Linux）または `playwright install chromium`（macOS/Windows）でもかまいません。
 
 ### インストール
 
-**UVX（推奨 - 最も簡単）:**
+UVXを使う方法が一番簡単で、推奨です。
 ```bash
 # 上記のシステム準備後 - これだけ！
 uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
 ```
 
-**Docker（本番運用向け）:**
+本番運用ではDockerも使えます。
 ```bash
 # リポジトリをクローン
 git clone https://github.com/walksoda/crawl-mcp
@@ -74,17 +73,16 @@ docker build -t crawl4ai-mcp .
 docker run -it crawl4ai-mcp
 ```
 
-**Dockerの特徴:**
-- 🔧 **マルチブラウザ対応**: Chromium、Firefox、Webkitのヘッドレスブラウザ
-- 🐧 **Google Chrome**: 互換性のためChrome Stableを追加同梱
-- ⚡ **最適化された性能**: Docker向けに事前設定されたブラウザフラグ
-- 🔒 **セキュリティ**: 非rootユーザーで実行
-- 📦 **完全な依存関係**: 必要なライブラリをすべて同梱
+Dockerイメージの内容は次のとおりです。
+- Chromium、Firefox、Webkitのヘッドレスブラウザ
+- 互換性のためにGoogle Chrome Stableも同梱
+- Docker向けのブラウザフラグを設定済み
+- 非rootユーザーで実行
+- 必要なライブラリはすべてイメージに含まれる
 
 ### Claude Desktopセットアップ
 
-**UVXインストールの場合:**
-`claude_desktop_config.json`に追加：
+UVXでインストールした場合は、`claude_desktop_config.json` に次を追加します。
 
 ```json
 {
@@ -102,7 +100,7 @@ docker run -it crawl4ai-mcp
 }
 ```
 
-**Docker HTTPモード:**
+DockerのHTTPモードを使う場合:
 ```json
 {
   "mcpServers": {
@@ -114,23 +112,23 @@ docker run -it crawl4ai-mcp
 }
 ```
 
-## 📖 ドキュメント
+## ドキュメント
 
 | トピック | 説明 |
 |---------|------|
-| **[インストールガイド](docs/ja/INSTALLATION.md)** | 全プラットフォーム向け完全インストール手順 |
-| **[APIリファレンス](docs/ja/API_REFERENCE.md)** | 完全ツールドキュメントと使用例 |
-| **[設定例](docs/ja/CONFIGURATION_EXAMPLES.md)** | プラットフォーム固有セットアップ設定 |
-| **[HTTP統合](docs/ja/HTTP_INTEGRATION.md)** | HTTP APIアクセスと統合方法 |
-| **[高度な使用法](docs/ja/ADVANCED_USAGE.md)** | パワーユーザー技術とワークフロー |
-| **[開発ガイド](docs/ja/DEVELOPMENT.md)** | 貢献と開発セットアップ |
+| [インストールガイド](docs/ja/INSTALLATION.md) | 各プラットフォームでのインストール手順 |
+| [APIリファレンス](docs/ja/API_REFERENCE.md) | 全ツールのパラメータと使用例 |
+| [設定例](docs/ja/CONFIGURATION_EXAMPLES.md) | プラットフォーム別の設定例 |
+| [HTTP統合](docs/ja/HTTP_INTEGRATION.md) | HTTP経由での利用方法 |
+| [使い方の応用](docs/ja/ADVANCED_USAGE.md) | 応用的な使い方とワークフロー |
+| [開発ガイド](docs/ja/DEVELOPMENT.md) | 開発環境の準備とコントリビューション |
 
 ### 言語別ドキュメント
 
-- **English**: [docs/](docs/) ディレクトリ
-- **日本語**: [docs/ja/](docs/ja/) ディレクトリ
+- English: [docs/](docs/)
+- 日本語: [docs/ja/](docs/ja/)
 
-## 🛠️ ツール概要
+## ツール一覧
 
 ### Webクローリング (3)
 - `crawl_url` - JavaScript対応のWebページコンテンツ抽出（リモートの `.html`/`.htm` URLはブラウザでレンダリングし、ドキュメントURLはファイルとして変換）
@@ -163,19 +161,18 @@ docker run -it crawl4ai-mcp
 - `batch_crawl` - フォールバック付きで複数URLを順次クローリング（最大3件）
 - `multi_url_crawl` - パターンベース設定による複数URLクローリング（最大5URLパターン）
 
-## 💾 大容量結果のディスク保存（token-saver）
+## 大きな結果のディスク保存（token-saver）
 
-情報収集系のすべてのツールは、取得した全文を直接ディスクへ書き出し、メタデータのみの軽量レスポンスを返す任意パラメータ `output_path` を受け付けます。これにより、巨大なページ・長尺のYouTubeトランスクリプト・バッチ全体を、コンテキスト予算を圧迫せずに取得できます。必要なときだけ保存ファイルから読み出してください。
+情報を取得するツールはすべて、任意パラメータ `output_path` を受け付けます。指定すると取得した全文をディスクに書き出し、レスポンスはメタデータだけになります。巨大なページや長いYouTubeトランスクリプト、バッチ全体の結果も、コンテキストを圧迫せずに取得できます。中身は必要になったときに保存ファイルから読んでください。
 
-**動作の仕組み:**
-- 単一ファイル系ツール（例: `crawl_url`、`extract_youtube_transcript`）は1つの `.md`（JSON種別のツールは `.json`）を書き出します。絶対ファイルパスを渡してください。拡張子は省略すると自動付与されます。同じパスに通常ファイルが既に存在する場合、`overwrite=true` でない限り拒否されます。
-- バッチ系ツール（`batch_crawl`、`multi_url_crawl`、`deep_crawl_site`、`search_and_crawl`、`batch_extract_youtube_transcripts`）は絶対**ディレクトリ**パスを期待し、URLごとに1つの `.md` と `index.json` を書き出します。存在しないパスはディレクトリとして扱われ作成されます（`/tmp/run.v1` のようにドットを含む名前も可）。既に通常ファイルとして存在する場合は拒否されます。`batch_crawl` / `multi_url_crawl` は従来の `list` 戻り値形状を保ち、各成功項目に `output_file` キーを埋め込みます。
-- リクエスト辞書系ツール（`search_google`、`batch_search_google`、`search_and_crawl`、`batch_extract_youtube_transcripts`）は永続化キーをリクエスト辞書から直接読み取ります。
-- 共通パラメータ: `output_path`（絶対パス。デフォルトは `None`、`""` でも永続化をスキップ）、`include_content_in_response`（既定 `false`。`true` の場合はレスポンスにも内容を含めるが、**`content_limit` / `content_offset` / `max_content_per_page` によるスライスは引き続き適用**）、`overwrite`（既定 `false`）。
-- 書き込みはファイルごとにアトミック（一時ファイル + `os.replace`）で、親ディレクトリは自動作成されます。スライスやツール内部の切り詰めの**前**にスライスなしの全文を永続化するため、レスポンスがスライスされてもディスク上のコピーは常に完全です。
-- バッチ辞書系ツール（`deep_crawl_site`、`search_and_crawl`、`batch_extract_youtube_transcripts`）は `success=false` の項目について項目単位の永続化をスキップします。これらの項目も `index.json` には `file: null` として現れるため、呼び出し側は試行リストを把握できます（`batch_crawl` / `multi_url_crawl` も失敗項目は保存せず、`index.json` に `output_file: null` として記録します）。
+- 単一ファイル系のツール（`crawl_url`、`extract_youtube_transcript` など）は `.md` を1つ書き出します（JSONを返すツールは `.json`）。絶対ファイルパスを渡してください。拡張子は省略すると自動で付きます。同じパスに通常ファイルがあると、`overwrite=true` でない限りエラーになります。
+- バッチ系のツール（`batch_crawl`、`multi_url_crawl`、`deep_crawl_site`、`search_and_crawl`、`batch_extract_youtube_transcripts`）には絶対**ディレクトリ**パスを渡します。URLごとの `.md` と `index.json` がそこに書き出されます。存在しないパスはディレクトリとして作成します（`/tmp/run.v1` のようにドットを含む名前でもかまいません）。同名の通常ファイルがあるとエラーです。`batch_crawl` と `multi_url_crawl` の戻り値は従来どおり `list` で、成功した項目に `output_file` キーが入ります。
+- リクエスト辞書を受け取るツール（`search_google`、`batch_search_google`、`search_and_crawl`、`batch_extract_youtube_transcripts`）では、保存用のキーもリクエスト辞書に入れます。
+- 共通のパラメータは3つです。`output_path` は絶対パスで、デフォルトは `None` です（`""` でも保存しません）。`include_content_in_response`（デフォルト `false`）を `true` にするとレスポンスにも内容が入りますが、`content_limit`、`content_offset`、`max_content_per_page` によるスライスはそのままかかります。`overwrite` のデフォルトは `false` です。
+- 書き込みはファイル単位でアトミックです（一時ファイルに書いてから `os.replace`）。親ディレクトリは自動で作ります。保存はスライスやツール内部の切り詰めより**前**に行うので、レスポンスが切り詰められてもディスク上のファイルは全文のままです。
+- 辞書で結果を返すバッチ系のツール（`deep_crawl_site`、`search_and_crawl`、`batch_extract_youtube_transcripts`）は、`success=false` の項目をファイルに保存しません。それでも `index.json` には `file: null` として載るので、何を試したかは呼び出し側で分かります。`batch_crawl` と `multi_url_crawl` も同じく失敗項目は保存せず、`index.json` に `output_file: null` と記録します。
 
-**Markdown単一ファイルの例:**
+Markdownを1ファイルに保存する例:
 ```json
 {
   "tool": "crawl_url",
@@ -186,7 +183,7 @@ docker run -it crawl4ai-mcp
 }
 ```
 
-**JSON構造化抽出（拡張子は自動付与）:**
+構造化データをJSONで保存する例（拡張子は自動で付きます）:
 ```json
 {
   "tool": "extract_structured_data",
@@ -199,7 +196,7 @@ docker run -it crawl4ai-mcp
 }
 ```
 
-**バッチ・ディレクトリモード:**
+バッチ結果をディレクトリに保存する例:
 ```json
 {
   "tool": "batch_crawl",
@@ -210,63 +207,61 @@ docker run -it crawl4ai-mcp
 }
 ```
 
-永続化された各Markdownファイルは、`url`、`title`、`fetched_at`、`source_tool` を含むYAMLフロントマターブロックで始まるため、成果物は自己記述的です。
+保存されたMarkdownファイルの先頭には、`url`、`title`、`fetched_at`、`source_tool` を含むYAMLフロントマターが付きます。ファイル単体で取得元が分かります。
 
-## 🎯 一般的な使用例
+## 使い方の例
 
-**コンテンツ研究:**
+コンテンツの調査:
 ```bash
 search_and_crawl → extract_structured_data → 構造化分析
 ```
 
-**ドキュメントマイニング:**
+ドキュメントの収集:
 ```bash
-deep_crawl_site → バッチ処理 → 包括的抽出
+deep_crawl_site → バッチ処理 → 抽出
 ```
 
-**メディア分析:**
+動画の分析:
 ```bash
 extract_youtube_transcript → 要約ワークフロー
 ```
 
-**サイトマッピング:**
+サイトの把握:
 ```bash
-batch_crawl → multi_url_crawl → 包括的データ
+batch_crawl → multi_url_crawl → データ集約
 ```
 
-## 🚨 クイックトラブルシューティング
+## トラブルシューティング
 
-**インストールの問題:**
-1. 上記のPlaywrightインストールコマンドを適切な権限で再実行
-2. 開発インストール手法を試行
-3. ブラウザ依存関係がインストールされているか確認
+インストールがうまくいかない場合:
+1. 上のPlaywrightのインストールコマンドを、必要な権限で再実行する
+2. 開発用のインストール手順を試す
+3. ブラウザの依存パッケージが入っているか確認する
 
-**パフォーマンスの問題:**
-- JavaScript重要サイトには`wait_for_js: true`を使用
-- 読み込みが遅いページではタイムアウトを増加
-- 対象を絞った抽出には`extract_structured_data`を使用
+遅い、または内容が取れない場合:
+- JavaScriptで描画するサイトには `wait_for_js: true` を指定する
+- 読み込みが遅いページではタイムアウトを延ばす
+- 必要な部分だけ取るなら `extract_structured_data` を使う
 
-**設定の問題:**
-- `claude_desktop_config.json`のJSON構文をチェック
-- ファイルパスが絶対パスであることを確認
-- 設定変更後はClaude Desktopを再起動
+設定の問題:
+- `claude_desktop_config.json` のJSON構文を確認する
+- ファイルパスが絶対パスになっているか確認する
+- 設定を変えたらClaude Desktopを再起動する
 
-## 🏗️ プロジェクト構造
+## プロジェクトの位置づけ
 
-- **元ライブラリ**: [crawl4ai](https://github.com/unclecode/crawl4ai) by unclecode
-- **MCPラッパー**: このリポジトリ（walksoda）
-- **実装**: 非公式サードパーティ統合
+元のライブラリはunclecodeによる[crawl4ai](https://github.com/unclecode/crawl4ai)です。このリポジトリ（walksoda）はそのMCPラッパーで、サードパーティによる非公式の実装です。
 
-## 📄 ライセンス
+## ライセンス
 
-このプロジェクトはcrawl4aiライブラリの非公式ラッパーです。基盤機能については元の[crawl4aiライセンス](https://github.com/unclecode/crawl4ai)をご参照ください。
+このプロジェクトはcrawl4aiライブラリの非公式ラッパーです。crawl4ai本体の機能については、元の[crawl4aiのライセンス](https://github.com/unclecode/crawl4ai)を参照してください。
 
-## 🤝 コントリビューション
+## コントリビューション
 
-貢献ガイドラインと開発セットアップ手順については、[開発ガイド](docs/ja/DEVELOPMENT.md)をご覧ください。
+開発環境の準備とコントリビューションの手順は[開発ガイド](docs/ja/DEVELOPMENT.md)にあります。
 
-## 🔗 関連プロジェクト
+## 関連プロジェクト
 
 - [crawl4ai](https://github.com/unclecode/crawl4ai) - 基盤となるWebクローリングライブラリ
 - [Model Context Protocol](https://modelcontextprotocol.io/) - このサーバーが実装する標準
-- [Claude Desktop](https://docs.anthropic.com/claude/docs/claude-desktop) - MCPサーバーの主要クライアント
+- [Claude Desktop](https://docs.anthropic.com/claude/docs/claude-desktop) - MCPクライアントの一つ

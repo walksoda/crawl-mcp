@@ -1,369 +1,241 @@
 # HTTP Integration Guide
 
-This guide covers HTTP API access for the Crawl4AI MCP Server, supporting multiple HTTP protocols for different use cases.
+This guide covers running the Crawl4AI MCP Server over HTTP and calling its tools from HTTP clients.
 
-## 🌐 Overview
+## Overview
 
-The MCP server supports multiple HTTP protocols, allowing you to choose the optimal implementation:
+The server is a [FastMCP](https://gofastmcp.com) application. The transport is chosen with the `--transport` flag of `python -m crawl4ai_mcp.server` (or the `crawl-mcp` entry point):
 
-- **Pure StreamableHTTP** (Recommended): Plain JSON HTTP protocol without Server-Sent Events
-- **Legacy HTTP**: Traditional FastMCP StreamableHTTP protocol with SSE
-- **STDIO**: Binary protocol for direct integration
+| `--transport` | Endpoint | Notes |
+|---------------|----------|-------|
+| `stdio` (default) | stdin/stdout | For MCP clients that launch the server as a subprocess |
+| `streamable-http` (alias: `http`) | `http://<host>:<port>/mcp` | Use this for HTTP. Current MCP Streamable HTTP transport |
+| `sse` | `http://<host>:<port>/sse` | Legacy MCP SSE transport, for older clients only |
 
-## 🎯 Pure StreamableHTTP (Recommended)
+Other flags: `--host` (default `127.0.0.1`) and `--port` (default `8000`). Transport, host, and port are set only by these flags; no environment variables control them.
 
-**Pure JSON HTTP protocol without Server-Sent Events (SSE)**
+Every HTTP request is an MCP JSON-RPC message. The server does not expose REST-style endpoints such as `/tools/{name}`, and it has no `/health`, `/docs`, `/stats`, or `/status` routes.
+
+## Streamable HTTP (Recommended)
 
 ### Server Startup
 
 ```bash
-# Method 1: Using startup script
-./scripts/start_pure_http_server.sh
+# Development checkout (inside the project's virtual environment)
+python -m crawl4ai_mcp.server --transport streamable-http --host 127.0.0.1 --port 8000
 
-# Method 2: Direct startup
-python examples/simple_pure_http_server.py --host 127.0.0.1 --port 8000
+# Installed package / UVX
+uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --transport streamable-http --host 127.0.0.1 --port 8000
 
-# Method 3: Background startup
-nohup python examples/simple_pure_http_server.py --port 8000 > server.log 2>&1 &
+# Background startup
+nohup python -m crawl4ai_mcp.server --transport streamable-http --port 8000 > server.log 2>&1 &
 ```
 
-### Claude Desktop Configuration
+`--transport http` is accepted as an alias for `streamable-http`.
+
+### MCP Client Configuration
+
+For clients that support remote (URL-based) MCP servers:
 
 ```json
 {
   "mcpServers": {
-    "crawl4ai-pure-http": {
+    "crawl4ai-http": {
       "url": "http://127.0.0.1:8000/mcp"
     }
   }
 }
 ```
 
-### Usage Steps
-
-1. **Start Server**: `./scripts/start_pure_http_server.sh`
-2. **Apply Configuration**: Use `configs/claude_desktop_config_pure_http.json`
-3. **Restart Claude Desktop**: Apply settings
-
-### Verification
+Claude Code:
 
 ```bash
-# Health check
-curl http://127.0.0.1:8000/health
-
-# Complete test
-python examples/pure_http_test.py
+claude mcp add --transport http crawl4ai http://127.0.0.1:8000/mcp
 ```
 
-### Pure StreamableHTTP Usage Example
+The server must already be running; the client only connects to the URL.
+
+### Calling Tools with curl
+
+A session takes three steps: `initialize`, then the `notifications/initialized` notification, then `tools/call`. Every request must send `Accept: application/json, text/event-stream`. After `initialize`, every request must also send the `mcp-session-id` header returned by the server. Responses come back as Server-Sent Events (`event: message` / `data: {...}`).
 
 ```bash
-# Initialize session
-SESSION_ID=$(curl -s -X POST http://127.0.0.1:8000/mcp/initialize \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}' \
-  -D- | grep -i mcp-session-id | cut -d' ' -f2 | tr -d '\r')
+BASE=http://127.0.0.1:8000/mcp
 
-# Execute tool
-curl -X POST http://127.0.0.1:8000/mcp \
+# 1. Initialize (the session ID is returned in the mcp-session-id response header)
+SESSION_ID=$(curl -s -D - -o /dev/null -X POST "$BASE" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}' \
+  | grep -i '^mcp-session-id:' | awk '{print $2}' | tr -d '\r')
+
+# 2. Confirm initialization
+curl -s -X POST "$BASE" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -H "mcp-session-id: $SESSION_ID" \
-  -d '{"jsonrpc":"2.0","id":"crawl","method":"tools/call","params":{"name":"crawl_url","arguments":{"url":"https://example.com"}}}'
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+
+# 3. Call a tool
+curl -s -X POST "$BASE" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"crawl_url","arguments":{"url":"https://example.com","content_limit":2000}}}'
 ```
 
-## 🔄 Legacy HTTP (SSE Implementation)
+List the available tools with `{"jsonrpc":"2.0","id":3,"method":"tools/list"}`, using the same headers.
 
-**Traditional FastMCP StreamableHTTP protocol (with SSE)**
+### Tool Argument Examples
 
-### Server Startup
+Only the JSON-RPC `params` change between calls. Each `arguments` object must use the tool's real parameter names.
 
-```bash
-# Method 1: Command line
-python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8001
-
-# Method 2: Environment variables
-export MCP_TRANSPORT=http
-export MCP_HOST=127.0.0.1
-export MCP_PORT=8001
-python -m crawl4ai_mcp.server
-```
-
-### Claude Desktop Configuration
+Web crawling on a JavaScript-heavy page:
 
 ```json
-{
-  "mcpServers": {
-    "crawl4ai-legacy-http": {
-      "url": "http://127.0.0.1:8001/mcp"
-    }
-  }
-}
+{"name": "crawl_url", "arguments": {"url": "https://spa-example.com", "wait_for_js": true, "timeout": 60}}
 ```
 
-### Legacy HTTP Usage Example
+Saving the full page to disk and returning only metadata:
+
+```json
+{"name": "crawl_url", "arguments": {"url": "https://example.com/long-article", "output_path": "/tmp/article.md"}}
+```
+
+Large pages are not summarized unless `auto_summarize` is `true`. Without it, a response larger than about 25,000 tokens is truncated and includes recommendations: use `content_limit`/`content_offset` to page through the content, or `output_path` to write the full text to a file.
+
+Google search. The search tools take a single `request` object:
+
+```json
+{"name": "search_google", "arguments": {"request": {"query": "python web scraping", "num_results": 10}}}
+```
+
+File processing:
+
+```json
+{"name": "process_file", "arguments": {"url": "https://example.com/document.pdf", "max_size_mb": 50, "include_metadata": true}}
+```
+
+Remote `.html`/`.htm` URLs passed to `crawl_url` are rendered in the browser. Document URLs (PDF, DOCX, XLSX, PPTX, ZIP, ...) are converted as files and do not use the browser fallback.
+
+YouTube transcript:
+
+```json
+{"name": "extract_youtube_transcript", "arguments": {"url": "https://www.youtube.com/watch?v=VIDEO_ID", "languages": ["en", "ja"], "include_timestamps": true, "timezone": "Asia/Tokyo"}}
+```
+
+`timezone` is an IANA name (default `UTC`). It is used to convert the publish time, which is returned under `metadata.published_at`.
+
+See the [API Reference](API_REFERENCE.md) for every tool's parameters.
+
+## Python Integration
+
+Use an MCP client library instead of hand-written HTTP calls. `fastmcp` is already a dependency of this project:
+
+```python
+import asyncio
+import json
+
+from fastmcp import Client
+
+
+async def main():
+    async with Client("http://127.0.0.1:8000/mcp") as client:
+        tools = await client.list_tools()
+        print([tool.name for tool in tools])
+
+        result = await client.call_tool(
+            "crawl_url", {"url": "https://example.com", "content_limit": 2000}
+        )
+        data = json.loads(result.content[0].text)
+        print(data["success"], data["title"])
+
+
+asyncio.run(main())
+```
+
+The official `mcp` Python SDK (`mcp.client.streamable_http.streamablehttp_client`) and the TypeScript SDK (`@modelcontextprotocol/sdk`, `StreamableHTTPClientTransport`) work the same way.
+
+## Docker
+
+The image's default command runs the server over STDIO. For HTTP, override the command and bind to `0.0.0.0` so the port is reachable from outside the container:
 
 ```bash
-curl -X POST "http://127.0.0.1:8001/tools/crawl_url" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com", "generate_markdown": true}'
+docker run -p 8000:8000 crawl4ai-mcp:latest \
+  python -m crawl4ai_mcp.server --transport http --host 0.0.0.0 --port 8000
+
+# or, with docker-compose
+docker-compose --profile http up crawl4ai-mcp-http
 ```
 
-## 🖥️ STDIO Protocol
+## STDIO Protocol
 
-### Usage Methods
-
-**STDIO transport (default):**
 ```bash
 python -m crawl4ai_mcp.server
 ```
 
-**Claude Desktop Configuration:**
+STDIO carries newline-delimited JSON-RPC messages. While the server runs over STDIO, stdout carries only MCP messages; all diagnostics go to stderr. A wrapper script that prints to stdout will corrupt the protocol stream.
+
 ```json
 {
   "mcpServers": {
     "crawl-mcp": {
-      "transport": "stdio",
       "command": "uvx",
       "args": [
         "--from",
         "git+https://github.com/walksoda/crawl-mcp",
         "crawl-mcp"
-      ],
-      "env": {
-        "CRAWL4AI_LANG": "en"
-      }
+      ]
     }
   }
 }
 ```
 
-## 📊 Protocol Comparison
+## Transport Comparison
 
-| Feature | Pure StreamableHTTP | Legacy HTTP (SSE) | STDIO |
-|---------|---------------------|-------------------|-------|
-| Response Format | Plain JSON | Server-Sent Events | Binary |
-| Configuration Complexity | Low (URL only) | Low (URL only) | High (Process management) |
-| Debug Ease | High (curl compatible) | Medium (SSE parser needed) | Low |
-| Independence | High | High | Low |
-| Performance | High | Medium | High |
+| Feature | Streamable HTTP | SSE (legacy) | STDIO |
+|---------|-----------------|--------------|-------|
+| Endpoint | `/mcp` | `/sse` | stdin/stdout |
+| Message format | JSON-RPC (SSE-framed responses) | JSON-RPC over SSE | Newline-delimited JSON-RPC |
+| Process management | Run the server yourself | Run the server yourself | Client launches the server |
+| Shared by multiple clients | Yes | Yes | No |
 
-## 🚀 Server Startup Options
+## Example Servers in `examples/` (Unmaintained)
 
-### Method 1: Command Line
+`examples/` contains older demo servers. They are not maintained and are not recommended:
 
-```bash
-python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
-```
+- `examples/simple_pure_http_server.py` (started by `scripts/start_pure_http_server.sh`) **returns mock results** ("Mock crawl result") and lists only two tools. It does not crawl anything.
+- `examples/pure_streamable_http_server.py` and `examples/run_http_server.py` use custom, non-standard endpoints.
 
-### Method 2: Environment Variables
+Use the built-in `--transport streamable-http` server instead.
 
-```bash
-export MCP_TRANSPORT=http
-export MCP_HOST=127.0.0.1
-export MCP_PORT=8000
-python -m crawl4ai_mcp.server
-```
+## Security Considerations
 
-### Method 3: Docker (if available)
+The server implements neither CORS nor authentication. It binds to `127.0.0.1` by default. If you expose it beyond localhost, put it behind a reverse proxy (for example nginx or Caddy) that handles TLS, authentication, and CORS.
+
+## Troubleshooting
+
+If the port is already in use:
 
 ```bash
-docker run -p 8000:8000 crawl4ai-mcp --transport http --port 8000
-```
-
-## 🔗 API Endpoints
-
-Once running, the HTTP API provides:
-
-- **Base URL**: `http://127.0.0.1:8000`
-- **OpenAPI Documentation**: `http://127.0.0.1:8000/docs`
-- **Tool Endpoints**: `http://127.0.0.1:8000/tools/{tool_name}`
-
-All MCP tools (crawl_url, extract_structured_data, process_file, etc.) are accessible via HTTP POST requests with JSON payloads matching the tool parameters.
-
-## 🛠️ Tool Usage Examples
-
-### Basic Web Crawling
-
-```bash
-curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com", "generate_markdown": true}'
-```
-
-### Advanced Crawling with JavaScript
-
-```bash
-curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://spa-example.com",
-    "wait_for_js": true,
-    "timeout": 30
-  }'
-```
-
-### Google Search
-
-```bash
-curl -X POST "http://127.0.0.1:8000/tools/search_google" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "python web scraping",
-    "num_results": 10,
-    "search_genre": "programming"
-  }'
-```
-
-### File Processing
-
-```bash
-curl -X POST "http://127.0.0.1:8000/tools/process_file" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://example.com/document.pdf",
-    "max_size_mb": 50,
-    "include_metadata": true
-  }'
-```
-
-### YouTube Transcript Extraction
-
-```bash
-curl -X POST "http://127.0.0.1:8000/tools/extract_youtube_transcript" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://www.youtube.com/watch?v=VIDEO_ID",
-    "languages": ["en", "ja"],
-    "include_timestamps": true
-  }'
-```
-
-## 🔧 Integration with Applications
-
-### Python Integration
-
-```python
-import requests
-import json
-
-# Basic usage
-def crawl_url(url, **kwargs):
-    response = requests.post(
-        "http://127.0.0.1:8000/tools/crawl_url",
-        headers={"Content-Type": "application/json"},
-        json={"url": url, **kwargs}
-    )
-    return response.json()
-
-# Example usage
-result = crawl_url("https://example.com", generate_markdown=True)
-```
-
-### JavaScript/Node.js Integration
-
-```javascript
-async function crawlUrl(url, options = {}) {
-  const response = await fetch('http://127.0.0.1:8000/tools/crawl_url', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ url, ...options })
-  });
-  
-  return await response.json();
-}
-
-// Example usage
-const result = await crawlUrl('https://example.com', { 
-  generate_markdown: true 
-});
-```
-
-## 🔍 Debugging and Monitoring
-
-### Health Check
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-### Server Logs
-
-```bash
-# View logs in real-time
-tail -f server.log
-
-# Search for errors
-grep -i error server.log
-```
-
-### Performance Monitoring
-
-```bash
-# Monitor requests
-curl -s http://127.0.0.1:8000/stats
-
-# Check server status
-curl -s http://127.0.0.1:8000/status
-```
-
-## 🔒 Security Considerations
-
-### CORS Configuration
-
-For web applications, ensure proper CORS headers are configured:
-
-```python
-# Example CORS configuration
-CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization"
-}
-```
-
-### Authentication
-
-For production use, implement authentication:
-
-```bash
-# Example with API key
-curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{"url": "https://example.com"}'
-```
-
-## 📚 Additional Resources
-
-- **Pure StreamableHTTP Details**: [PURE_STREAMABLE_HTTP.md](PURE_STREAMABLE_HTTP.md)
-- **HTTP Server Usage**: [HTTP_SERVER_USAGE.md](HTTP_SERVER_USAGE.md)
-- **Legacy HTTP API**: [HTTP_API_GUIDE.md](HTTP_API_GUIDE.md)
-- **Configuration Examples**: [CONFIGURATION_EXAMPLES.md](CONFIGURATION_EXAMPLES.md)
-- **API Reference**: [API_REFERENCE.md](API_REFERENCE.md)
-
-## 🚨 Troubleshooting
-
-### Common Issues
-
-**Port Already in Use:**
-```bash
-# Find process using port
 lsof -i :8000
-
-# Kill process
-kill -9 <PID>
+kill <PID>
 ```
 
-**Connection Refused:**
-- Check if server is running
-- Verify port and host configuration
+HTTP 406 Not Acceptable means the request is missing `Accept: application/json, text/event-stream`.
+
+For "Missing session ID" or HTTP 400, send the `mcp-session-id` header returned by `initialize` on every later request.
+
+If the connection is refused:
+
+- Check that the server is running and that host and port match
+- Inside Docker, start the server with `--host 0.0.0.0`
 - Check firewall settings
 
-**JSON Parse Errors:**
-- Ensure proper Content-Type headers
-- Validate JSON payload format
-- Check for special characters in data
-
 For more troubleshooting information, see the [Installation Guide](INSTALLATION.md#troubleshooting).
+
+## Related Documentation
+
+- [Configuration Examples](CONFIGURATION_EXAMPLES.md)
+- [API Reference](API_REFERENCE.md)
+- [Installation Guide](INSTALLATION.md)

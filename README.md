@@ -1,29 +1,29 @@
 # Crawl-MCP: Unofficial MCP Server for crawl4ai
 
-> **⚠️ Important**: This is an **unofficial** MCP server implementation for the excellent [crawl4ai](https://github.com/unclecode/crawl4ai) library.  
-> **Not affiliated** with the original crawl4ai project.
+> This is an unofficial MCP server for the [crawl4ai](https://github.com/unclecode/crawl4ai) library. It is not affiliated with the crawl4ai project.
 
-A comprehensive Model Context Protocol (MCP) server that wraps the powerful crawl4ai library with advanced AI capabilities. Extract and analyze content from **any source**: web pages, PDFs, Office documents, YouTube videos, and more. Features opt-in LLM summarization (`auto_summarize`) and disk persistence (`output_path`) to keep token usage low.
+A Model Context Protocol (MCP) server that wraps crawl4ai. It extracts content from web pages, PDFs, Office documents, YouTube videos, and Google search results. To keep token usage low, it can summarize content with an LLM (`auto_summarize`, opt-in) and write full results to disk (`output_path`).
 
-## 🌟 Key Features
+## Key Features
 
-- **🔍 Google Search Integration** - 6 search genres (file type and language filters) using Google operators
-- **🔍 Advanced Web Crawling**: JavaScript support, deep site mapping, entity extraction
-- **🌐 Universal Content Extraction**: Web pages, PDFs, Word docs, Excel, PowerPoint, ZIP archives
-- **🤖 AI-Powered Summarization (opt-in)**: Smart token reduction (up to 88.5%) when `auto_summarize=true`; otherwise large responses are truncated at about 25000 tokens and the full content can be saved with `output_path`
-- **💾 Disk Persistence (token-saver)**: Save full results to disk and return slim metadata, so agents read them from a file on demand without spending context
-- **🎬 YouTube Integration**: Extract video transcripts and summaries without API keys  
-- **⚡ Production Ready**: 19 specialized tools with comprehensive error handling
+- Google search with 6 genres (file type and language filters) built from Google operators
+- Web crawling with JavaScript rendering, recursive site crawls, and entity extraction
+- Content extraction from web pages, PDFs, Word, Excel, PowerPoint, and ZIP archives
+- LLM summarization when `auto_summarize=true`. Without it, large responses are truncated at about 25000 tokens, and `output_path` saves the full content
+- Disk persistence: full results go to a file and the response carries only metadata, so an agent reads the file when it needs the content
+- YouTube transcripts and summaries without an API key
+- 19 tools that return structured error dicts on failure
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites (Required First)
 
 - Python 3.11 or later (FastMCP requires Python 3.11+)
 
-**Install system dependencies for Playwright:**
+Install the system dependencies for Playwright.
 
-**Ubuntu 24.04 LTS (Manual Required):**
+Ubuntu 24.04 LTS needs a manual setup:
+
 ```bash
 # Manual setup required due to t64 library transition
 sudo apt update && sudo apt install -y \
@@ -37,12 +37,14 @@ pip install playwright==1.55.0 && playwright install chromium
 sudo playwright install-deps
 ```
 
-**Other Linux (installs Chromium and its system libraries):**
+Other Linux distributions (installs Chromium and its system libraries):
+
 ```bash
 uvx --from playwright==1.55.0 playwright install --with-deps chromium
 ```
 
-**macOS / Windows:**
+macOS / Windows:
+
 ```bash
 uvx --from playwright==1.55.0 playwright install chromium
 ```
@@ -51,13 +53,15 @@ If Playwright is already installed in a Python environment, `python -m playwrigh
 
 ### Installation
 
-**UVX (Recommended - Easiest):**
+UVX (recommended):
+
 ```bash
 # After system preparation above - that's it!
 uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp
 ```
 
-**Docker (Production-Ready):**
+Docker:
+
 ```bash
 # Clone the repository
 git clone https://github.com/walksoda/crawl-mcp
@@ -74,17 +78,11 @@ docker build -t crawl4ai-mcp .
 docker run -it crawl4ai-mcp
 ```
 
-**Docker Features:**
-- 🔧 **Multi-Browser Support**: Chromium, Firefox, Webkit headless browsers
-- 🐧 **Google Chrome**: Additional Chrome Stable for compatibility
-- ⚡ **Optimized Performance**: Pre-configured browser flags for Docker
-- 🔒 **Security**: Non-root user execution
-- 📦 **Complete Dependencies**: All required libraries included
+The Docker image includes headless Chromium, Firefox, and WebKit, plus Google Chrome Stable. Browser flags are preset for running in a container, the server runs as a non-root user, and all required system libraries are installed.
 
 ### Claude Desktop Setup
 
-**UVX Installation:**
-Add to your `claude_desktop_config.json`:
+For a UVX installation, add this to your `claude_desktop_config.json`:
 
 ```json
 {
@@ -102,7 +100,8 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-**Docker HTTP Mode:**
+For Docker in HTTP mode:
+
 ```json
 {
   "mcpServers": {
@@ -114,23 +113,23 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-## 📖 Documentation
+## Documentation
 
 | Topic | Description |
 |-------|-------------|
-| **[Installation Guide](docs/INSTALLATION.md)** | Complete installation instructions for all platforms |
-| **[API Reference](docs/API_REFERENCE.md)** | Full tool documentation and usage examples |
-| **[Configuration Examples](docs/CONFIGURATION_EXAMPLES.md)** | Platform-specific setup configurations |
-| **[HTTP Integration](docs/HTTP_INTEGRATION.md)** | HTTP API access and integration methods |
-| **[Advanced Usage](docs/ADVANCED_USAGE.md)** | Power user techniques and workflows |
-| **[Development Guide](docs/DEVELOPMENT.md)** | Contributing and development setup |
+| [Installation Guide](docs/INSTALLATION.md) | Installation on each platform |
+| [API Reference](docs/API_REFERENCE.md) | Parameters and behavior of every tool |
+| [Configuration Examples](docs/CONFIGURATION_EXAMPLES.md) | Client and platform configurations |
+| [HTTP Integration](docs/HTTP_INTEGRATION.md) | Running the server over HTTP and calling it |
+| [Usage Patterns](docs/ADVANCED_USAGE.md) | Workflows that combine tools |
+| [Development Guide](docs/DEVELOPMENT.md) | Development setup and contributing |
 
 ### Language-Specific Documentation
 
-- **English**: [docs/](docs/) directory
-- **日本語**: [docs/ja/](docs/ja/) directory
+- English: [docs/](docs/)
+- 日本語: [docs/ja/](docs/ja/)
 
-## 🛠️ Tool Overview
+## Tool Overview
 
 ### Web Crawling (3)
 - `crawl_url` - Extract web page content with JavaScript support (remote `.html`/`.htm` URLs are rendered in the browser; document URLs are converted as files)
@@ -163,19 +162,21 @@ Add to your `claude_desktop_config.json`:
 - `batch_crawl` - Crawl multiple URLs sequentially with fallback (max 3 URLs)
 - `multi_url_crawl` - Multi-URL crawl with pattern-based config (max 5 URL patterns)
 
-## 💾 Persist Large Results to Disk (token-saver)
+## Persist Large Results to Disk
 
-All information-gathering tools accept an optional `output_path` parameter that writes the full fetched content straight to disk and returns a slim metadata-only response. This lets an LLM fetch huge pages, long YouTube transcripts, or whole batches without blowing its context budget — read from the saved file only when needed.
+All information-gathering tools accept an optional `output_path` parameter. The tool writes the full content to disk and returns only metadata. An LLM can then fetch large pages, long YouTube transcripts, or whole batches without filling its context, and read the saved file when it needs the content.
 
-**How it works:**
-- Single-file tools (e.g. `crawl_url`, `extract_youtube_transcript`) write one `.md` (or `.json` for JSON-kind tools) — pass an absolute file path; the extension is auto-added if omitted. An existing regular file at that path is rejected unless `overwrite=true`.
-- Batch tools (`batch_crawl`, `multi_url_crawl`, `deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`) expect an absolute **directory** path and write one `.md` per URL plus `index.json`. Any non-existent path is treated as a directory and created — including names containing dots such as `/tmp/run.v1`. If the path already exists as a regular file, the call is rejected. `batch_crawl` / `multi_url_crawl` keep their `list` return shape and embed an `output_file` key on each success item.
+How it works:
+
+- Single-file tools (e.g. `crawl_url`, `extract_youtube_transcript`) write one `.md` (or `.json` for JSON-kind tools). Pass an absolute file path; the extension is added if omitted. An existing regular file at that path is rejected unless `overwrite=true`.
+- Batch tools (`batch_crawl`, `multi_url_crawl`, `deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`) expect an absolute directory path and write one `.md` per URL plus `index.json`. Any non-existent path is treated as a directory and created, including names containing dots such as `/tmp/run.v1`. If the path already exists as a regular file, the call is rejected. `batch_crawl` / `multi_url_crawl` keep their `list` return shape and embed an `output_file` key on each success item.
 - Request-dict tools (`search_google`, `batch_search_google`, `search_and_crawl`, `batch_extract_youtube_transcripts`) read the persistence keys directly from their request dict.
-- Common parameters: `output_path` (absolute; default `None`, `""` also skips persistence), `include_content_in_response` (default `false` — when `true`, content is included in the response too, **still subject to any `content_limit`/`content_offset`/`max_content_per_page` slicing**), `overwrite` (default `false`).
-- Writes are atomic per file (temp file + `os.replace`); parent directories are auto-created; the full unsliced payload is persisted **before** any slicing or tool-internal truncation so the on-disk copy is always complete even when the response is sliced.
-- Batch dict tools (`deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`) skip per-item persistence for items that report `success=false`; these still appear in `index.json` with `file: null` so callers can reason about the attempt list. (`batch_crawl` / `multi_url_crawl` also skip failed items and record them in `index.json` with `output_file: null`.)
+- Common parameters: `output_path` (absolute; default `None`, `""` also skips persistence), `include_content_in_response` (default `false`; when `true`, the content is also included in the response, still subject to any `content_limit`/`content_offset`/`max_content_per_page` slicing), `overwrite` (default `false`).
+- Writes are atomic per file (temp file + `os.replace`); parent directories are auto-created; the full unsliced payload is written before any slicing or tool-internal truncation, so the file is complete even when the response is sliced.
+- Batch dict tools (`deep_crawl_site`, `search_and_crawl`, `batch_extract_youtube_transcripts`) skip per-item persistence for items that report `success=false`; these still appear in `index.json` with `file: null`, so callers can see every attempted item. (`batch_crawl` / `multi_url_crawl` also skip failed items and record them in `index.json` with `output_file: null`.)
 
-**Markdown single-file example:**
+Single Markdown file:
+
 ```json
 {
   "tool": "crawl_url",
@@ -186,7 +187,8 @@ All information-gathering tools accept an optional `output_path` parameter that 
 }
 ```
 
-**JSON structured extraction (extension auto-added):**
+JSON structured extraction (the extension is added automatically):
+
 ```json
 {
   "tool": "extract_structured_data",
@@ -199,7 +201,8 @@ All information-gathering tools accept an optional `output_path` parameter that 
 }
 ```
 
-**Batch directory mode:**
+Batch directory mode:
+
 ```json
 {
   "tool": "batch_crawl",
@@ -210,62 +213,67 @@ All information-gathering tools accept an optional `output_path` parameter that 
 }
 ```
 
-Each persisted markdown file begins with a YAML frontmatter block containing `url`, `title`, `fetched_at`, and `source_tool` so the artifact is self-describing.
+Each persisted markdown file begins with a YAML frontmatter block containing `url`, `title`, `fetched_at`, and `source_tool`.
 
-## 🎯 Common Use Cases
+## Common Use Cases
 
-**Content Research:**
+Content research:
+
 ```bash
 search_and_crawl → extract_structured_data → analysis
 ```
 
-**Documentation Mining:**
+Collecting documentation:
+
 ```bash
 deep_crawl_site → batch processing → extraction
 ```
 
-**Media Analysis:**
+Video analysis:
+
 ```bash
 extract_youtube_transcript → summarization workflow
 ```
 
-**Site Mapping:**
+Site mapping:
+
 ```bash
-batch_crawl → multi_url_crawl → comprehensive data
+batch_crawl → multi_url_crawl → aggregated data
 ```
 
-## 🚨 Quick Troubleshooting
+## Quick Troubleshooting
 
-**Installation Issues:**
+Installation problems:
+
 1. Re-run the Playwright install commands above with proper privileges
-2. Try development installation method
-3. Check browser dependencies are installed
+2. Try the development installation method
+3. Check that the browser dependencies are installed
 
-**Performance Issues:**
+Slow or incomplete pages:
+
 - Use `wait_for_js: true` for JavaScript-heavy sites
 - Increase timeout for slow-loading pages
 - Use `extract_structured_data` for targeted extraction
 
-**Configuration Issues:**
+Configuration problems:
+
 - Check JSON syntax in `claude_desktop_config.json`
 - Verify file paths are absolute
 - Restart Claude Desktop after configuration changes
 
-## 🏗️ Project Structure
+## Project Structure
 
-- **Original Library**: [crawl4ai](https://github.com/unclecode/crawl4ai) by unclecode
-- **MCP Wrapper**: This repository (walksoda)
-- **Implementation**: Unofficial third-party integration
+The underlying library is [crawl4ai](https://github.com/unclecode/crawl4ai) by unclecode. This repository (walksoda) is an unofficial third-party MCP wrapper around it.
 
-## 📄 License
+## License
 
-This project is an unofficial wrapper around the crawl4ai library. Please refer to the original [crawl4ai license](https://github.com/unclecode/crawl4ai) for the underlying functionality.
+This project is an unofficial wrapper around the crawl4ai library. See the [crawl4ai license](https://github.com/unclecode/crawl4ai) for the underlying functionality.
 
-## 🤝 Contributing
+## Contributing
 
-See our [Development Guide](docs/DEVELOPMENT.md) for contribution guidelines and development setup instructions.
+See the [Development Guide](docs/DEVELOPMENT.md) for development setup and contribution guidelines.
 
-## 🔗 Related Projects
+## Related Projects
 
 - [crawl4ai](https://github.com/unclecode/crawl4ai) - The underlying web crawling library
 - [Model Context Protocol](https://modelcontextprotocol.io/) - The standard this server implements

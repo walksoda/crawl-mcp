@@ -1,369 +1,234 @@
 # HTTP統合ガイド
 
-このガイドでは、Crawl4AI MCPサーバーのHTTP API アクセスについて、異なる使用ケースに対応する複数のHTTPプロトコルをカバーしています。
+このガイドでは、Crawl4AI MCPサーバーをHTTPで起動し、HTTPクライアントからツールを呼び出す方法を説明します。
 
-## 🌐 概要
+## 概要
 
-MCPサーバーは複数のHTTPプロトコルをサポートしており、最適な実装を選択できます：
+このサーバーは [FastMCP](https://gofastmcp.com) アプリケーションです。トランスポートは `python -m crawl4ai_mcp.server`（または `crawl-mcp` エントリポイント）の `--transport` フラグで選びます。
 
-- **Pure StreamableHTTP**（推奨）: Server-Sent Eventsなしのプレーンな JSON HTTP プロトコル
-- **Legacy HTTP**: SSE付きの従来の FastMCP StreamableHTTP プロトコル
-- **STDIO**: 直接統合用のバイナリプロトコル
+| `--transport` | エンドポイント | 備考 |
+|---------------|----------------|------|
+| `stdio`（デフォルト） | stdin/stdout | サーバーをサブプロセスとして起動するMCPクライアント向け |
+| `streamable-http`（別名: `http`） | `http://<host>:<port>/mcp` | HTTPで使うならこちら。現行のMCP Streamable HTTPトランスポート |
+| `sse` | `http://<host>:<port>/sse` | 旧来のMCP SSEトランスポート。古いクライアント向け |
 
-## 🎯 Pure StreamableHTTP（推奨）
+その他のフラグは `--host`（デフォルト `127.0.0.1`）と `--port`（デフォルト `8000`）です。トランスポート、ホスト、ポートはフラグでしか指定できず、環境変数では設定できません。
 
-**Server-Sent Events (SSE) なしのプレーンな JSON HTTP プロトコル**
+HTTPリクエストはすべてMCPのJSON-RPCメッセージです。`/tools/{name}` のようなREST形式のエンドポイントはなく、`/health`、`/docs`、`/stats`、`/status` といったルートも提供していません。
 
-### サーバー起動
+## Streamable HTTP（推奨）
+
+### サーバーの起動
 
 ```bash
-# 方法1: 起動スクリプトを使用
-./scripts/start_pure_http_server.sh
+# 開発用チェックアウト（プロジェクトの仮想環境内で実行）
+python -m crawl4ai_mcp.server --transport streamable-http --host 127.0.0.1 --port 8000
 
-# 方法2: 直接起動
-python examples/simple_pure_http_server.py --host 127.0.0.1 --port 8000
+# インストール済みパッケージ / UVX
+uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --transport streamable-http --host 127.0.0.1 --port 8000
 
-# 方法3: バックグラウンド起動
-nohup python examples/simple_pure_http_server.py --port 8000 > server.log 2>&1 &
+# バックグラウンド起動
+nohup python -m crawl4ai_mcp.server --transport streamable-http --port 8000 > server.log 2>&1 &
 ```
 
-### Claude Desktop設定
+`--transport http` は `streamable-http` の別名として受け付けます。
+
+### MCPクライアント設定
+
+URLで指定するリモートMCPサーバーに対応したクライアントでは、次のように設定します。
 
 ```json
 {
   "mcpServers": {
-    "crawl4ai-pure-http": {
+    "crawl4ai-http": {
       "url": "http://127.0.0.1:8000/mcp"
     }
   }
 }
 ```
 
-### 使用手順
-
-1. **サーバー起動**: `./scripts/start_pure_http_server.sh`
-2. **設定適用**: `configs/claude_desktop_config_pure_http.json`を使用
-3. **Claude Desktop再起動**: 設定を適用
-
-### 検証
+Claude Code では次のコマンドで追加します。
 
 ```bash
-# ヘルスチェック
-curl http://127.0.0.1:8000/health
-
-# 完全テスト
-python examples/pure_http_test.py
+claude mcp add --transport http crawl4ai http://127.0.0.1:8000/mcp
 ```
 
-### Pure StreamableHTTP使用例
+クライアントはURLに接続するだけなので、サーバーは先に起動しておいてください。
+
+### curlでツールを呼び出す
+
+セッションは `initialize`、`notifications/initialized` 通知、`tools/call` の3段階で進めます。すべてのリクエストに `Accept: application/json, text/event-stream` ヘッダーが必要です。`initialize` 以降のリクエストには、サーバーが返した `mcp-session-id` ヘッダーも付けます。レスポンスはServer-Sent Events形式（`event: message` / `data: {...}`）で返ります。
 
 ```bash
-# セッション初期化
-SESSION_ID=$(curl -s -X POST http://127.0.0.1:8000/mcp/initialize \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}' \
-  -D- | grep -i mcp-session-id | cut -d' ' -f2 | tr -d '\r')
+BASE=http://127.0.0.1:8000/mcp
 
-# ツール実行
-curl -X POST http://127.0.0.1:8000/mcp \
+# 1. 初期化（セッションIDはレスポンスヘッダー mcp-session-id で返る）
+SESSION_ID=$(curl -s -D - -o /dev/null -X POST "$BASE" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}' \
+  | grep -i '^mcp-session-id:' | awk '{print $2}' | tr -d '\r')
+
+# 2. 初期化完了を通知
+curl -s -X POST "$BASE" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -H "mcp-session-id: $SESSION_ID" \
-  -d '{"jsonrpc":"2.0","id":"crawl","method":"tools/call","params":{"name":"crawl_url","arguments":{"url":"https://example.com"}}}'
-```
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 
-## 🔄 Legacy HTTP（SSE実装）
-
-**SSE付きの従来の FastMCP StreamableHTTP プロトコル**
-
-### サーバー起動
-
-```bash
-# 方法1: コマンドライン
-python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8001
-
-# 方法2: 環境変数
-export MCP_TRANSPORT=http
-export MCP_HOST=127.0.0.1
-export MCP_PORT=8001
-python -m crawl4ai_mcp.server
-```
-
-### Claude Desktop設定
-
-```json
-{
-  "mcpServers": {
-    "crawl4ai-legacy-http": {
-      "url": "http://127.0.0.1:8001/mcp"
-    }
-  }
-}
-```
-
-### Legacy HTTP使用例
-
-```bash
-curl -X POST "http://127.0.0.1:8001/tools/crawl_url" \
+# 3. ツールを呼び出す
+curl -s -X POST "$BASE" \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com", "generate_markdown": true}'
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"crawl_url","arguments":{"url":"https://example.com","content_limit":2000}}}'
 ```
 
-## 🖥️ STDIOプロトコル
+ツールの一覧は、同じヘッダーで `{"jsonrpc":"2.0","id":3,"method":"tools/list"}` を送れば取れます。
 
-### 使用方法
+### ツール引数の例
 
-**STDIOトランスポート（デフォルト）:**
+呼び出しごとに変わるのはJSON-RPCの `params` だけです。`arguments` には各ツールの実際のパラメータ名を使います。
+
+JavaScriptの多いページをクロールする場合:
+```json
+{"name": "crawl_url", "arguments": {"url": "https://spa-example.com", "wait_for_js": true, "timeout": 60}}
+```
+
+ページ全文をディスクに保存し、レスポンスはメタデータだけにする場合:
+```json
+{"name": "crawl_url", "arguments": {"url": "https://example.com/long-article", "output_path": "/tmp/article.md"}}
+```
+
+大きなページは `auto_summarize` を `true` にしない限り要約されません。指定しなければ、約25,000トークンを超えるレスポンスは切り詰められ、対処方法の案内が付きます。`content_limit` / `content_offset` で分割取得するか、`output_path` で全文をファイルに保存してください。
+
+Google検索の場合、検索系のツールは `request` オブジェクトを1つ受け取ります。
+```json
+{"name": "search_google", "arguments": {"request": {"query": "python web scraping", "num_results": 10}}}
+```
+
+ファイルを処理する場合:
+```json
+{"name": "process_file", "arguments": {"url": "https://example.com/document.pdf", "max_size_mb": 50, "include_metadata": true}}
+```
+
+`crawl_url` に渡したリモートの `.html` / `.htm` URLはブラウザでレンダリングされます。ドキュメントURL（PDF、DOCX、XLSX、PPTX、ZIPなど）はファイルとして変換し、ブラウザでのフォールバックは使いません。
+
+YouTubeのトランスクリプトを取得する場合:
+```json
+{"name": "extract_youtube_transcript", "arguments": {"url": "https://www.youtube.com/watch?v=VIDEO_ID", "languages": ["ja", "en"], "include_timestamps": true, "timezone": "Asia/Tokyo"}}
+```
+
+`timezone` にはIANAタイムゾーン名を指定します（デフォルト `UTC`）。公開日時をこのタイムゾーンに変換した結果が `metadata.published_at` に入ります。
+
+各ツールの全パラメータは [APIリファレンス](API_REFERENCE.md) を参照してください。
+
+## Pythonから使う
+
+Pythonからは、HTTPリクエストを手で組み立てるよりMCPクライアントライブラリを使うほうが簡単です。`fastmcp` はこのプロジェクトの依存関係に含まれています。
+
+```python
+import asyncio
+import json
+
+from fastmcp import Client
+
+
+async def main():
+    async with Client("http://127.0.0.1:8000/mcp") as client:
+        tools = await client.list_tools()
+        print([tool.name for tool in tools])
+
+        result = await client.call_tool(
+            "crawl_url", {"url": "https://example.com", "content_limit": 2000}
+        )
+        data = json.loads(result.content[0].text)
+        print(data["success"], data["title"])
+
+
+asyncio.run(main())
+```
+
+公式の `mcp` Python SDK（`mcp.client.streamable_http.streamablehttp_client`）やTypeScript SDK（`@modelcontextprotocol/sdk` の `StreamableHTTPClientTransport`）も同じように使えます。
+
+## Docker
+
+イメージのデフォルトコマンドは、STDIOでサーバーを起動します。HTTPで使うときはコマンドを上書きし、コンテナの外から届くよう `0.0.0.0` にバインドします。
+
+```bash
+docker run -p 8000:8000 crawl4ai-mcp:latest \
+  python -m crawl4ai_mcp.server --transport http --host 0.0.0.0 --port 8000
+
+# または docker-compose を使う場合
+docker-compose --profile http up crawl4ai-mcp-http
+```
+
+## STDIOプロトコル
+
 ```bash
 python -m crawl4ai_mcp.server
 ```
 
-**Claude Desktop設定:**
+STDIOでは改行区切りのJSON-RPCメッセージをやり取りします。このときstdoutはMCPメッセージ専用で、診断出力はすべてstderrに出ます。stdoutに出力するラッパースクリプトを挟むとプロトコルが壊れます。
+
 ```json
 {
   "mcpServers": {
     "crawl-mcp": {
-      "transport": "stdio",
       "command": "uvx",
       "args": [
         "--from",
         "git+https://github.com/walksoda/crawl-mcp",
         "crawl-mcp"
-      ],
-      "env": {
-        "CRAWL4AI_LANG": "ja"
-      }
+      ]
     }
   }
 }
 ```
 
-## 📊 プロトコル比較
+## トランスポートの比較
 
-| 機能 | Pure StreamableHTTP | Legacy HTTP (SSE) | STDIO |
-|---------|---------------------|-------------------|-------|
-| レスポンス形式 | プレーンJSON | Server-Sent Events | バイナリ |
-| 設定の複雑さ | 低（URLのみ） | 低（URLのみ） | 高（プロセス管理） |
-| デバッグの容易さ | 高（curl互換） | 中（SSEパーサーが必要） | 低 |
-| 独立性 | 高 | 高 | 低 |
-| パフォーマンス | 高 | 中 | 高 |
+| 項目 | Streamable HTTP | SSE（旧来） | STDIO |
+|------|-----------------|-------------|-------|
+| エンドポイント | `/mcp` | `/sse` | stdin/stdout |
+| メッセージ形式 | JSON-RPC（レスポンスはSSE形式） | SSE上のJSON-RPC | 改行区切りのJSON-RPC |
+| プロセス管理 | サーバーを自分で起動 | サーバーを自分で起動 | クライアントがサーバーを起動 |
+| 複数クライアントでの共有 | 可 | 可 | 不可 |
 
-## 🚀 サーバー起動オプション
+## `examples/` のサンプルサーバー（メンテナンス対象外）
 
-### 方法1: コマンドライン
+`examples/` には古いデモサーバーがあります。メンテナンスしていないので、使わないでください。
 
+- `examples/simple_pure_http_server.py`（`scripts/start_pure_http_server.sh` が起動するもの）は**モック結果を返します**（"Mock crawl result"）。ツールも2つしか公開せず、実際のクロールは行いません。
+- `examples/pure_streamable_http_server.py` と `examples/run_http_server.py` は独自の非標準エンドポイントを使っています。
+
+代わりに、組み込みの `--transport streamable-http` サーバーを使ってください。
+
+## セキュリティ
+
+このサーバーはCORSにも認証にも対応していません。デフォルトでは `127.0.0.1` にバインドします。localhost以外に公開する場合は、TLS、認証、CORSを受け持つリバースプロキシ（nginxやCaddyなど）の背後に置いてください。
+
+## トラブルシューティング
+
+ポートが使用中のときは、使っているプロセスを止めます。
 ```bash
-python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
-```
-
-### 方法2: 環境変数
-
-```bash
-export MCP_TRANSPORT=http
-export MCP_HOST=127.0.0.1
-export MCP_PORT=8000
-python -m crawl4ai_mcp.server
-```
-
-### 方法3: Docker（利用可能な場合）
-
-```bash
-docker run -p 8000:8000 crawl4ai-mcp --transport http --port 8000
-```
-
-## 🔗 APIエンドポイント
-
-実行後、HTTP APIは以下を提供します：
-
-- **ベース URL**: `http://127.0.0.1:8000`
-- **OpenAPI ドキュメント**: `http://127.0.0.1:8000/docs`
-- **ツールエンドポイント**: `http://127.0.0.1:8000/tools/{tool_name}`
-
-すべてのMCPツール（crawl_url、extract_structured_data、process_file等）は、ツールパラメータと一致するJSONペイロードを持つHTTP POSTリクエストでアクセス可能です。
-
-## 🛠️ ツール使用例
-
-### 基本的なWebクローリング
-
-```bash
-curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com", "generate_markdown": true}'
-```
-
-### JavaScript対応の高度なクローリング
-
-```bash
-curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://spa-example.com",
-    "wait_for_js": true,
-    "timeout": 30
-  }'
-```
-
-### Google検索
-
-```bash
-curl -X POST "http://127.0.0.1:8000/tools/search_google" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "python web scraping",
-    "num_results": 10,
-    "search_genre": "programming"
-  }'
-```
-
-### ファイル処理
-
-```bash
-curl -X POST "http://127.0.0.1:8000/tools/process_file" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://example.com/document.pdf",
-    "max_size_mb": 50,
-    "include_metadata": true
-  }'
-```
-
-### YouTubeトランスクリプト抽出
-
-```bash
-curl -X POST "http://127.0.0.1:8000/tools/extract_youtube_transcript" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://www.youtube.com/watch?v=VIDEO_ID",
-    "languages": ["ja", "en"],
-    "include_timestamps": true
-  }'
-```
-
-## 🔧 アプリケーションとの統合
-
-### Python統合
-
-```python
-import requests
-import json
-
-# 基本的な使用方法
-def crawl_url(url, **kwargs):
-    response = requests.post(
-        "http://127.0.0.1:8000/tools/crawl_url",
-        headers={"Content-Type": "application/json"},
-        json={"url": url, **kwargs}
-    )
-    return response.json()
-
-# 使用例
-result = crawl_url("https://example.com", generate_markdown=True)
-```
-
-### JavaScript/Node.js統合
-
-```javascript
-async function crawlUrl(url, options = {}) {
-  const response = await fetch('http://127.0.0.1:8000/tools/crawl_url', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ url, ...options })
-  });
-  
-  return await response.json();
-}
-
-// 使用例
-const result = await crawlUrl('https://example.com', { 
-  generate_markdown: true 
-});
-```
-
-## 🔍 デバッグとモニタリング
-
-### ヘルスチェック
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-### サーバーログ
-
-```bash
-# リアルタイムでログを表示
-tail -f server.log
-
-# エラーを検索
-grep -i error server.log
-```
-
-### パフォーマンス監視
-
-```bash
-# リクエストを監視
-curl -s http://127.0.0.1:8000/stats
-
-# サーバーステータスを確認
-curl -s http://127.0.0.1:8000/status
-```
-
-## 🔒 セキュリティ考慮事項
-
-### CORS設定
-
-Webアプリケーションの場合、適切なCORSヘッダーが設定されていることを確認：
-
-```python
-# CORS設定例
-CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization"
-}
-```
-
-### 認証
-
-本番環境では認証を実装：
-
-```bash
-# APIキーを使用した例
-curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{"url": "https://example.com"}'
-```
-
-## 📚 追加リソース
-
-- **Pure StreamableHTTP詳細**: [PURE_STREAMABLE_HTTP.md](PURE_STREAMABLE_HTTP.md)
-- **HTTPサーバー使用法**: [HTTP_SERVER_USAGE.md](HTTP_SERVER_USAGE.md)
-- **Legacy HTTP API**: [HTTP_API_GUIDE.md](HTTP_API_GUIDE.md)
-- **設定例**: [CONFIGURATION_EXAMPLES.md](CONFIGURATION_EXAMPLES.md)
-- **APIリファレンス**: [API_REFERENCE.md](API_REFERENCE.md)
-
-## 🚨 トラブルシューティング
-
-### よくある問題
-
-**ポートが既に使用中:**
-```bash
-# ポートを使用しているプロセスを検索
 lsof -i :8000
-
-# プロセスを終了
-kill -9 <PID>
+kill <PID>
 ```
 
-**接続拒否:**
-- サーバーが実行されているか確認
-- ポートとホスト設定を確認
-- ファイアウォール設定を確認
+HTTP 406 Not Acceptable が返るのは、`Accept: application/json, text/event-stream` ヘッダーが付いていないときです。
 
-**JSON解析エラー:**
-- 適切なContent-Typeヘッダーを確認
-- JSONペイロード形式を検証
-- データ内の特殊文字を確認
+「Missing session ID」や HTTP 400 が返る場合は、`initialize` で返された `mcp-session-id` ヘッダーを以降のすべてのリクエストに付けてください。
 
-詳細なトラブルシューティング情報については、[インストールガイド](INSTALLATION.md#トラブルシューティング)をご覧ください。
+接続を拒否される場合は、次の点を確認します。
+- サーバーが起動しているか、ホストとポートが合っているか
+- Docker内では `--host 0.0.0.0` でサーバーを起動しているか
+- ファイアウォールで止められていないか
+
+その他のトラブルシューティングは [インストールガイド](INSTALLATION.md#トラブルシューティング) を参照してください。
+
+## 関連ドキュメント
+
+- [設定例](CONFIGURATION_EXAMPLES.md)
+- [APIリファレンス](API_REFERENCE.md)
+- [インストールガイド](INSTALLATION.md)

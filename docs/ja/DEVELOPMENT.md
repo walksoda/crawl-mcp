@@ -1,252 +1,203 @@
 # 開発ガイド
 
-Crawl4AI MCPサーバープロジェクトでの開発と貢献のための完全ガイドです。
+Crawl4AI MCPサーバーの開発に参加する人向けのガイドです。
 
-## 🏗️ プロジェクトアーキテクチャ
+## アーキテクチャ
 
 ### リポジトリ構造
 
 ```
 crawl-mcp/
-├── crawl4ai_mcp/              # メインサーバー実装
-│   ├── server.py              # 主要MCPサーバー（FastMCPエントリポイント）
-│   ├── config.py              # 設定管理
-│   ├── server_tools/          # MCPツール登録（公開インターフェース）
-│   │   ├── __init__.py        # ツール登録オーケストレーター
-│   │   ├── _shared.py         # 共有ユーティリティとアノテーション
-│   │   ├── crawl_tools.py     # Webクローリングツール
-│   │   ├── extraction_tools.py # データ抽出ツール
-│   │   ├── youtube_tools.py   # YouTubeツール
-│   │   ├── search_tools.py    # 検索ツール
-│   │   ├── file_tools.py      # ファイル処理ツール
-│   │   └── batch_tools.py     # バッチ操作ツール
-│   ├── tools/                 # レガシーファサード（core/に委譲）
-│   ├── core/                  # ビジネスロジック実装
-│   ├── infra/                 # インフラストラクチャ（ブラウザ、設定）
-│   ├── middleware/             # リクエスト/レスポンスミドルウェア
-│   └── processors/            # コンテンツプロセッサー
-├── tests/                     # pytestテストスイート
-├── Dockerfile                 # Docker設定ファイル
-├── docker-compose.yml         # Docker Compose設定
-├── pyproject.toml             # パッケージ設定（依存関係の唯一の情報源）
-└── CLAUDE.md                  # 開発者指示書
+├── crawl4ai_mcp/
+│   ├── __init__.py              # バージョン検出。import時に crawl4ai_guard を適用
+│   ├── server.py                # FastMCPエントリポイント（main(): --transport/--host/--port）
+│   ├── config.py                # .env の読み込みとLLMプロバイダー設定
+│   ├── constants.py             # 共通の上限値や要約長の設定
+│   ├── validators.py            # 入力検証（validate_*_params、validate_output_path）
+│   ├── crawl4ai_guard.py        # crawl4ai の旧形式キャッシュ移行処理を無効化
+│   ├── suppress_output.py       # ライブラリの出力をMCPのstdoutに混ぜないための処理
+│   ├── server_tools/            # @mcp.tool() アダプタ（クライアントに見えるスキーマ）
+│   │   ├── __init__.py          # register_all_tools()
+│   │   ├── _shared.py           # 共通import、readOnlyHintアノテーション、modules_unavailable_error()
+│   │   ├── crawl_tools.py       # crawl_url、crawl_url_with_fallback、deep_crawl_site
+│   │   ├── extraction_tools.py  # intelligent_extract、extract_entities、extract_structured_data
+│   │   ├── youtube_tools.py     # YouTube のトランスクリプト・情報・コメント系ツール
+│   │   ├── search_tools.py      # search_google、batch_search_google、search_and_crawl
+│   │   ├── file_tools.py        # process_file、enhanced_process_large_content など
+│   │   └── batch_tools.py       # batch_crawl、multi_url_crawl
+│   ├── tools/                   # 後方互換のための再エクスポートfacade（実装なし）
+│   ├── core/                    # ビジネスロジック（クロール、フォールバック、抽出、YouTube、検索、ファイル、バッチ）
+│   ├── processors/              # YouTube・Google検索・ファイル変換のプロセッサー
+│   ├── infra/                   # ブラウザ設定、フォールバック戦略、fingerprint、セッション、戦略/コンテンツキャッシュ
+│   ├── utils/                   # LLMクライアント、トークン計算、時刻パース
+│   ├── models/                  # Pydanticのリクエスト/レスポンスモデル
+│   ├── middleware/              # レスポンス用ヘルパーと output_path 保存（下記の注記を参照）
+│   ├── server_helpers.py        # server_tools が使うヘルパーの再エクスポート（スライス、変換、検索キャッシュ）
+│   ├── prompts/                 # MCPプロンプト
+│   ├── youtube_processor.py     # processors/ を再エクスポートする互換シム
+│   ├── file_processor.py        #   （古いimportのために残している）
+│   └── google_search_processor.py
+├── tests/
+│   ├── unit/                    # 高速な単体テスト（MCP接続不要）
+│   └── mcp/                     # ツールテスト（stdioでサーバーを起動し、実ネットワークにアクセス）
+├── scripts/run_tests.sh         # テスト実行用ラッパー
+├── Dockerfile / docker-compose.yml
+├── pyproject.toml               # パッケージ設定（依存関係とバージョンの唯一の情報源）
+└── requirements.txt             # 依存関係の写し。Dockerビルドで使用
 ```
 
-### 主要コンポーネント
+`middleware/` について補足します。`middleware/pipeline.py` の `ToolPipeline` クラス群（およびパイプラインのステップ用モジュール）は定義されていますが、どのツールにも組み込まれていません。ツールハンドラーは個別のヘルパー関数を直接呼びます。実際に使われているのは、`middleware/file_persistence.py` の `finalize_tool_response`（`output_path` への保存）と、`server_helpers.py` 経由で `server_tools/_shared.py` に渡される `_convert_result_to_dict` / `_process_content_fields`（`response_transform.py`）、`_apply_content_slicing`（`content_slicing.py`）、`_apply_search_content_slicing`（`search_slicing.py`）、検索結果キャッシュ（`cache.py`）です。
 
-**サーバー実装:**
-- `server.py` - FastMCPエントリポイントとサーバー設定
-- `config.py` - 環境と設定管理
+### リクエストの流れ
 
-**MCP公開インターフェース:**
-- `server_tools/` - クライアントに公開されるMCPツール登録
-- `server_tools/_shared.py` - 共有ユーティリティとreadOnlyHintアノテーション
+ツール呼び出しは次の層を順に通ります。
 
-**ビジネスロジックレイヤー:**
-- `core/` - ビジネスロジック実装
-- `infra/` - インフラストラクチャ（ブラウザ管理、設定）
-- `middleware/` - リクエスト/レスポンスミドルウェア
-- `processors/` - コンテンツプロセッサー
+1. `server.py` が `FastMCP("Crawl4AI")` を生成し、`register_all_tools(mcp, _get_modules)` を呼びます。import前に logging・warnings・FastMCPのバナーを抑制します。
+2. `server_tools/*_tools.py` は薄い `@mcp.tool()` アダプタです。パラメータは `Annotated[..., Field(description=...)]` で宣言し、これがMCPクライアントに見えるスキーマになります。`get_modules()` で `tools/` を遅延ロードし、失敗時は `modules_unavailable_error()` を返します。
+3. `tools/` は後方互換のために `core/` の関数を再エクスポートします。
+4. `core/` がロジックを実装し、`processors/`、`infra/`、`utils/`、`models/` を使います。
 
-**レガシー:**
-- `tools/` - `core/`に委譲するレガシーファサード
+### ツールハンドラーの定型パターン
 
-## 🔄 開発・配布方式
+ツールを追加・変更するときは、`server_tools/crawl_tools.py` の `crawl_url` と同じ順序で処理します。
 
-このプロジェクトは**複数の配布方法**をサポートしています：
+1. 入力を検証します（`validators.py`）。`validate_*_params`、`validate_content_slicing_params`、`validate_output_path(output_path, overwrite)` は外部アクセスより*前に*実行します。
+2. `get_modules()` 経由で core の関数を呼びます。
+3. `_convert_result_to_dict` で結果を正規化し、続けて `_process_content_fields` を通します。
+4. 成功時の return の直前、スライスや切り詰めより*前に* `finalize_tool_response(..., tool_kind=KIND_*)` を呼んで保存します。この順序なので、ディスクにはスライス前の全文が残ります。`KIND_*` 定数は `middleware/file_persistence.py` の冒頭で定義されています。
+5. 最後に `_apply_content_slicing`（`content_limit` / `content_offset`）と `apply_token_limit`（約25,000トークン）を適用します。
 
-1. **開発**: `crawl4ai_mcp/server.py`
-   - 開発用の直接Python実行
-   - 仮想環境セットアップ
-   - デバッグと修正が容易
+`output_path` に対応するツールは、`output_path`、`include_content_in_response`、`overwrite` の3パラメータをそろえて公開します。
 
-2. **UVX配布**: PyPIパッケージ
-   - GitHub Releases経由で配布
-   - 自動UVX対応
-   - エンドユーザーの簡単インストール
+### STDIO出力のルール
 
-3. **Docker配布**: コンテナデプロイメント
-   - 本番対応のコンテナイメージ
-   - マルチブラウザヘッドレスサポート
-   - 簡単なスケーリングとデプロイメント
+STDIOトランスポートでは、stdoutはMCPのJSON-RPCメッセージ専用です。サーバーのコードから**stdoutには出力しないでください**。診断はstderrに書きます（`print(..., file=sys.stderr)`）。STDIOで動いている間、`server.py` は誤ってstdoutに書かれた出力をstderrへ回し、`suppress_output.py` はライブラリが出す余分な出力を抑えます。loggingはimport時に無効化されている（`logging.disable(logging.CRITICAL)`）ため、`FASTMCP_LOG_LEVEL` を設定してもログは出力されません。
+
+## 開発と配布
+
+ロジックは `crawl4ai_mcp/core/`、ツールの登録は `crawl4ai_mcp/server_tools/` で編集します。配布方法は2つあります。
+
+- UVXでGitHubリポジトリから直接入れる（`uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp`）
+- `Dockerfile` からコンテナイメージをビルドする
 
 ### 開発ワークフロー
 
-**標準的な開発プロセス**：
-
 ```bash
-# 1. 開発環境のセットアップ
-source ./venv/bin/activate
+# 1. ブランチを作成
+git switch -c feat/your-feature
 
 # 2. 開発・テスト
-vim crawl4ai_mcp/server.py
-python -m crawl4ai_mcp.server
+venv/bin/pytest tests/unit/
+venv/bin/pytest tests/mcp/ -m "not slow"
 
-# 3. Dockerテスト（オプション）
+# 3. Dockerでテスト（任意）
 docker-compose up --build
 
-# 4. バージョン更新
-vim pyproject.toml  # バージョン番号を更新
-
-# 5. コミット・タグ付け
-git add .
-git commit -m "feat: 新機能を追加"
-git tag -a v0.1.4 -m "Release v0.1.4"
-
-# 6. プッシュ（自動配布トリガー）
-git push origin main --tags
+# 4. コミット（.env や venv/ が混入しないよう、git add . ではなくファイル名を指定する）
+git add crawl4ai_mcp/core/your_module.py tests/unit/test_your_module.py
+git commit -m "feat: add new functionality"
 ```
 
-### 同期が必要な変更
+### リリース
 
-- **ツールの説明** - LLMが適切にツールを選択できるよう確保
-- **新機能** - 新しいMCPツールやパラメータ
-- **バグ修正** - セキュリティ修正と動作改善
-- **依存関係** - pyproject.tomlの更新（依存関係の唯一の情報源）
-- **設定** - デフォルト値とタイムアウト調整
-- **パッケージング** - UVX互換性のためのpyproject.toml
-
-## 🛠️ 開発環境セットアップ
-
-### 前提条件
-
-**システム依存関係:**
 ```bash
-# Linux/macOS
-sudo bash scripts/prepare_for_uvx_playwright.sh
+# 1. pyproject.toml の version を更新（バージョンの唯一の情報源）
+# 2. コミットとタグ作成
+git add pyproject.toml
+git commit -m "release: bump version to X.Y.Z"
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
 
-# Windows（管理者として）
-powershell -ExecutionPolicy Bypass -File scripts/prepare_for_uvx_playwright.ps1
+# 3. ブランチとタグをまとめてプッシュ
+git push --atomic origin main vX.Y.Z
 ```
 
-### ローカル開発セットアップ
+## 開発環境のセットアップ
 
-**方法1: UVパッケージマネージャー（推奨）**
+### ローカル開発環境
+
+リポジトリのルートに `venv` という名前の仮想環境を作ってください。`tests/conftest.py` のMCPテストクライアントは `./venv/bin/python` でサーバーを起動します。
+
 ```bash
 git clone https://github.com/walksoda/crawl-mcp.git
 cd crawl-mcp
-uv sync
-source .venv/bin/activate  # Linux/macOS
-# または .venv\Scripts\activate  # Windows
-```
-
-**方法2: 従来の仮想環境**
-```bash
-git clone https://github.com/walksoda/crawl-mcp.git
-cd crawl-mcp
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# または venv\Scripts\activate.bat  # Windows
-pip install -e .
+python -m venv venv            # または: uv venv venv
+source venv/bin/activate       # Windows: venv\Scripts\activate
+pip install -e ".[test]"       # uv の場合: uv pip install --python venv/bin/python -e ".[test]"
 python -m playwright install chromium
 ```
 
-### 必須仮想環境
-
-**⚠️ 重要**: 開発には常に`./venv`仮想環境を使用してください：
+入ったら環境を確認します。
 
 ```bash
-# 仮想環境をアクティベート
-source venv/bin/activate
-
-# 正しい環境を確認
-which python  # ./venv/bin/pythonを指すべき
-python -c "import sys; print(sys.prefix)"  # venvパスを表示すべき
+which python                                          # ./venv/bin/python を指すこと
+python -c "import crawl4ai_mcp; print(crawl4ai_mcp.__file__)"   # このチェックアウト内を指すこと
 ```
 
-## 🧪 テストと品質保証
+## テスト
 
-### テストコマンド
-
-**基本サーバーテスト:**
 ```bash
-# メインサーバー起動テスト
-python -m crawl4ai_mcp.server
+venv/bin/pytest tests/unit/                          # 単体テスト（高速、MCP接続不要）
+venv/bin/pytest tests/mcp/ -m "not slow"             # MCPツールテスト（stdioサーバー、実ネットワーク）
+venv/bin/pytest tests/unit/test_file_persistence.py::<test_name>   # 単一テスト
 
-# HTTPサーバーテスト
-python -m crawl4ai_mcp.server --transport http --host 127.0.0.1 --port 8000
-
-# MCPクライアントでテスト
-claude mcp test crawl4ai
+./scripts/run_tests.sh quick                         # 単体テスト
+./scripts/run_tests.sh mcp                           # MCPツールテスト（slowを除く）
+./scripts/run_tests.sh full cov                      # 全テスト＋カバレッジ
+./scripts/run_tests.sh youtube|crawl|search|file|utility   # ツールグループ単位
 ```
 
-**HTTP APIテスト:**
+- `pytest.ini` では `asyncio_mode = auto`、デフォルトのタイムアウト120秒、マーカー `slow`、`mcp`、`youtube`、`crawl`、`search`、`file`、`utility` を設定しています。
+- CI（Python 3.11 / 3.12）は `tests/unit/` → `tests/mcp/ -m "not slow"` → `-m slow`（失敗許容）の順に実行します。
+
+サーバーを手で起動して確かめる場合は、次のコマンドを使います。
 ```bash
-# Pure StreamableHTTPテスト
-python examples/pure_http_test.py
-
-# Legacy HTTPテスト
-curl -X POST "http://127.0.0.1:8000/tools/crawl_url" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com"}'
-
-# ヘルスチェック
-curl http://127.0.0.1:8000/health
-```
-
-**YouTube統合テスト:**
-```bash
-# 直接APIテスト
-python test_youtube_transcript_direct.py "https://www.youtube.com/watch?v=VIDEO_ID"
-
-# MCP統合テスト
-python test_mcp_youtube.py
-```
-
-### プリコミット品質チェック
-
-**コミット前必須チェック:**
-```bash
-# 1. textlintでコミットメッセージをリント
-npx textlint commit-message.txt
-
-# 2. Dockerビルドをテスト
-docker build -t crawl4ai-mcp:test . --quiet
-
-# 3. UVXインストールをテスト
 python -m crawl4ai_mcp.server --help
-uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --help
+python -m crawl4ai_mcp.server                                               # STDIO
+python -m crawl4ai_mcp.server --transport streamable-http --host 127.0.0.1 --port 8000   # HTTP（/mcp）
 ```
 
-## 🔧 開発ツールと設定
+HTTPサーバーを curl やMCPクライアントから呼び出す方法は [HTTP統合ガイド](HTTP_INTEGRATION.md) を参照してください。
+
+### ドキュメントの検査
+
+`scripts/check_docs.py` はドキュメントとコードを突き合わせます。検査するのは次の5点です。全ツールの引数（`request` 辞書を取るツールはそのキーも）が `docs/API_REFERENCE.md` と `docs/ja/API_REFERENCE.md` に載っているか、依存バージョンの記載が `pyproject.toml` と一致するか、リポジトリ内のパス・リンク・アンカーが実在するか、例で設定している環境変数をサーバーが読んでいるか、本文に絵文字や誇張語がないか。CI では `tests/unit/test_docs_sync.py` から実行されます。
+
+```bash
+venv/bin/python scripts/check_docs.py              # ドキュメントとコードの突き合わせ
+venv/bin/python scripts/check_docs.py --release    # 前回のタグ以降のコード変更が CHANGELOG にあるかも見る
+git config core.hooksPath .githooks                # push の前に --release の検査を走らせる
+```
+
+ツールの引数や挙動を変えたときは、同じ変更の中で API リファレンス（英日）、README（英日）、`CHANGELOG.md` の `[Unreleased]` を更新してください。
+
+## 開発用の設定
 
 ### 環境変数
 
+`config.py` はプロジェクトルートの `.env` を読み込みます（`.env.example` を参照）。
+
 ```bash
-# 開発ログ
-export FASTMCP_LOG_LEVEL=DEBUG
-
-# 言語設定
-export CRAWL4AI_LANG=ja  # または英語の場合は 'en'
-
-# APIキー（開発）
+# LLMプロバイダー（プロバイダーごとのキー、または MCP_LLM_CONFIG のJSONで指定）
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
 export AZURE_OPENAI_API_KEY="your-key"
 export AZURE_OPENAI_ENDPOINT="https://resource.openai.azure.com"
 
-# Python環境
-export PYTHONPATH="/path/to/crawl:$PYTHONPATH"
-export PYTHONUNBUFFERED=1
+# Google検索
+export GOOGLE_SEARCH_MODE=hybrid            # googlesearch_only | custom_search_only | hybrid（デフォルト）
+export GOOGLE_SEARCH_API_KEY="..."
+export GOOGLE_SEARCH_ENGINE_ID="..."
 ```
 
-### デバッグ設定
+### ローカルMCPクライアントの設定
 
-**高詳細デバッグ:**
 ```json
 {
   "mcpServers": {
-    "crawl4ai-debug": {
-      "command": "/path/to/crawl/venv/bin/python",
+    "crawl4ai-dev": {
+      "command": "/path/to/crawl-mcp/venv/bin/python",
       "args": ["-m", "crawl4ai_mcp.server"],
-      "cwd": "/path/to/crawl",
-      "env": {
-        "FASTMCP_LOG_LEVEL": "DEBUG",
-        "PYTHONPATH": "/path/to/crawl",
-        "DEBUG": "1",
-        "PYTHONUNBUFFERED": "1",
-        "PLAYWRIGHT_DEBUG": "1"
-      }
+      "cwd": "/path/to/crawl-mcp"
     }
   }
 }
@@ -254,57 +205,40 @@ export PYTHONUNBUFFERED=1
 
 ### コードスタイルと標準
 
-**Pythonコード標準:**
-- PEP 8スタイルガイドラインに従う
-- 適切な場所で型ヒントを使用
-- docstringで関数を文書化
-- try/catchで優雅にエラーを処理
-- I/O操作にはasync/awaitを使用
+- PEP 8 に従う
+- 型ヒントを付ける
+- 関数には docstring を書く
+- エラーを処理し、ツールからは構造化されたエラーdictを返す
+- I/O処理には async/await を使う
 
-**コミットメッセージ標準:**
-- 英語のみ
-- コミットメッセージに絵文字は使用しない
-- 形式: `type: 簡潔な説明`
-- 例:
-  - `feat: YouTubeバッチ処理を追加`
-  - `fix: 大容量ファイル処理のメモリリークを解決`
-  - `docs: APIリファレンスドキュメントを更新`
+コミットメッセージは英語で短く書き、絵文字は使いません。形式は `type: 簡潔な説明` で、たとえば次のように書きます。
+- `feat: add YouTube batch processing`
+- `fix: resolve memory leak in large file processing`
+- `docs: update API reference`
 
-## 📦 ビルドとパッケージング
+## ビルドとパッケージング
 
-### Dockerコンテナ管理
+### Docker
 
-**Dockerイメージのビルド:**
 ```bash
-# 開発イメージをビルド
-docker build -t crawl4ai-mcp:dev .
-
-# 本番イメージをビルド
+# イメージをビルド
 docker build -t crawl4ai-mcp:latest .
-```
 
-**Dockerコンテナのテスト:**
-```bash
-# STDIOモードでテスト（デフォルト）
+# STDIOモード（デフォルト）
 docker-compose up --build
+docker run -i crawl4ai-mcp:latest
 
-# HTTPモードでテスト
+# HTTPモード
 docker-compose --profile http up --build crawl4ai-mcp-http
+docker run -p 8000:8000 crawl4ai-mcp:latest \
+  python -m crawl4ai_mcp.server --transport http --host 0.0.0.0 --port 8000
 ```
 
-**バージョン管理:**
-```bash
-# pyproject.tomlでバージョンを更新
-vim pyproject.toml
+Dockerビルドでは `requirements.txt` から依存関係をインストールします。
 
-# gitリリースをタグ
-git tag -a v0.2.0 -m "Release v0.2.0"
-git push origin v0.2.0
-```
+### パッケージングと依存関係
 
-### UVX互換性
-
-**pyproject.toml設定:**
+`pyproject.toml` の該当部分を抜粋します。
 ```toml
 [build-system]
 requires = ["hatchling"]
@@ -312,192 +246,94 @@ build-backend = "hatchling.build"
 
 [project]
 name = "crawl-mcp"
-version = "0.3.3"
+requires-python = ">=3.11"
 dependencies = [
-    "crawl4ai>=0.8.0,<0.9",
+    "crawl4ai>=0.9.4,<0.10",
     "fastmcp>=2.14.2,<3",
     "playwright==1.55.0",
+    # ...
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0", "pytest-timeout>=2.3.1", "pytest-cov>=5.0.0"]
 
 [project.scripts]
 crawl-mcp = "crawl4ai_mcp.server:main"
 ```
 
-注意: `pyproject.toml`が依存関係の唯一の情報源です。`requirements.txt`はありません。
+`pyproject.toml` が依存関係とバージョンの唯一の情報源です。`requirements.txt` はDockerビルド用に依存関係を写したもので、`pyproject.toml` を変更したときは合わせて更新してください。
 
-## 🔍 デバッグとトラブルシューティング
+## デバッグとトラブルシューティング
 
-### 一般的な開発問題
-
-**インポートエラー:**
+importエラーが出るときは、仮想環境を有効にしてパッケージを入れ直し、import元を確認します。
 ```bash
-# 仮想環境がアクティブであることを確認
 source venv/bin/activate
-
-# Pythonパスをチェック
-python -c "import sys; print('\\n'.join(sys.path))"
-
-# 不足している依存関係をインストール
-pip install -e .
+pip install -e ".[test]"
+python -c "import crawl4ai_mcp; print(crawl4ai_mcp.__file__)"
 ```
 
-**ブラウザーの問題:**
-```bash 
-# Playwrightブラウザーを再インストール
+ブラウザが起動しないときは、Chromiumを入れ直します。
+```bash
 python -m playwright install chromium
-
-# システム依存関係（Linux）
-sudo apt-get install libnss3 libnspr4 libasound2 libatk-bridge2.0-0
-
-# ブラウザーインストールをチェック
-python -c "from playwright.sync_api import sync_playwright; print('ブラウザーチェック: OK')"
+python -m playwright install --with-deps chromium   # Linux: システムライブラリも導入（sudo が必要）
 ```
 
-**サーバー起動問題:**
+ポートが使われていてサーバーが起動しないときは、使っているプロセスを止めます。
 ```bash
-# ポートの可用性をチェック
-lsof -i :8000
-
-# 既存のプロセスを終了
-kill -9 $(lsof -t -i:8000)
-
-# サーバーログをチェック
-export FASTMCP_LOG_LEVEL=DEBUG
-python -m crawl4ai_mcp.server
+lsof -i :8000               # ポートの使用状況を確認
+kill <PID>
 ```
 
-### パフォーマンスプロファイリング
+サーバーは診断をstderrに出力し、Pythonのloggingはimport時に無効化されています。調査するときは、ターミナルでサーバーを起動してstderrを確認するか、一時的に `print(..., file=sys.stderr)` を追加してください。stdoutには出力しないでください。
 
-**メモリとCPU監視:**
+CPUプロファイルを取るには次のようにします。
 ```bash
-# メモリ使用量を監視
-python -m memory_profiler crawl4ai_mcp/server.py
-
-# CPUプロファイリング
 python -m cProfile -o profile.prof -m crawl4ai_mcp.server
-
-# プロファイルを分析
 python -m pstats profile.prof
 ```
 
-**リクエストトレーシング:**
-```bash
-# リクエストトレーシングを有効化
-export CRAWL4AI_TRACE=1
-export FASTMCP_LOG_LEVEL=DEBUG
+## コントリビューションの手順
 
-# リクエストパターンを監視
-tail -f server.log | grep -E "(REQUEST|RESPONSE|ERROR)"
-```
-
-## 🤝 貢献ガイドライン
-
-### 開発ワークフロー
-
-1. **フォークとクローン**
+1. フォークしてクローンする
    ```bash
    git clone https://github.com/your-username/crawl-mcp.git
    cd crawl-mcp
    git remote add upstream https://github.com/walksoda/crawl-mcp.git
    ```
 
-2. **機能ブランチを作成**
+2. 機能ブランチを作る
    ```bash
-   git checkout -b feature/your-feature-name
+   git switch -c feat/your-feature-name
    ```
 
-3. **開発とテスト**
+3. `crawl4ai_mcp/core/`（ロジック）と `crawl4ai_mcp/server_tools/`（ツールのパラメータと登録）を変更し、`tests/unit/` にテストを追加します。
+
+4. テストを実行する
    ```bash
-   # crawl4ai_mcp/server.pyに変更を加える
-   # 徹底的にテスト
-   python -m crawl4ai_mcp.server
+   venv/bin/pytest tests/unit/
+   venv/bin/pytest tests/mcp/ -m "not slow"
+   docker build -t crawl4ai-mcp:test .     # 任意
    ```
 
-4. **テストとビルド**
+5. コミットしてプルリクエストを作る
    ```bash
-   # Dockerでテスト
-   docker-compose up --build
-
-   # UVXインストールをテスト
-   uvx --from git+https://github.com/walksoda/crawl-mcp crawl-mcp --help
+   git add <変更したファイル>
+   git commit -m "feat: add new feature description"
+   git push origin feat/your-feature-name
    ```
 
-5. **品質チェック**
-   ```bash
-   # pytestでテストを実行
-   python -m pytest tests/
+### プルリクエストのチェックリスト
 
-   # コミットメッセージをリント
-   npx textlint commit-message.txt
-   ```
+- [ ] 単体テストとMCPツールテストが通る
+- [ ] `scripts/check_docs.py` が通り、挙動の変更をドキュメントと `CHANGELOG.md` に書いた
+- [ ] 依存関係を変更した場合は `requirements.txt` も更新した
+- [ ] コミットメッセージが上記の形式に沿っている
+- [ ] 議論なしに破壊的変更を加えていない
 
-6. **プルリクエストを提出**
-   ```bash
-   git add .
-   git commit -m "feat: 新機能の説明を追加"
-   git push origin feature/your-feature-name
-   ```
+## 関連ドキュメント
 
-### コードレビュープロセス
-
-**提出前のチェック:**
-- [ ] 開発環境で変更をテスト
-- [ ] DockerおよびUVXでの動作を確認
-- [ ] 必要に応じてドキュメントを更新
-- [ ] コミットメッセージが標準に従う
-- [ ] 議論なしに破壊的変更はしない
-
-**レビュー基準:**
-- コード品質とスタイル
-- テストカバレッジ
-- ドキュメントの完全性
-- パフォーマンスへの影響
-- セキュリティ考慮事項
-- 後方互換性
-
-## 📊 監視と分析
-
-### 開発メトリクス
-
-**サーバーパフォーマンス:**
-```bash
-# リクエスト処理時間
-grep "処理時間" server.log | awk '{print $4}' | sort -n
-
-# メモリ使用パターン
-ps aux | grep crawl4ai_mcp | awk '{print $6}' # RSS メモリ
-
-# 成功/失敗率
-grep -c "SUCCESS" server.log
-grep -c "ERROR" server.log
-```
-
-**ツール使用統計:**
-```bash
-# 最も使用されるツール
-grep "ツール呼び出し:" server.log | awk '{print $3}' | sort | uniq -c | sort -nr
-
-# 平均レスポンスサイズ
-grep "レスポンスサイズ:" server.log | awk '{sum+=$3; count++} END {print sum/count}'
-```
-
-## 🔗 関連リソース
-
-- **APIリファレンス**: [API_REFERENCE.md](API_REFERENCE.md)
-- **設定例**: [CONFIGURATION_EXAMPLES.md](CONFIGURATION_EXAMPLES.md)
-- **高度な使用法**: [ADVANCED_USAGE.md](ADVANCED_USAGE.md)
-- **インストールガイド**: [INSTALLATION.md](INSTALLATION.md)
-- **HTTP統合**: [HTTP_INTEGRATION.md](HTTP_INTEGRATION.md)
-
-## 💡 開発ベストプラクティス
-
-1. **常に仮想環境を使用** - 依存関係の分離に必須
-2. **複数のデプロイメント方法をテスト** - UVXとDockerが正しく動作する必要がある
-3. **コミット前にテスト** - すべての機能が動作することを確認する
-4. **コミットメッセージ標準に従う** - 英語のみ、絵文字なし、明確な説明
-5. **定期的にパフォーマンスをプロファイル** - メモリとCPU使用量を監視
-6. **徹底的に文書化** - 新機能でドキュメントを更新
-7. **開発中はデバッグログを使用** - `FASTMCP_LOG_LEVEL=DEBUG`
-8. **エッジケースをテスト** - 大容量ファイル、ネットワーク問題、レート制限
-9. **リソース使用量を監視** - メモリリークとパフォーマンス劣化
-10. **依存関係を慎重にバージョン管理** - 安定性のためにバージョンを固定
+- [APIリファレンス](API_REFERENCE.md)
+- [設定例](CONFIGURATION_EXAMPLES.md)
+- [使い方の応用](ADVANCED_USAGE.md)
+- [インストールガイド](INSTALLATION.md)
+- [HTTP統合](HTTP_INTEGRATION.md)

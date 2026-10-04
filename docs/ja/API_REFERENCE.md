@@ -1,17 +1,17 @@
 # APIリファレンス
 
-Crawl4AI MCPサーバーで利用可能な全19ツールの完全リファレンスです。
+Crawl4AI MCPサーバーの全19ツールのパラメータと動作をまとめています。
 
 ## ツール選択ガイド
 
-### 用途に応じた適切なツール選択
+### 用途別のツール
 
-| **用途** | **推奨ツール** | **主要機能** |
+| 用途 | ツール | 主な機能 |
 |-------------|---------------------|------------------|
 | 単一ページ | `crawl_url` | 基本クローリング、JS対応 |
 | 複数ページ（最大10） | `deep_crawl_site` | サイトマッピング、リンクフォロー |
 | 検索+クローリング | `search_and_crawl` | Google検索+自動クロール |
-| 困難サイト | `crawl_url_with_fallback` | 複数のリトライ戦略 |
+| 取得しにくいサイト | `crawl_url_with_fallback` | 複数のリトライ戦略 |
 | 構造化データ | `extract_structured_data` | CSS/LLMスキーマ |
 | LLMデータ抽出 | `intelligent_extract` | 目標指向・フィルタ対応の抽出 |
 | エンティティ抽出 | `extract_entities` | メール、電話番号、URL、日付、IP、価格 |
@@ -27,55 +27,55 @@ Crawl4AI MCPサーバーで利用可能な全19ツールの完全リファレン
 | 検索ジャンル | `get_search_genres` | 利用可能なジャンルフィルタ一覧 |
 | 対応ファイル形式 | `get_supported_file_formats` | 対応形式の一覧 |
 
-### パフォーマンス指針
+### 上限と目安
 
-- **深度クローリング**: 最大10ページ制限（安定性重視）
-- **バッチ処理**: 1回の呼び出しあたりの上限あり（URL 3件 / URL設定 5件 / クエリ 3件 / 動画 3本）
-- **タイムアウト計算**: `ページ数 x base_timeout` 推奨
-- **大容量ファイル**: 最大100MB制限
-- **リトライ戦略**: 初回失敗時は手動でのリトライを推奨
-- **コンテンツページネーション**: content_offset/content_limitで分割取得可能
+- `deep_crawl_site` で取得できるのは最大10ページです。安定して動かすための制限です
+- バッチ系のツールは1回の呼び出しで扱える件数に上限があります（URL 3件、URL設定 5件、クエリ 3件、動画 3本）
+- タイムアウトは `ページ数 x base_timeout` を目安に設定してください
+- 扱えるファイルサイズは最大100MBです
+- 初回で失敗したときは、手動でリトライしてください
+- 長いコンテンツは content_offset と content_limit で分けて取得できます
 
-### ベストプラクティス
+### 使い方のこつ
 
-**JavaScript重要サイト向け:**
-- 常に `wait_for_js: true` を使用
-- タイムアウトを30-60秒に増加
-- 特定要素には `wait_for_selector` を使用
-- ボット検出回避には `use_undetected_browser: true` を使用（`crawl_url`）
+JavaScriptで描画するサイトでは、次の設定が効きます。
+- `wait_for_js: true` を指定する
+- タイムアウトを30〜60秒に延ばす
+- 特定の要素を待つなら `wait_for_selector` を使う
+- ボット検出を避けるには `use_undetected_browser: true` を指定する（`crawl_url`）
 
-**AI機能使用時:**
-- 意味的抽出には `extract_structured_data` のLLMモードまたは `intelligent_extract` を使用
-- テーブルデータには `extract_structured_data` のLLMテーブルモードを使用
-- LLM利用不可時はCSS抽出にフォールバック
-- 抽出スキーマは目的に合わせてカスタマイズ
+LLMを使う抽出では、次のように使い分けます。
+- 意味に基づく抽出は `extract_structured_data` のLLMモードか `intelligent_extract` で行う
+- 表のデータは `extract_structured_data` のLLMテーブルモードで取る
+- LLMが使えないときはCSS抽出に切り替える
+- 抽出スキーマは目的に合わせて書く
 
-## 💾 結果のディスク保存（output_path）
+## 結果のディスク保存（output_path）
 
-以下で💾が付いた情報収集系ツールは、取得した全文をディスクへ書き出し、メタデータのみの軽量レスポンスを返す3つの任意パラメータを受け付けます。これにより、エージェントは巨大なページ・長尺のトランスクリプト・バッチ全体を取得しても、生のデータでコンテキストを消費せず、必要なときだけファイルから読み込めます。
+情報を取得するツール（この節の末尾に一覧があります）は、次の3つの任意パラメータを受け付けます。指定すると取得した全文をディスクに書き出し、レスポンスはメタデータだけになります。巨大なページや長いトランスクリプト、バッチ全体を取得してもコンテキストを消費せず、中身は必要なときにファイルから読めます。
 
 **パラメータ:**
-- `output_path` (Optional[str]): 結果の書き込み先絶対パス。`None`（デフォルト）または `""` で永続化をスキップ。単一ファイル系ツールは**ファイル**パス（拡張子は省略時に自動付与）、バッチ系ツールは**ディレクトリ**パスを期待し、項目ごとに1ファイルと `index.json` を書き出します。
-- `include_content_in_response` (bool): `true` の場合は内容もレスポンスに含めます（`content_limit`/`content_offset`/`max_content_per_page` によるスライスは引き続き適用）。`false`（デフォルト）の場合はメタデータとファイルパスのみ返却します。
-- `overwrite` (bool): 既存の出力ファイルを上書きします（デフォルト: `false`）。単一ファイル系では `output_path` のファイルが対象。バッチ系ではディレクトリ内に生成される項目ごとのファイルと `index.json` が対象です（バッチの `output_path` 自体が通常ファイルの場合は overwrite に関わらず拒否されます）。
+- `output_path` (Optional[str]): 結果の書き込み先絶対パス。`None`（デフォルト）か `""` なら保存しません。単一ファイル系のツールには**ファイル**パスを渡します（拡張子は省略すると自動で付きます）。バッチ系のツールには**ディレクトリ**パスを渡し、項目ごとのファイルと `index.json` がそこに書き出されます。
+- `include_content_in_response` (bool): `true` にすると内容もレスポンスに入ります（`content_limit`、`content_offset`、`max_content_per_page` によるスライスはそのままかかります）。`false`（デフォルト）ではメタデータとファイルパスだけを返します。
+- `overwrite` (bool): 既存の出力ファイルを上書きします（デフォルト: `false`）。単一ファイル系では `output_path` のファイル、バッチ系ではディレクトリ内に作る項目ごとのファイルと `index.json` が対象です。バッチの `output_path` 自体が通常ファイルだった場合は、overwrite の値にかかわらずエラーになります。
 
 リクエスト辞書系ツール（`search_google`、`batch_search_google`、`search_and_crawl`、`batch_extract_youtube_transcripts`）では、これら3つはトップレベルのパラメータではなく `request` 辞書のキーとして指定します。
 
 **動作:**
-- 書き込みはアトミック（一時ファイル + `os.replace`）で、親ディレクトリは自動作成されます。
-- スライスや切り詰めの**前**にスライスなしの全文を永続化するため、レスポンスがスライスされてもディスク上のコピーは常に完全です。
-- 各Markdownファイルは `url`、`title`、`fetched_at`、`source_tool` を含むYAMLフロントマターで始まり、自己記述的です。
-- バッチ（ディレクトリ）系ツールは `success=false` の項目の永続化をスキップしますが、その項目も `index.json` に出力パスが null として現れます（`deep_crawl_site`/`search_and_crawl`/`batch_extract_youtube_transcripts` は `file: null`、`batch_crawl`/`multi_url_crawl` は `output_file: null`）。
+- 書き込みはアトミックです（一時ファイルに書いてから `os.replace`）。親ディレクトリは自動で作ります。
+- 保存はスライスや切り詰めより**前**に行うので、レスポンスが切り詰められてもディスク上のファイルは全文のままです。
+- Markdownファイルの先頭には `url`、`title`、`fetched_at`、`source_tool` を含むYAMLフロントマターが付き、ファイル単体で取得元が分かります。
+- バッチ（ディレクトリ）系のツールは `success=false` の項目をファイルに保存しません。それでも `index.json` には出力パスが null の項目として載ります（`deep_crawl_site`/`search_and_crawl`/`batch_extract_youtube_transcripts` は `file: null`、`batch_crawl`/`multi_url_crawl` は `output_file: null`）。
 
-**永続化に対応するツール:**
-- 単一ファイル（`output_path` はファイル）: `crawl_url`, `crawl_url_with_fallback`, `extract_structured_data`, `intelligent_extract`, `extract_entities`, `process_file`, `enhanced_process_large_content`, `extract_youtube_transcript`, `extract_youtube_comments`, `get_youtube_video_info`, `search_google`, `batch_search_google`
-- ディレクトリ/バッチ（`output_path` はディレクトリ）: `deep_crawl_site`, `search_and_crawl`, `batch_crawl`, `multi_url_crawl`, `batch_extract_youtube_transcripts`
+**`output_path` に対応するツール:**
+- `output_path` にファイルを指定するもの: `crawl_url`, `crawl_url_with_fallback`, `extract_structured_data`, `intelligent_extract`, `extract_entities`, `process_file`, `enhanced_process_large_content`, `extract_youtube_transcript`, `extract_youtube_comments`, `get_youtube_video_info`, `search_google`, `batch_search_google`
+- `output_path` にディレクトリを指定するもの: `deep_crawl_site`, `search_and_crawl`, `batch_crawl`, `multi_url_crawl`, `batch_extract_youtube_transcripts`
 
 ## Webクローリングツール
 
-### `crawl_url` 💾
+### `crawl_url`
 
-JavaScript対応のWebページコンテンツ抽出。スクリーンショット取得と任意のコンテンツ要約に対応。SPA向けにwait_for_js=trueを使用。content_offset/content_limitでページネーション対応。
+Webページの内容をJavaScriptを実行したうえで取得します。スクリーンショットと、指定したときの要約にも対応します。SPAではwait_for_js=trueを指定してください。content_offsetとcontent_limitで分割取得できます。
 
 **パラメータ:**
 - `url` (str, 必須): クロール対象URL
@@ -89,22 +89,22 @@ JavaScript対応のWebページコンテンツ抽出。スクリーンショッ�
 - `wait_for_js` (bool): JavaScript完了を待機（デフォルト: False）
 - `auto_summarize` (bool): 大容量コンテンツをLLMで要約。`true` を明示した場合のみ実行（デフォルト: False）
 - `use_undetected_browser` (bool): ボット検出回避用のundetectedブラウザを使用（デフォルト: False）
-- `content_limit` (int): 最大返却文字数、0=無制限（デフォルト: 0）
+- `content_limit` (int): 返す最大文字数、0=無制限（デフォルト: 0）
 - `content_offset` (int): コンテンツ開始位置、0始まり（デフォルト: 0）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（単一の `.md` ファイルを保存）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（単一の `.md` ファイルを保存）
 
 **レスポンス動作:**
-- デフォルトではMarkdownコンテンツのみ返却（トークン削減）
-- `include_cleaned_html=True`でクリーンなHTMLも取得可能
-- トークン制限: 25000トークン（超過時は推奨事項付きで自動切り詰め）
-- 要約は `auto_summarize=true` の場合のみ実行されます（`content_limit`/`content_offset` によるページング中は要約をスキップ）。指定しない場合、大きなページもそのまま返され、レスポンスは約25000トークンで切り詰められます。要約されていない全文をディスクに保存するには `output_path` を使用してください
-- リモートの `.html`/`.htm` URLは、通常のWebページと同様にブラウザでレンダリングされます。ドキュメントURL（PDF、Office、ZIP、テキスト、arXivの `/pdf/` リンク等）はファイルとして変換され、ブラウザでのフォールバックは行いません
-- 初回クロール失敗時はundetectedブラウザでの自動フォールバック（ドキュメントURLを除く）
-- `take_screenshot`: `output_path` 指定時はメインファイルの隣にPNG（`<stem>_screenshot.png`）を保存し、レスポンスに `screenshot_path` を含めます。`output_path` 未指定時はスクリーンショットをレスポンスから除外し、警告を返します
+- デフォルトではMarkdownだけを返す（トークン節約のため）
+- `include_cleaned_html=True` で整形済みHTMLも返す
+- 上限は25000トークンで、超えると対処方法の案内を付けて切り詰める
+- 要約は `auto_summarize=true` の場合のみ実行されます（`content_limit`/`content_offset` によるページング中は要約をスキップ）。指定しない場合、大きなページもそのまま返され、レスポンスは約25000トークンで切り詰められます。要約していない全文をディスクに残すには `output_path` を指定します
+- リモートの `.html`/`.htm` URLは、通常のWebページと同じくブラウザでレンダリングします。ドキュメントURL（PDF、Office、ZIP、テキスト、arXivの `/pdf/` リンク等）はファイルとして変換し、ブラウザでのフォールバックは行いません
+- 初回のクロールに失敗すると、undetectedブラウザで自動的に再試行する（ドキュメントURLを除く）
+- `take_screenshot`: `output_path` を指定したときはメインファイルの隣にPNG（`<stem>_screenshot.png`）を保存し、レスポンスに `screenshot_path` を入れます。`output_path` がなければスクリーンショットはレスポンスに含めず、警告を返します
 
-### `deep_crawl_site` 💾
+### `deep_crawl_site`
 
-設定可能な深度でサイトの複数ページを再帰的にクロールし、サイトをマッピング。
+指定した深さまでリンクをたどり、サイト内の複数ページをクロールします。
 
 **パラメータ:**
 - `url` (str, 必須): 開始URL
@@ -116,11 +116,11 @@ JavaScript対応のWebページコンテンツ抽出。スクリーンショッ�
 - `score_threshold` (float): 最小関連性スコア 0.0-1.0（デフォルト: 0.0）
 - `extract_media` (bool): ページから画像/動画を抽出（デフォルト: False）
 - `base_timeout` (int): ページごとのタイムアウト秒数（デフォルト: 60）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（URLごとの `.md` ファイルと `index.json` をディレクトリに保存）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（URLごとの `.md` ファイルと `index.json` をディレクトリに保存）
 
-### `crawl_url_with_fallback` 💾
+### `crawl_url_with_fallback`
 
-アンチボットサイト向けフォールバック戦略付きクローリング。content_offset/content_limitでページネーション対応。
+ボット対策のあるサイト向けに、複数のフォールバック戦略を順に試してクロールします。content_offsetとcontent_limitで分割取得できます。
 
 **パラメータ:**
 - `url` (str, 必須): クロール対象URL
@@ -132,21 +132,21 @@ JavaScript対応のWebページコンテンツ抽出。スクリーンショッ�
 - `timeout` (int): タイムアウト秒数（デフォルト: 60）
 - `wait_for_js` (bool): JavaScript待機（デフォルト: False）
 - `auto_summarize` (bool): コンテンツをLLMで要約。`true` を明示した場合のみ実行（デフォルト: False）
-- `content_limit` (int): 最大返却文字数、0=無制限（デフォルト: 0）
+- `content_limit` (int): 返す最大文字数、0=無制限（デフォルト: 0）
 - `content_offset` (int): コンテンツ開始位置、0始まり（デフォルト: 0）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（単一の `.md` ファイルを保存）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（単一の `.md` ファイルを保存）
 
 **レスポンス動作:**
-- トークン制限: `crawl_url` と同じく25000トークン（超過時は推奨事項付きで自動切り詰め）
-- 要約は `auto_summarize=true` の場合のみ実行されます。指定しない場合、大きなページもそのまま返され、レスポンスは切り詰められます。要約されていない全文をディスクに保存するには `output_path` を使用してください
-- リモートの `.html`/`.htm` URLはブラウザでレンダリングされます。ドキュメントURL（PDF、Office、ZIP、テキスト等）はブラウザのフォールバック段階を経ず、ファイルとして1回だけ変換されます
-- `take_screenshot`: スクリーンショットは `output_path` 指定時のみ保存されます（`<stem>_screenshot.png` として保存し、`screenshot_path` で参照）
+- 上限は `crawl_url` と同じ25000トークンで、超えると対処方法の案内を付けて切り詰める
+- 要約は `auto_summarize=true` の場合だけ実行されます。指定しなければ大きなページもそのまま返り、レスポンスは切り詰められます。要約していない全文をディスクに残すには `output_path` を指定します
+- リモートの `.html`/`.htm` URLはブラウザでレンダリングします。ドキュメントURL（PDF、Office、ZIP、テキスト等）はブラウザのフォールバック段階を通らず、ファイルとして1回だけ変換します
+- `take_screenshot` のスクリーンショットは `output_path` を指定したときだけ保存されます（`<stem>_screenshot.png` として保存し、`screenshot_path` で参照）
 
 ## データ抽出ツール
 
-### `extract_structured_data` 💾
+### `extract_structured_data`
 
-CSSセレクターまたはLLMスキーマを使用した構造化データ抽出。
+CSSセレクターかLLMスキーマで構造化データを抽出します。
 
 **パラメータ:**
 - `url` (str, 必須): 対象URL
@@ -158,11 +158,11 @@ CSSセレクターまたはLLMスキーマを使用した構造化データ抽�
 - `timeout` (int): タイムアウト秒数（デフォルト: 30）
 - `use_llm_table_extraction` (bool): LLMテーブル抽出を使用（デフォルト: False）
 - `table_chunking_strategy` (str): テーブル分割方式、'intelligent'、'fixed'、'semantic' のいずれか（デフォルト: 'intelligent'）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（`table_data` を含む単一の `.json` ファイルを保存）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（`table_data` を含む単一の `.json` ファイルを保存）
 
-### `intelligent_extract` 💾
+### `intelligent_extract`
 
-設定可能なフィルタリングと任意のLLM活用による、目標指向のコンテンツ抽出。
+自然言語で書いた目的に沿ってコンテンツを抽出します。フィルタの種類を選べ、LLMを使うかどうかも指定できます。
 
 **パラメータ:**
 - `url` (str, 必須): 対象URL
@@ -174,11 +174,11 @@ CSSセレクターまたはLLMスキーマを使用した構造化データ抽�
 - `llm_provider` (Optional[str]): LLMプロバイダー、未指定時は自動検出（デフォルト: None）
 - `llm_model` (Optional[str]): LLMモデル、未指定時は自動検出（デフォルト: None）
 - `custom_instructions` (Optional[str]): 抽出処理への追加指示（デフォルト: None）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（単一の `.json` ファイルを保存）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（単一の `.json` ファイルを保存）
 
-### `extract_entities` 💾
+### `extract_entities`
 
-パターンマッチングまたはLLMを使用して、Webページから特定種別のエンティティ（メール、電話番号等）を抽出。
+Webページからメールアドレスや電話番号などのエンティティを、正規表現かLLMで抽出します。
 
 **パラメータ:**
 - `url` (str, 必須): 対象URL
@@ -189,13 +189,13 @@ CSSセレクターまたはLLMスキーマを使用した構造化データ抽�
 - `use_llm` (bool): 固有表現抽出（NER）にLLMを使用（デフォルト: False）
 - `llm_provider` (Optional[str]): LLMプロバイダー、未指定時は自動検出（デフォルト: None）
 - `llm_model` (Optional[str]): LLMモデル、未指定時は自動検出（デフォルト: None）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（単一の `.json` ファイルを保存）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（単一の `.json` ファイルを保存）
 
 ## ファイル処理ツール
 
-### `process_file` 💾
+### `process_file`
 
-Microsoft MarkItDownを使用して、PDF、Word、Excel、PowerPoint、ZIPなどをMarkdownに変換。
+Microsoft MarkItDownでPDF、Word、Excel、PowerPoint、ZIPなどをMarkdownに変換します。
 
 **パラメータ:**
 - `url` (str, 必須): ファイルURLまたはローカルパス（PDF、Office、ZIP等）。http/https URL、`file://` URI、絶対パスに対応
@@ -207,30 +207,29 @@ Microsoft MarkItDownを使用して、PDF、Word、Excel、PowerPoint、ZIPな�
 - `summary_length` (str): 要約の長さ、'short'、'medium'、'long' のいずれか（デフォルト: 'medium'）
 - `llm_provider` (Optional[str]): 要約用LLMプロバイダー、未指定時は自動検出（デフォルト: None）
 - `llm_model` (Optional[str]): 要約用LLMモデル、未指定時は自動検出（デフォルト: None）
-- `content_limit` (int): 最大返却文字数、0=無制限（デフォルト: 0）
+- `content_limit` (int): 返す最大文字数、0=無制限（デフォルト: 0）
 - `content_offset` (int): コンテンツ開始位置、0始まり（デフォルト: 0）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（単一の `.md` ファイルを保存）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（単一の `.md` ファイルを保存）
 
 **対応形式:**
-- **PDF**: .pdf
-- **Microsoft Office**: .docx, .pptx, .xlsx, .xls
-- **アーカイブ**: .zip
-- **Web/テキスト**: .html, .htm, .txt, .md, .csv, .rtf
-- **電子書籍**: .epub
 
-注: `process_file` は `.html`/`.htm` をファイルとして変換しますが、`crawl_url` と `crawl_url_with_fallback` はリモートの `.html`/`.htm` URLをブラウザでレンダリングします。
+| 種類 | 拡張子 |
+|------|--------|
+| PDF | .pdf |
+| Microsoft Office | .docx, .pptx, .xlsx, .xls |
+| アーカイブ | .zip |
+| Web、テキスト | .html, .htm, .txt, .md, .csv, .rtf |
+| 電子書籍 | .epub |
+
+`process_file` は `.html`/`.htm` をファイルとして変換しますが、`crawl_url` と `crawl_url_with_fallback` はリモートの `.html`/`.htm` URLをブラウザでレンダリングします。
 
 ### `get_supported_file_formats`
 
-対応ファイル形式と機能の一覧を取得。
+対応しているファイル形式と、形式ごとの機能を返します。パラメータはありません。
 
-**パラメータ:** なし
+### `enhanced_process_large_content`
 
-**戻り値:** 対応形式のリストと各形式の機能情報
-
-### `enhanced_process_large_content` 💾
-
-高度なチャンキングとフィルタリング戦略による大容量コンテンツ処理。
+大きなコンテンツをチャンクに分け、フィルタで絞り込んでから処理します。
 
 **パラメータ:**
 - `url` (str, 必須): 処理対象URL
@@ -244,13 +243,13 @@ Microsoft MarkItDownを使用して、PDF、Word、Excel、PowerPoint、ZIPな�
 - `summarize_chunks` (bool): 統合前に各チャンクを要約（デフォルト: False）
 - `merge_strategy` (str): チャンクの統合方式、'hierarchical' または 'linear'（デフォルト: 'linear'）
 - `final_summary_length` (str): 最終要約の長さ、'short'、'medium'、'long' のいずれか（デフォルト: 'short'）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（チャンクと要約を含む単一の `.json` ファイルを保存）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（チャンクと要約を含む単一の `.json` ファイルを保存）
 
 ## YouTube処理ツール
 
-### `extract_youtube_transcript` 💾
+### `extract_youtube_transcript`
 
-言語の優先順位指定と任意の翻訳に対応したYouTubeトランスクリプト抽出。公開キャプション付き動画で動作し、ページクロールへのフォールバックに対応。
+YouTubeのトランスクリプトを取得します。言語の優先順位と翻訳先を指定できます。対象は公開キャプションのある動画で、取得に失敗したときはページのクロールに切り替えます。
 
 **パラメータ:**
 - `url` (str, 必須): YouTube動画URL
@@ -269,14 +268,14 @@ Microsoft MarkItDownを使用して、PDF、Word、Excel、PowerPoint、ZIPな�
 - `enrich_metadata` (bool): ページクロールでメタデータ（upload_date、view_count）を補完（デフォルト: True）
 - `timezone` (str): 公開日時を `metadata.published_at` に変換する際のIANAタイムゾーン名（例: 'Asia/Tokyo'、'America/New_York'）。`enrich_metadata=True` が必要（デフォルト: 'UTC'）
 - `content_offset` (int): コンテンツ開始位置、0始まり（デフォルト: 0）
-- `content_limit` (int): 最大返却文字数、0=無制限（デフォルト: 0）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（単一の `.md` ファイルを保存）
+- `content_limit` (int): 返す最大文字数、0=無制限（デフォルト: 0）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（単一の `.md` ファイルを保存）
 
-**公開日時:** `metadata.published_at` には `timezone` に変換した公開日時が入ります。`metadata.published_at.original` には常にYouTubeが返したオフセット付きの元の値が保持されます。
+`metadata.published_at` には `timezone` に変換した公開日時が入ります。`metadata.published_at.original` には、YouTubeが返したオフセット付きの元の値が常に残ります。
 
-### `extract_youtube_comments` 💾
+### `extract_youtube_comments`
 
-YouTube動画のコメントを抽出・並べ替え。comment_offsetによるページネーション対応。
+YouTube動画のコメントを並べ替えて取得します。comment_offsetで続きを取得できます。
 
 **パラメータ:**
 - `url` (str, 必須): YouTube動画URL
@@ -285,12 +284,12 @@ YouTube動画のコメントを抽出・並べ替え。comment_offsetによる�
 - `comment_offset` (int): スキップするコメント数（ページネーション用）（デフォルト: 0）
 - `include_replies` (bool): 返信コメントを含める（デフォルト: True）
 - `content_offset` (int): コンテンツ開始位置、0始まり（デフォルト: 0）
-- `content_limit` (int): 最大返却文字数、0=無制限（デフォルト: 0）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（全コメントを含む単一の `.json` ファイルを、トークン制限によるコメント削減の前に保存）
+- `content_limit` (int): 返す最大文字数、0=無制限（デフォルト: 0）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（全コメントを含む単一の `.json` ファイルを、トークン制限によるコメント削減の前に保存）
 
-### `batch_extract_youtube_transcripts` 💾
+### `batch_extract_youtube_transcripts`
 
-複数YouTube動画からトランスクリプトを一括抽出。1回の呼び出しで最大3本。
+複数のYouTube動画のトランスクリプトをまとめて取得します。1回の呼び出しで3本までです。
 
 **パラメータ:**
 - `request` (Dict, 必須): 以下のキーを持つリクエスト辞書
@@ -298,12 +297,12 @@ YouTube動画のコメントを抽出・並べ替え。comment_offsetによる�
   - `languages` (List[str]): 優先言語コード順（デフォルト: ["ja", "en"]）
   - `include_timestamps` (bool): タイムスタンプを含める（デフォルト: False）
   - `timezone` (str): 各動画の公開日時を `metadata.published_at` に変換する際のIANAタイムゾーン名。`metadata.published_at.original` にはYouTubeのオフセットが保持されます（デフォルト: 'UTC'）
-  - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（動画ごとの `.md` ファイルと `index.json` をディレクトリに保存）
+  - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（動画ごとの `.md` ファイルと `index.json` をディレクトリに保存）
   - その他に受け付けるキー: `translate_to` (Optional[str]、デフォルト: None)、`preserve_formatting` (bool、デフォルト: True)、`include_metadata` (bool、デフォルト: True)、`max_concurrent` (int、デフォルト: 3、最大5)
 
-### `get_youtube_video_info` 💾
+### `get_youtube_video_info`
 
-YouTube動画のメタデータとトランスクリプト利用可能情報を取得。
+YouTube動画のメタデータと、トランスクリプトがどの言語で取れるかを返します。
 
 **パラメータ:**
 - `video_url` (str, 必須): YouTube動画URL
@@ -314,7 +313,7 @@ YouTube動画のメタデータとトランスクリプト利用可能情報を�
 - `summary_length` (str): 要約の長さ、'short'、'medium'、'long' のいずれか（デフォルト: 'medium'）
 - `include_timestamps` (bool): タイムスタンプを含める（デフォルト: True）
 - `timezone` (str): `published_at` として返す公開日時の変換に使うIANAタイムゾーン名（例: 'Asia/Tokyo'、'America/New_York'）（デフォルト: 'UTC'）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（動画情報とトランスクリプトを含む単一の `.md` ファイルを保存）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（動画情報とトランスクリプトを含む単一の `.md` ファイルを保存）
 
 **戻り値:**
 - 利用可能なトランスクリプト言語
@@ -324,9 +323,9 @@ YouTube動画のメタデータとトランスクリプト利用可能情報を�
 
 ## Google検索ツール
 
-### `search_google` 💾
+### `search_google`
 
-ジャンルフィルタリングとメタデータ抽出付きのGoogle検索。
+Google検索を実行し、ジャンルで絞り込んだ結果とそのメタデータを返します。
 
 **パラメータ:**
 - `request` (Dict, 必須): 以下のキーを持つリクエスト辞書
@@ -336,20 +335,20 @@ YouTube動画のメタデータとトランスクリプト利用可能情報を�
   - `language` (str): 検索言語（デフォルト: "en"）
   - `region` (str): 検索地域（デフォルト: "us"）
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
-  - `content_limit` (int): 結果ごとの最大返却文字数、0=無制限（デフォルト: 0）
+  - `content_limit` (int): 結果ごとに返す最大文字数、0=無制限（デフォルト: 0）
   - `content_offset` (int): コンテンツ開始位置（デフォルト: 0）
-  - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（スライス前の全結果を単一の `.json` ファイルに保存）
+  - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（スライス前の全結果を単一の `.json` ファイルに保存）
   - その他に受け付けるキー: `safe_search` (bool、デフォルト: True)
 
 **機能:**
-- 検索結果からの自動タイトル・スニペット抽出
-- クエリにGoogle演算子を付加する6つの検索ジャンル: `pdf`、`documents`、`presentations`、`spreadsheets`（ファイル形式フィルタ）、`japanese`、`english`（言語フィルタ）
-- URL分類とドメイン分析
-- セーフサーチがデフォルトで有効
+- 検索結果のタイトルとスニペットを取り出す
+- 検索ジャンルは6つあり、クエリにGoogleの検索演算子を付けて絞り込む。`pdf`、`documents`、`presentations`、`spreadsheets` はファイル形式、`japanese` と `english` は言語で絞る
+- URLを分類し、ドメインを分析する
+- セーフサーチはデフォルトで有効
 
-### `search_and_crawl` 💾
+### `search_and_crawl`
 
-Google検索と上位結果の自動クロール実行。
+Google検索を実行し、上位の結果をそのままクロールします。
 
 **パラメータ:**
 - `request` (Dict, 必須): 以下のキーを持つリクエスト辞書
@@ -359,16 +358,16 @@ Google検索と上位結果の自動クロール実行。
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
   - `generate_markdown` (bool): クロールしたページからMarkdownを生成（デフォルト: True）
   - `max_content_per_page` (int): レスポンス内のページごとの最大文字数（デフォルト: 5000）
-  - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（ページごとの `.md` ファイルと `index.json` をディレクトリに保存。`max_content_per_page` による切り詰めの前に保存）
+  - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（ページごとの `.md` ファイルと `index.json` をディレクトリに保存。`max_content_per_page` による切り詰めの前に保存）
 
 **戻り値:**
-- 検索メタデータとクロールしたコンテンツ一式
-- 成功率と処理統計
-- 検索結果とクロール結果の統合分析
+- 検索のメタデータと、クロールしたコンテンツ
+- 成功率などの処理統計
+- 検索結果とクロール結果をまとめた分析
 
-### `batch_search_google` 💾
+### `batch_search_google`
 
-複数のGoogle検索を同時実行。1回の呼び出しで最大3クエリ。
+複数のGoogle検索を並行して実行します。1回の呼び出しで3クエリまでです。
 
 **パラメータ:**
 - `request` (Dict, 必須): 以下のキーを持つリクエスト辞書
@@ -376,22 +375,18 @@ Google検索と上位結果の自動クロール実行。
   - `num_results_per_query` (int): クエリごとの結果数 1-100（デフォルト: 10）
   - `search_genre` (Optional[str]): 全クエリに適用するコンテンツジャンルフィルタ（デフォルト: None）
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
-  - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（全結果を単一の `.json` ファイルに保存）
+  - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（全結果を単一の `.json` ファイルに保存）
   - その他に受け付けるキー: `language` (str、デフォルト: "en")、`region` (str、デフォルト: "us")、`max_concurrent` (int、デフォルト: 3、最大5)
 
 ### `get_search_genres`
 
-ターゲット検索で利用可能な検索ジャンル一覧を取得。
-
-**パラメータ:** なし
-
-**戻り値:** 利用可能なジャンルとその説明
+`search_genre` に指定できるジャンルと、その説明を返します。パラメータはありません。
 
 ## バッチ操作ツール
 
-### `batch_crawl` 💾
+### `batch_crawl`
 
-1回のリクエストで複数URL（最大3件）を、フォールバック付きで順次クロール。
+複数のURL（最大3件）を1件ずつ順にクロールします。失敗したURLにはフォールバックを試します。
 
 **パラメータ:**
 - `urls` (List[str], 必須): クロール対象URLのリスト（最大3件）
@@ -399,11 +394,11 @@ Google検索と上位結果の自動クロール実行。
 - `generate_markdown` (bool): Markdown生成（デフォルト: True）
 - `extract_media` (bool): ページから画像/動画を抽出（デフォルト: False）
 - `wait_for_js` (bool): JavaScript完了を待機（デフォルト: False）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（URLごとの `.md` ファイルと `index.json` をディレクトリに保存。戻り値はリストのままで、成功項目に `output_file` が追加される）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（URLごとの `.md` ファイルと `index.json` をディレクトリに保存。戻り値はリストのままで、成功項目に `output_file` が追加される）
 
-### `multi_url_crawl` 💾
+### `multi_url_crawl`
 
-URLごとの設定オプション付きで複数URL（最大5件）をクロール。
+複数のURL（最大5件）を、URLごとに設定を変えてクロールします。
 
 **パラメータ:**
 - `url_configurations` (Dict, 必須): URLごとの設定マップ、最大5件（例: `{"https://site1.com": {"wait_for_js": true}}`）
@@ -411,7 +406,7 @@ URLごとの設定オプション付きで複数URL（最大5件）をクロー�
 - `default_config` (Optional[Dict]): 全URLに適用するデフォルト設定（デフォルト: None）
 - `base_timeout` (int): URLごとのタイムアウト秒数（デフォルト: 30）
 - `max_concurrent` (int): 最大同時実行数（デフォルト: 3）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#-結果のディスク保存output_path)を参照（URLごとの `.md` ファイルと `index.json` をディレクトリに保存。戻り値はリストのままで、成功項目に `output_file` が追加される）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（URLごとの `.md` ファイルと `index.json` をディレクトリに保存。戻り値はリストのままで、成功項目に `output_file` が追加される）
 
 ## ツール分類
 
@@ -428,21 +423,25 @@ URLごとの設定オプション付きで複数URL（最大5件）をクロー�
 | **合計** | | **19** |
 
 ### 複雑さ別
-- **シンプル**: `crawl_url`, `process_file`, `get_youtube_video_info`, `get_search_genres`, `get_supported_file_formats`
-- **中程度**: `deep_crawl_site`, `search_google`, `extract_youtube_transcript`, `extract_youtube_comments`, `batch_crawl`
-- **高度**: `extract_structured_data`, `intelligent_extract`, `extract_entities`, `search_and_crawl`, `batch_search_google`, `multi_url_crawl`, `batch_extract_youtube_transcripts`, `enhanced_process_large_content`
+
+| 複雑さ | ツール |
+|------|--------|
+| 単純 | `crawl_url`, `process_file`, `get_youtube_video_info`, `get_search_genres`, `get_supported_file_formats` |
+| 中程度 | `deep_crawl_site`, `search_google`, `extract_youtube_transcript`, `extract_youtube_comments`, `batch_crawl` |
+| 複雑 | `extract_structured_data`, `intelligent_extract`, `extract_entities`, `search_and_crawl`, `batch_search_google`, `multi_url_crawl`, `batch_extract_youtube_transcripts`, `enhanced_process_large_content` |
 
 ### 用途別
-- **コンテンツ発見**: `search_google`, `search_and_crawl`, `batch_search_google`, `get_search_genres`
-- **データ抽出**: `crawl_url`, `extract_structured_data`, `intelligent_extract`, `extract_entities`
-- **メディア処理**: `extract_youtube_transcript`, `extract_youtube_comments`, `batch_extract_youtube_transcripts`, `process_file`, `get_supported_file_formats`
-- **サイト分析**: `deep_crawl_site`, `crawl_url_with_fallback`, `batch_crawl`, `multi_url_crawl`
-- **大容量コンテンツ**: `enhanced_process_large_content`, `get_youtube_video_info`
+
+| 用途 | ツール |
+|------|--------|
+| コンテンツを探す | `search_google`, `search_and_crawl`, `batch_search_google`, `get_search_genres` |
+| データを抽出する | `crawl_url`, `extract_structured_data`, `intelligent_extract`, `extract_entities` |
+| 動画やファイルを処理する | `extract_youtube_transcript`, `extract_youtube_comments`, `batch_extract_youtube_transcripts`, `process_file`, `get_supported_file_formats` |
+| サイトを調べる | `deep_crawl_site`, `crawl_url_with_fallback`, `batch_crawl`, `multi_url_crawl` |
+| 大きなコンテンツを扱う | `enhanced_process_large_content`, `get_youtube_video_info` |
 
 ## 統合例
 
-詳細な設定例については、[設定例](CONFIGURATION_EXAMPLES.md)をご覧ください。
-
-HTTP API統合については、[HTTP統合ガイド](HTTP_INTEGRATION.md)をご覧ください。
-
-高度な使用パターンについては、[高度な使用ガイド](ADVANCED_USAGE.md)をご覧ください。
+- クライアントごとの設定は[設定例](CONFIGURATION_EXAMPLES.md)
+- HTTP経由での呼び出し方は[HTTP統合ガイド](HTTP_INTEGRATION.md)
+- 応用的な使い方は[使い方の応用](ADVANCED_USAGE.md)

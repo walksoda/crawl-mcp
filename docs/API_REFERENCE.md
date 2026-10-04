@@ -1,12 +1,12 @@
 # API Reference
 
-Complete reference for all MCP tools available in the Crawl4AI MCP Server.
+Reference for the MCP tools provided by the Crawl4AI MCP Server.
 
 ## Tool Selection Guide
 
 ### Choose the Right Tool for Your Task
 
-| **Use Case** | **Recommended Tool** | **Key Features** |
+| Use case | Tool | What it does |
 |-------------|---------------------|------------------|
 | Single webpage | `crawl_url` | Basic crawling, JS support |
 | Multiple pages (up to 10) | `deep_crawl_site` | Site mapping, link following |
@@ -29,52 +29,46 @@ Complete reference for all MCP tools available in the Crawl4AI MCP Server.
 
 ### Performance Guidelines
 
-- **Deep Crawling**: Limited to 10 pages max (stability focused)
-- **Batch Processing**: Per-call limits apply (3 URLs / 5 URL configurations / 3 queries / 3 videos)
-- **Timeout Calculation**: `pages x base_timeout` recommended
-- **Large Files**: 100MB maximum size limit
-- **Retry Strategy**: Manual retry recommended on first failure
+- Deep crawling is limited to 10 pages per call.
+- Batch tools have per-call limits: 3 URLs, 5 URL configurations, 3 queries, or 3 videos.
+- Set the total timeout to about `pages x base_timeout`.
+- Files larger than 100MB are rejected.
+- If a call fails, retry it manually.
 
 ### Best Practices
 
-**For JavaScript-Heavy Sites:**
-- Always use `wait_for_js: true`
-- Increase timeout to 30-60 seconds
-- Use `wait_for_selector` for specific elements
+For JavaScript-heavy sites, set `wait_for_js: true`, raise the timeout to 30-60 seconds, and use `wait_for_selector` to wait for a specific element.
 
-**For AI Features:**
-- Use `extract_structured_data` with LLM mode for semantic extraction
-- Fallback to CSS extraction if LLM unavailable
-- Customize extraction schemas based on needs
+For LLM-based extraction, use `extract_structured_data` in LLM mode. If no LLM is configured, use CSS extraction instead. Adjust the extraction schema to the data you need.
 
-## 💾 Result Persistence (output_path)
+## Result Persistence (output_path)
 
-Every information-gathering tool marked with 💾 below accepts three optional parameters that write the full fetched result to disk and return a slim, metadata-only response. This lets an agent fetch huge pages, long transcripts, or whole batches and read them back from a file on demand, instead of spending its context window on the raw payload.
+The information-gathering tools listed at the end of this section accept three optional parameters that write the full result to disk and return only metadata. An agent can then fetch large pages, long transcripts, or whole batches and read the file when it needs the content, instead of holding the raw payload in its context window.
 
-**Parameters:**
-- `output_path` (Optional[str]): Absolute path to write the result to. `None` (default) or `""` skips persistence. Single-file tools expect a **file** path (extension auto-added when omitted); batch tools expect a **directory** path and write one file per item plus an `index.json`.
+Parameters:
+- `output_path` (Optional[str]): Absolute path to write the result to. `None` (default) or `""` skips persistence. Single-file tools expect a file path (the extension is added when omitted); batch tools expect a directory path and write one file per item plus an `index.json`.
 - `include_content_in_response` (bool): When `true`, the content is also returned inline (still subject to any `content_limit`/`content_offset`/`max_content_per_page` slicing). When `false` (default), only metadata and the file path are returned.
 - `overwrite` (bool): Overwrite existing output files (default: `false`). For single-file tools this guards the file at `output_path`; for batch tools it guards the per-item files and `index.json` inside the directory (a regular file sitting at a batch `output_path` is always rejected).
 
 For request-dict tools (`search_google`, `batch_search_google`, `search_and_crawl`, `batch_extract_youtube_transcripts`) these three are keys of the `request` dict instead of top-level parameters.
 
-**Behavior:**
+Behavior:
 - Writes are atomic (temp file + `os.replace`); parent directories are created automatically.
-- The full, unsliced payload is persisted **before** any slicing or truncation, so the on-disk copy is always complete even when the response is sliced.
-- Each markdown file starts with a YAML frontmatter block (`url`, `title`, `fetched_at`, `source_tool`) so the artifact is self-describing.
+- The full, unsliced payload is written before any slicing or truncation, so the file is complete even when the response is sliced.
+- Each markdown file starts with a YAML frontmatter block (`url`, `title`, `fetched_at`, `source_tool`).
 - Batch (directory) tools skip per-item persistence for items that report `success=false`; those items still appear in `index.json` with a null output path (`file: null` for `deep_crawl_site`/`search_and_crawl`/`batch_extract_youtube_transcripts`, `output_file: null` for `batch_crawl`/`multi_url_crawl`).
 
-**Tools that support persistence:**
+Tools that support `output_path`:
 - Single-file (`output_path` is a file): `crawl_url`, `crawl_url_with_fallback`, `extract_structured_data`, `intelligent_extract`, `extract_entities`, `process_file`, `enhanced_process_large_content`, `extract_youtube_transcript`, `extract_youtube_comments`, `get_youtube_video_info`, `search_google`, `batch_search_google`
 - Directory/batch (`output_path` is a directory): `deep_crawl_site`, `search_and_crawl`, `batch_crawl`, `multi_url_crawl`, `batch_extract_youtube_transcripts`
 
 ## Web Crawling Tools
 
-### `crawl_url` 💾
+### `crawl_url`
 
 Web crawling with JavaScript support, screenshot capture, and optional content summarization.
 
-**Parameters:**
+Parameters:
 - `url` (str): URL to crawl (required)
 - `css_selector` (Optional[str]): CSS selector for targeted extraction (default: None)
 - `extract_media` (bool): Extract images and videos (default: False)
@@ -88,9 +82,9 @@ Web crawling with JavaScript support, screenshot capture, and optional content s
 - `use_undetected_browser` (bool): Use undetected browser to bypass bot detection (default: False)
 - `content_limit` (int): Maximum characters to return, 0 means unlimited (default: 0)
 - `content_offset` (int): Start position for content retrieval, 0-indexed (default: 0)
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a single `.md` file)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.md` file)
 
-**Response Behavior:**
+Response behavior:
 - By default, returns markdown content only to reduce token usage
 - Set `include_cleaned_html=True` to also receive cleaned HTML content
 - Token limit: 25000 tokens (automatically truncated with recommendations if exceeded)
@@ -98,11 +92,11 @@ Web crawling with JavaScript support, screenshot capture, and optional content s
 - Remote `.html`/`.htm` URLs are rendered in the browser like any other web page. Document URLs (PDF, Office, ZIP, text, arXiv `/pdf/` links, etc.) are converted as files without a browser fallback
 - `take_screenshot`: with `output_path`, the PNG is saved next to the main file (`<stem>_screenshot.png`) and the response gets `screenshot_path`; without `output_path`, the screenshot is dropped from the response with a warning
 
-### `deep_crawl_site` 💾
+### `deep_crawl_site`
 
-Dedicated tool for comprehensive site mapping and recursive crawling.
+Crawl a site recursively from a starting URL, following links up to the given depth.
 
-**Parameters:**
+Parameters:
 - `url` (str): Starting URL (required)
 - `max_depth` (int): Link depth; supported range 1-2 (default: 2)
 - `max_pages` (int): Maximum number of pages to crawl; supported maximum 10 (default: 5)
@@ -112,13 +106,13 @@ Dedicated tool for comprehensive site mapping and recursive crawling.
 - `score_threshold` (float): Minimum relevance score 0.0-1.0 (default: 0.0)
 - `extract_media` (bool): Extract images and videos from pages (default: False)
 - `base_timeout` (int): Timeout per page in seconds (default: 60)
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a directory of per-URL `.md` files + `index.json`)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a directory of per-URL `.md` files + `index.json`)
 
-### `crawl_url_with_fallback` 💾
+### `crawl_url_with_fallback`
 
 Crawl with fallback strategies for anti-bot sites. Use content_offset/content_limit for pagination.
 
-**Parameters:**
+Parameters:
 - `url` (str): URL to crawl (required)
 - `css_selector` (Optional[str]): CSS selector (default: None)
 - `extract_media` (bool): Extract media (default: False)
@@ -130,9 +124,9 @@ Crawl with fallback strategies for anti-bot sites. Use content_offset/content_li
 - `auto_summarize` (bool): Summarize content with an LLM; only runs when explicitly `true` (default: False)
 - `content_limit` (int): Maximum characters to return, 0 means unlimited (default: 0)
 - `content_offset` (int): Start position for content retrieval, 0-indexed (default: 0)
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a single `.md` file)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.md` file)
 
-**Response Behavior:**
+Response behavior:
 - Token limit: 25000 tokens (automatically truncated with recommendations if exceeded), same as `crawl_url`
 - Content is summarized only when `auto_summarize=true`. Without it, large pages are returned as-is and the response is truncated; use `output_path` to save the full, unsummarized content to disk
 - Remote `.html`/`.htm` URLs are rendered in the browser. Document URLs (PDF, Office, ZIP, text, etc.) are converted as files once, without the browser fallback stages
@@ -140,11 +134,11 @@ Crawl with fallback strategies for anti-bot sites. Use content_offset/content_li
 
 ## Data Extraction Tools
 
-### `extract_structured_data` 💾
+### `extract_structured_data`
 
-Traditional structured data extraction using CSS selectors or LLM schemas.
+Extract structured data using CSS selectors or an LLM schema.
 
-**Parameters:**
+Parameters:
 - `url` (str): Target URL (required)
 - `extraction_type` (str): Extraction method, 'css', 'llm' or 'table' (default: 'css')
 - `css_selectors` (Optional[Dict]): CSS selector mapping for targeted extraction (default: None)
@@ -154,13 +148,13 @@ Traditional structured data extraction using CSS selectors or LLM schemas.
 - `timeout` (int): Timeout in seconds (default: 30)
 - `use_llm_table_extraction` (bool): Use LLM for table extraction (default: False)
 - `table_chunking_strategy` (str): Table chunking method, 'intelligent', 'fixed' or 'semantic' (default: 'intelligent')
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a single `.json` file including `table_data`)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.json` file including `table_data`)
 
-### `intelligent_extract` 💾
+### `intelligent_extract`
 
 Goal-based content extraction with configurable filtering and optional LLM enrichment.
 
-**Parameters:**
+Parameters:
 - `url` (str): Target URL (required)
 - `extraction_goal` (str): Natural language description of what to extract (required)
 - `content_filter` (str): Filter strategy, 'bm25', 'pruning' or 'llm' (default: 'bm25')
@@ -170,13 +164,13 @@ Goal-based content extraction with configurable filtering and optional LLM enric
 - `llm_provider` (Optional[str]): LLM provider, auto-detected if not specified (default: None)
 - `llm_model` (Optional[str]): Specific LLM model, auto-detected if not specified (default: None)
 - `custom_instructions` (Optional[str]): Additional instructions for the extraction process (default: None)
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a single `.json` file)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.json` file)
 
-### `extract_entities` 💾
+### `extract_entities`
 
 Extract specific entity types from a URL using pattern matching or LLM.
 
-**Parameters:**
+Parameters:
 - `url` (str): Target URL (required)
 - `entity_types` (List[str]): Entity types to extract (required). Regex-supported values: 'emails', 'phones', 'urls', 'dates', 'ips', 'prices', 'credit_cards', 'coordinates'. Other types (e.g. 'social_media') are extracted only with `use_llm=true`
 - `custom_patterns` (Optional[Dict]): Custom regex patterns for entity extraction (default: None)
@@ -185,15 +179,15 @@ Extract specific entity types from a URL using pattern matching or LLM.
 - `use_llm` (bool): Use LLM for named entity recognition (default: False)
 - `llm_provider` (Optional[str]): LLM provider, auto-detected if not specified (default: None)
 - `llm_model` (Optional[str]): Specific LLM model, auto-detected if not specified (default: None)
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a single `.json` file)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.json` file)
 
 ## File Processing Tools
 
-### `process_file` 💾
+### `process_file`
 
-Convert various file formats to Markdown using Microsoft MarkItDown.
+Convert files to Markdown using Microsoft MarkItDown.
 
-**Parameters:**
+Parameters:
 - `url` (str): File URL or local path (PDF, Office, ZIP, etc.). Supports http/https URLs, `file://` URIs and absolute paths (required)
 - `max_size_mb` (int): Maximum file size in MB (default: 100)
 - `extract_all_from_zip` (bool): Extract all files from ZIP archives (default: True)
@@ -205,26 +199,26 @@ Convert various file formats to Markdown using Microsoft MarkItDown.
 - `llm_model` (Optional[str]): Specific LLM model for summarization, auto-detected if not specified (default: None)
 - `content_limit` (int): Maximum characters to return, 0 means unlimited (default: 0)
 - `content_offset` (int): Start position for content retrieval, 0-indexed (default: 0)
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a single `.md` file)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.md` file)
 
-**Supported Formats:**
-- **PDF**: .pdf
-- **Microsoft Office**: .docx, .pptx, .xlsx, .xls
-- **Archives**: .zip
-- **Web/Text**: .html, .htm, .txt, .md, .csv, .rtf
-- **eBooks**: .epub
+Supported formats:
+- PDF: .pdf
+- Microsoft Office: .docx, .pptx, .xlsx, .xls
+- Archives: .zip
+- Web/text: .html, .htm, .txt, .md, .csv, .rtf
+- eBooks: .epub
 
-Note: `process_file` converts `.html`/`.htm` as files, while `crawl_url` and `crawl_url_with_fallback` render remote `.html`/`.htm` URLs in the browser.
+`process_file` converts `.html`/`.htm` as files, while `crawl_url` and `crawl_url_with_fallback` render remote `.html`/`.htm` URLs in the browser.
 
 ### `get_supported_file_formats`
 
 Returns the list of supported file formats and their capabilities. No parameters required.
 
-### `enhanced_process_large_content` 💾
+### `enhanced_process_large_content`
 
-Process large content with advanced chunking and filtering strategies.
+Split large content into chunks, filter them, and optionally summarize them.
 
-**Parameters:**
+Parameters:
 - `url` (str): URL to process (required)
 - `chunking_strategy` (str): How to split content, 'topic', 'sentence', 'overlap' or 'regex' (default: 'sentence')
 - `filtering_strategy` (str): How to filter chunks, 'bm25', 'pruning' or 'llm' (default: 'bm25')
@@ -236,15 +230,15 @@ Process large content with advanced chunking and filtering strategies.
 - `summarize_chunks` (bool): Summarize individual chunks before merging (default: False)
 - `merge_strategy` (str): How to merge processed chunks, 'hierarchical' or 'linear' (default: 'linear')
 - `final_summary_length` (str): Length of the final merged summary, 'short', 'medium' or 'long' (default: 'short')
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a single `.json` file with chunks and summaries)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.json` file with chunks and summaries)
 
 ## YouTube Processing Tools
 
-### `extract_youtube_transcript` 💾
+### `extract_youtube_transcript`
 
 Extract transcripts from YouTube videos with language preferences and optional translation.
 
-**Parameters:**
+Parameters:
 - `url` (str): YouTube video URL (required)
 - `languages` (Optional[List[str] | str]): Preferred languages in order of preference (default: ["ja", "en"])
 - `translate_to` (Optional[str]): Target language for translation (default: None)
@@ -262,15 +256,15 @@ Extract transcripts from YouTube videos with language preferences and optional t
 - `timezone` (str): IANA timezone name (e.g. 'Asia/Tokyo', 'America/New_York') used to convert the publish time into `metadata.published_at`; requires `enrich_metadata=True` (default: 'UTC')
 - `content_offset` (int): Start position for content retrieval, 0-indexed (default: 0)
 - `content_limit` (int): Maximum characters to return, 0 means unlimited (default: 0)
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a single `.md` file)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.md` file)
 
-**Publish time:** `metadata.published_at` holds the publish time converted to `timezone`; `metadata.published_at.original` always keeps the offset reported by YouTube.
+`metadata.published_at` holds the publish time converted to `timezone`; `metadata.published_at.original` always keeps the offset reported by YouTube.
 
-### `extract_youtube_comments` 💾
+### `extract_youtube_comments`
 
 Extract and sort comments from a YouTube video.
 
-**Parameters:**
+Parameters:
 - `url` (str): YouTube video URL (required)
 - `sort_by` (str): Comment sort order, 'popular' or 'recent' (default: 'popular')
 - `max_comments` (int): Maximum number of comments to retrieve, 1-1000 (default: 300)
@@ -278,26 +272,26 @@ Extract and sort comments from a YouTube video.
 - `include_replies` (bool): Include replies to top-level comments (default: True)
 - `content_offset` (int): Start position for content retrieval, 0-indexed (default: 0)
 - `content_limit` (int): Maximum characters to return, 0 means unlimited (default: 0)
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a single `.json` file with the full comment list, written before the token-limit reduction)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.json` file with the full comment list, written before the token-limit reduction)
 
-### `batch_extract_youtube_transcripts` 💾
+### `batch_extract_youtube_transcripts`
 
 Extract transcripts from multiple YouTube videos in a single request (up to 3 videos).
 
-**Parameters:**
+Parameters:
 - `request` (Dict): Request object with the following keys:
   - `urls` (List[str]): List of YouTube video URLs (max 3, required)
   - `languages` (List[str]): Preferred languages in order of preference (default: ["ja", "en"])
   - `include_timestamps` (bool): Include timestamps in transcripts (default: False)
   - `timezone` (str): IANA timezone name used to convert each video's publish time into `metadata.published_at`; `metadata.published_at.original` keeps YouTube's offset (default: 'UTC')
-  - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a directory of per-video `.md` files + `index.json`)
+  - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a directory of per-video `.md` files + `index.json`)
   - Also accepted: `translate_to` (Optional[str], default: None), `preserve_formatting` (bool, default: True), `include_metadata` (bool, default: True), `max_concurrent` (int, default: 3, max 5)
 
-### `get_youtube_video_info` 💾
+### `get_youtube_video_info`
 
 Get metadata and transcript information for a YouTube video.
 
-**Parameters:**
+Parameters:
 - `video_url` (str): YouTube video URL (required)
 - `summarize_transcript` (bool): Generate a summary of the transcript (default: False)
 - `max_tokens` (int): Token limit for summarization (default: 25000)
@@ -306,9 +300,9 @@ Get metadata and transcript information for a YouTube video.
 - `summary_length` (str): Summary length, 'short', 'medium' or 'long' (default: 'medium')
 - `include_timestamps` (bool): Include timestamps in transcript output (default: True)
 - `timezone` (str): IANA timezone name (e.g. 'Asia/Tokyo', 'America/New_York') used to convert the publish time returned under `published_at` (default: 'UTC')
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a single `.md` file with video info + transcript)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.md` file with video info + transcript)
 
-**Returns:**
+Returns:
 - Available transcript languages
 - Manual/auto-generated distinction
 - Translatable language information
@@ -316,11 +310,11 @@ Get metadata and transcript information for a YouTube video.
 
 ## Google Search Tools
 
-### `search_google` 💾
+### `search_google`
 
 Perform Google search with genre filtering and metadata extraction.
 
-**Parameters:**
+Parameters:
 - `request` (Dict): Request object with the following keys:
   - `query` (str): Search query string (required)
   - `num_results` (int): Number of results to return, 1-100 (default: 10)
@@ -330,20 +324,20 @@ Perform Google search with genre filtering and metadata extraction.
   - `recent_days` (Optional[int]): Limit results to the past N days (default: None)
   - `content_limit` (int): Maximum characters to return per result, 0 means unlimited (default: 0)
   - `content_offset` (int): Start position for content retrieval (default: 0)
-  - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a single `.json` file with the full results, written before slicing)
+  - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.json` file with the full results, written before slicing)
   - Also accepted: `safe_search` (bool, default: True)
 
-**Features:**
+Features:
 - Automatic title and snippet extraction from search results
 - 6 search genres that add Google operators to the query: `pdf`, `documents`, `presentations`, `spreadsheets` (file type filters), `japanese`, `english` (language filters)
 - URL classification and domain analysis
 - Safe search enforced by default
 
-### `search_and_crawl` 💾
+### `search_and_crawl`
 
 Perform Google search and automatically crawl top results.
 
-**Parameters:**
+Parameters:
 - `request` (Dict): Request object with the following keys:
   - `search_query` (str): Google search query (required)
   - `crawl_top_results` (int): Number of top results to crawl, max 3 (default: 2)
@@ -351,24 +345,24 @@ Perform Google search and automatically crawl top results.
   - `recent_days` (Optional[int]): Limit search results to the past N days (default: None)
   - `generate_markdown` (bool): Generate markdown content from crawled pages (default: True)
   - `max_content_per_page` (int): Maximum content characters per crawled page in the response (default: 5000)
-  - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a directory of per-page `.md` files + `index.json`, written before `max_content_per_page` truncation)
+  - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a directory of per-page `.md` files + `index.json`, written before `max_content_per_page` truncation)
 
-**Returns:**
-- Complete search metadata and crawled content
+Returns:
+- Search metadata and crawled content
 - Success rates and processing statistics
-- Integrated analysis of search and crawl results
+- A combined summary of the search and crawl results
 
-### `batch_search_google` 💾
+### `batch_search_google`
 
 Perform multiple Google searches concurrently (up to 3 queries).
 
-**Parameters:**
+Parameters:
 - `request` (Dict): Request object with the following keys:
   - `queries` (List[str]): List of search query strings (max 3, required)
   - `num_results_per_query` (int): Number of results per query, 1-100 (default: 10)
   - `search_genre` (Optional[str]): Content genre filter applied to all queries (default: None)
   - `recent_days` (Optional[int]): Limit results to the past N days (default: None)
-  - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a single `.json` file with the full result set)
+  - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.json` file with the full result set)
   - Also accepted: `language` (str, default: "en"), `region` (str, default: "us"), `max_concurrent` (int, default: 3, max 5)
 
 ### `get_search_genres`
@@ -377,48 +371,48 @@ Returns the list of available search genre filters. No parameters required.
 
 ## Batch Operations
 
-### `batch_crawl` 💾
+### `batch_crawl`
 
 Crawl multiple URLs in a single request (up to 3 URLs), processed sequentially with fallback.
 
-**Parameters:**
+Parameters:
 - `urls` (List[str]): List of URLs to crawl (max 3, required)
 - `base_timeout` (int): Timeout in seconds per URL (default: 30)
 - `generate_markdown` (bool): Generate markdown from page content (default: True)
 - `extract_media` (bool): Extract images and videos from pages (default: False)
 - `wait_for_js` (bool): Wait for JavaScript to finish executing (default: False)
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a directory of per-URL `.md` files + `index.json`; the list return shape is kept and each success item gains `output_file`)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a directory of per-URL `.md` files + `index.json`; the list return shape is kept and each success item gains `output_file`)
 
-### `multi_url_crawl` 💾
+### `multi_url_crawl`
 
 Crawl multiple URLs with per-URL configuration options (up to 5 URLs).
 
-**Parameters:**
+Parameters:
 - `url_configurations` (Dict): Per-URL configuration map, max 5 URLs, e.g. `{"https://site1.com": {"wait_for_js": true}}` (required)
 - `pattern_matching` (str): URL pattern matching mode, 'wildcard' or 'regex' (default: 'wildcard')
 - `default_config` (Optional[Dict]): Default configuration applied to all URLs (default: None)
 - `base_timeout` (int): Timeout in seconds per URL (default: 30)
 - `max_concurrent` (int): Maximum number of concurrent crawl operations (default: 3)
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#-result-persistence-output_path) (saves a directory of per-URL `.md` files + `index.json`; the list return shape is kept and each success item gains `output_file`)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a directory of per-URL `.md` files + `index.json`; the list return shape is kept and each success item gains `output_file`)
 
 ## Tool Categories
 
 ### By Complexity
-- **Simple**: `crawl_url`, `process_file`, `get_youtube_video_info`, `get_search_genres`, `get_supported_file_formats`
-- **Moderate**: `deep_crawl_site`, `search_google`, `extract_youtube_transcript`, `extract_youtube_comments`, `batch_crawl`
-- **Advanced**: `extract_structured_data`, `intelligent_extract`, `extract_entities`, `search_and_crawl`, `batch_search_google`, `multi_url_crawl`, `batch_extract_youtube_transcripts`, `enhanced_process_large_content`
+- Simple: `crawl_url`, `process_file`, `get_youtube_video_info`, `get_search_genres`, `get_supported_file_formats`
+- Moderate: `deep_crawl_site`, `search_google`, `extract_youtube_transcript`, `extract_youtube_comments`, `batch_crawl`
+- Multi-step or LLM-backed: `extract_structured_data`, `intelligent_extract`, `extract_entities`, `search_and_crawl`, `batch_search_google`, `multi_url_crawl`, `batch_extract_youtube_transcripts`, `enhanced_process_large_content`
 
 ### By Use Case
-- **Content Discovery**: `search_google`, `search_and_crawl`, `batch_search_google`, `get_search_genres`
-- **Data Extraction**: `crawl_url`, `extract_structured_data`, `intelligent_extract`, `extract_entities`
-- **Media Processing**: `extract_youtube_transcript`, `extract_youtube_comments`, `batch_extract_youtube_transcripts`, `process_file`, `get_supported_file_formats`
-- **Site Analysis**: `deep_crawl_site`, `crawl_url_with_fallback`, `batch_crawl`, `multi_url_crawl`
-- **Large Content**: `enhanced_process_large_content`, `get_youtube_video_info`
+- Content discovery: `search_google`, `search_and_crawl`, `batch_search_google`, `get_search_genres`
+- Data extraction: `crawl_url`, `extract_structured_data`, `intelligent_extract`, `extract_entities`
+- Media processing: `extract_youtube_transcript`, `extract_youtube_comments`, `batch_extract_youtube_transcripts`, `process_file`, `get_supported_file_formats`
+- Site analysis: `deep_crawl_site`, `crawl_url_with_fallback`, `batch_crawl`, `multi_url_crawl`
+- Large content: `enhanced_process_large_content`, `get_youtube_video_info`
 
 ## Integration Examples
 
-For detailed configuration examples, see [Configuration Examples](CONFIGURATION_EXAMPLES.md).
+For configuration examples, see [Configuration Examples](CONFIGURATION_EXAMPLES.md).
 
-For HTTP API integration, see [HTTP Integration Guide](HTTP_INTEGRATION.md).
+For HTTP API access, see the [HTTP Integration Guide](HTTP_INTEGRATION.md).
 
-For advanced usage patterns, see [Advanced Usage Guide](ADVANCED_USAGE.md).
+For more usage patterns, see the [Usage Patterns](ADVANCED_USAGE.md).
