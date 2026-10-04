@@ -22,12 +22,12 @@ crawl-mcp/
 │   │   ├── crawl_tools.py       # crawl_url, crawl_url_with_fallback, deep_crawl_site
 │   │   ├── extraction_tools.py  # intelligent_extract, extract_entities, extract_structured_data
 │   │   ├── youtube_tools.py     # YouTube transcript/info/comments tools
-│   │   ├── search_tools.py      # search_google, batch_search_google, search_and_crawl
+│   │   ├── search_tools.py      # search_web, batch_search_web, search_and_crawl (+ search_google aliases)
 │   │   ├── file_tools.py        # process_file, enhanced_process_large_content, ...
 │   │   └── batch_tools.py       # batch_crawl, multi_url_crawl
 │   ├── tools/                   # Backward-compatible re-export facade (no logic)
 │   ├── core/                    # Business logic (crawl, fallback, extraction, YouTube, search, files, batch)
-│   ├── processors/              # YouTube, Google search, and file conversion processors
+│   ├── processors/              # YouTube, web search (search_engines/: Google Custom Search, Brave, Exa), and file conversion processors
 │   ├── infra/                   # Browser config, fallback strategies, fingerprint, sessions, strategy/content cache
 │   ├── utils/                   # LLM client, token counting, time parsing
 │   ├── models/                  # Pydantic request/response models
@@ -186,10 +186,12 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export AZURE_OPENAI_API_KEY="your-key"
 export AZURE_OPENAI_ENDPOINT="https://resource.openai.azure.com"
 
-# Google search
-export GOOGLE_SEARCH_MODE=hybrid            # googlesearch_only | custom_search_only | hybrid (default)
+# Web search (a key for at least one engine)
+export SEARCH_ENGINE=auto                   # auto (default) | google_custom | brave | exa
 export GOOGLE_SEARCH_API_KEY="..."
 export GOOGLE_SEARCH_ENGINE_ID="..."
+export BRAVE_SEARCH_API_KEY="..."
+export EXA_API_KEY="..."
 ```
 
 ### Local MCP Client Configuration

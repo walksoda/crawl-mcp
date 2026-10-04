@@ -109,10 +109,10 @@ Saving the full page to disk and returning only metadata:
 
 Large pages are not summarized unless `auto_summarize` is `true`. Without it, a response larger than about 25,000 tokens is truncated and includes recommendations: use `content_limit`/`content_offset` to page through the content, or `output_path` to write the full text to a file.
 
-Google search. The search tools take a single `request` object:
+Web search. The search tools take a single `request` object (`engine` is optional):
 
 ```json
-{"name": "search_google", "arguments": {"request": {"query": "python web scraping", "num_results": 10}}}
+{"name": "search_web", "arguments": {"request": {"query": "python web scraping", "num_results": 10}}}
 ```
 
 File processing:

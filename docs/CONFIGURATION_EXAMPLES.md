@@ -146,13 +146,14 @@ The server loads a `.env` file from the repository root, or from the current dir
 | `AZURE_OPENAI_ENDPOINT` | none | Azure OpenAI endpoint URL |
 | `AZURE_OPENAI_API_VERSION` | `2024-02-15-preview` | API version used by the summarization client for Azure OpenAI |
 | `MCP_LLM_CONFIG` | none | Full LLM configuration as JSON (see below). Replaces the built-in provider list |
-| `GOOGLE_SEARCH_MODE` | `hybrid` | `googlesearch_only`, `custom_search_only`, or `hybrid` (googlesearch-python with Custom Search API fallback) |
-| `GOOGLE_SEARCH_API_KEY` | none | Google Custom Search API key |
+| `SEARCH_ENGINE` | `auto` | Default search engine: `auto`, `google_custom`, `brave`, or `exa`. The `engine` request key overrides it for one call |
+| `SEARCH_ENGINE_ORDER` | `google_custom,brave,exa` | Order in which `auto` tries the engines that have API keys. Unknown names are ignored |
+| `GOOGLE_SEARCH_API_KEY` | none | Google Custom Search API key. The API is closed to new customers and ends on 2027-01-01 |
 | `GOOGLE_SEARCH_ENGINE_ID` | none | Custom Search engine ID |
-| `GOOGLESEARCH_PYTHON_RPM` | `60` | Requests per minute for googlesearch-python |
-| `CUSTOM_SEARCH_API_RPM` | `100` | Requests per minute for the Custom Search API |
-| `GOOGLE_SEARCH_MAX_RETRIES` | `3` | Retries before giving up on a search method |
-| `GOOGLE_SEARCH_FALLBACK_DELAY` | `2.0` | Seconds to wait before switching search methods |
+| `BRAVE_SEARCH_API_KEY` | none | Brave Search API key |
+| `EXA_API_KEY` | none | Exa API key |
+| `CUSTOM_SEARCH_API_RPM` | `100` | Requests per minute for the Custom Search API, enforced by the server. Brave and Exa enforce their own limits and answer HTTP 429, which makes `auto` move to the next engine |
+| `GOOGLE_SEARCH_MODE` | none | Read only when `SEARCH_ENGINE` is unset: `custom_search_only` means `google_custom`. `hybrid` and `googlesearch_only` mean `auto` (googlesearch-python was removed) |
 | `CRAWL4AI_BROWSER_TYPE` | unset | `chromium`, `firefox`, or `webkit` forces one browser. When unset, the crawler tries WebKit and then Chromium. The undetected browser always uses Chromium |
 | `CRAWL4AI_CACHE_TTL_SECONDS` | `3600` | Seconds a fetched page counts as fresh. After that, the next crawl of the URL bypasses the cache and fetches it again. `0` disables expiry, so cached pages are always reused |
 | `CRAWL4AI_MCP_LOG_LEVEL` | unset (no logging) | `DEBUG`, `INFO`, `WARNING`, or `ERROR` writes log records to stderr. The server reads it before it loads `.env`, so set it in the process environment or the client's `env` block |

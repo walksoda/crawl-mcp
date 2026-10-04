@@ -205,7 +205,7 @@
 | `batch_crawl` | URL 3件（1件ずつ順に処理） |
 | `multi_url_crawl` | URL設定 5件（1件ずつ順に処理。`max_concurrent` は効かない） |
 | `batch_extract_youtube_transcripts` | URL 3件。`max_concurrent` は任意（デフォルト3、上限5） |
-| `batch_search_google` | クエリ 3件。`max_concurrent` は任意（デフォルト3、上限5） |
+| `batch_search_web` | クエリ 3件。`max_concurrent` は任意（デフォルト3、上限5） |
 | `search_and_crawl` | `crawl_top_results` は3まで |
 | `deep_crawl_site` | `max_depth` 1〜2、`max_pages` 1〜10 |
 
@@ -282,7 +282,7 @@ URLごとに設定を変えたいときは `multi_url_crawl` を使います。
 }
 ```
 
-`batch_search_google` は3件までのクエリをまとめて検索します。
+`batch_search_web` は3件までのクエリをまとめて検索します。リクエストに `"engine": "brave"`（または `google_custom`、`exa`）を加えると、この呼び出しで使うエンジンを選べます。
 
 ```json
 {
@@ -299,13 +299,13 @@ URLごとに設定を変えたいときは `multi_url_crawl` を使います。
 }
 ```
 
-`search_genre` に指定できるのは `pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` で、大文字と小文字は区別しません。`search_google`、`batch_search_google`、`search_and_crawl` は、ほかの値を受け取ると検索を始める前に `invalid_search_genre` エラーを返し、`valid_genres` に指定できる値を並べます。各ジャンルがクエリに付ける検索演算子は `get_search_genres` で確認できます。
+`search_genre` に指定できるのは `pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` で、大文字と小文字は区別しません。`search_web`、`batch_search_web`、`search_and_crawl` は、ほかの値を受け取ると検索を始める前に `invalid_search_genre` エラーを返し、`valid_genres` に指定できる値を並べます。各ジャンルがクエリに付ける検索演算子は `get_search_genres` で確認できます。
 
 ## ワークフロー
 
 ### 複数の情報源を調べる
 
-1. `search_google` でページを探す。
+1. `search_web` でページを探す。
 2. `search_and_crawl`（3件まで）か `batch_crawl`（3 URLまで）で集める。`output_path` を付ければ全文がディスクに残る。
 3. `extract_structured_data` や `intelligent_extract` で必要な項目を取り出す。
 4. 保存したMarkdownファイルを見比べる。長い文書には `enhanced_process_large_content` が向いている。

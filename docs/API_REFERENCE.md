@@ -10,7 +10,8 @@ Reference for the MCP tools provided by the Crawl4AI MCP Server.
 |-------------|---------------------|------------------|
 | Single webpage | `crawl_url` | Basic crawling, JS support |
 | Multiple pages (up to 10) | `deep_crawl_site` | Site mapping, link following |
-| Search + Crawling | `search_and_crawl` | Google search + auto-crawl |
+| Web search | `search_web` | Google Custom Search, Brave or Exa |
+| Search + Crawling | `search_and_crawl` | Web search + auto-crawl |
 | Difficult sites | `crawl_url_with_fallback` | Multiple retry strategies |
 | Structured data | `extract_structured_data` | CSS/LLM schemas |
 | Intelligent extraction | `intelligent_extract` | Goal-based, filter-aware extraction |
@@ -23,7 +24,7 @@ Reference for the MCP tools provided by the Crawl4AI MCP Server.
 | Video metadata | `get_youtube_video_info` | Title, description, publish time, summary |
 | Batch crawling | `batch_crawl` | Up to 3 URLs, processed sequentially |
 | Multi-URL with config | `multi_url_crawl` | Up to 5 URLs, per-URL config |
-| Batch search | `batch_search_google` | Up to 3 queries concurrently |
+| Batch search | `batch_search_web` | Up to 3 queries concurrently |
 | Search genres | `get_search_genres` | List available genre filters |
 | Supported file formats | `get_supported_file_formats` | List supported formats |
 
@@ -50,7 +51,7 @@ Parameters:
 - `include_content_in_response` (bool): When `true`, the content is also returned inline (still subject to any `content_limit`/`content_offset`/`max_content_per_page` slicing). When `false` (default), only metadata and the file path are returned.
 - `overwrite` (bool): Overwrite existing output files (default: `false`). For single-file tools this guards the file at `output_path`; for batch tools it guards the per-item files and `index.json` inside the directory (a regular file sitting at a batch `output_path` is always rejected).
 
-For request-dict tools (`search_google`, `batch_search_google`, `search_and_crawl`, `batch_extract_youtube_transcripts`) these three are keys of the `request` dict instead of top-level parameters.
+For request-dict tools (`search_web`, `batch_search_web`, `search_and_crawl`, `batch_extract_youtube_transcripts`, and the `search_google`/`batch_search_google` aliases) these three are keys of the `request` dict instead of top-level parameters.
 
 Behavior:
 - Writes are atomic (temp file + `os.replace`); parent directories are created automatically.
@@ -59,7 +60,7 @@ Behavior:
 - Batch (directory) tools skip per-item persistence for items that report `success=false`; those items still appear in `index.json` with a null output path (`file: null` for `deep_crawl_site`/`search_and_crawl`/`batch_extract_youtube_transcripts`, `output_file: null` for `batch_crawl`/`multi_url_crawl`).
 
 Tools that support `output_path`:
-- Single-file (`output_path` is a file): `crawl_url`, `crawl_url_with_fallback`, `extract_structured_data`, `intelligent_extract`, `extract_entities`, `process_file`, `enhanced_process_large_content`, `extract_youtube_transcript`, `extract_youtube_comments`, `get_youtube_video_info`, `search_google`, `batch_search_google`
+- Single-file (`output_path` is a file): `crawl_url`, `crawl_url_with_fallback`, `extract_structured_data`, `intelligent_extract`, `extract_entities`, `process_file`, `enhanced_process_large_content`, `extract_youtube_transcript`, `extract_youtube_comments`, `get_youtube_video_info`, `search_web`, `batch_search_web` (and the `search_google`/`batch_search_google` aliases)
 - Directory/batch (`output_path` is a directory): `deep_crawl_site`, `search_and_crawl`, `batch_crawl`, `multi_url_crawl`, `batch_extract_youtube_transcripts`
 
 ## Web Crawling Tools
@@ -320,17 +321,41 @@ Returns:
 - Translatable language information
 - Publish time as `published_at` (converted to `timezone`; `published_at.original` keeps YouTube's offset)
 
-## Google Search Tools
+## Search Tools
 
-### `search_google`
+The search tools call a search engine API. Three engines are supported:
 
-Perform Google search with genre filtering and metadata extraction.
+| Engine | `engine` value | API key | Notes |
+|---|---|---|---|
+| Google Custom Search JSON API | `google_custom` | `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID` | Closed to new customers; Google ends the API on 2027-01-01 |
+| Brave Search API | `brave` | `BRAVE_SEARCH_API_KEY` | Accepts query operators (`site:`, `filetype:`, `lang:`). At most 20 results per request; larger `num_results` values send one request per 20 results. Requests go out one at a time; an HTTP 429 whose `X-RateLimit-Reset` is 2 seconds or less is retried after that wait (at most twice) |
+| Exa | `exa` | `EXA_API_KEY` | Reads the query as natural language. `site:` and `-site:` terms are sent as domain filters; other operators stay in the query text. Results include `published_date` and `author` when Exa returns them |
+
+Engine selection:
+- The `engine` request key picks the engine for one call. Without it, the `SEARCH_ENGINE` environment variable decides (default `auto`).
+- `auto` tries the engines that have API keys in the order set by `SEARCH_ENGINE_ORDER` (default `google_custom,brave,exa`). It moves to the next engine when a request fails (rate limit, rejected key, no credits, network error, 5xx). Zero results is a valid answer and does not move on. The response lists each try in `fallback_info.attempts`.
+- A named engine without an API key returns `error_code: search_engine_not_configured` before any network request. An unknown `engine` value returns `error_code: invalid_search_engine` with the `valid_engines` list.
+- Every response has an `engine` key with the engine that answered.
+
+How the common keys map to each engine:
+
+| Key | `google_custom` | `brave` | `exa` |
+|---|---|---|---|
+| `language` | `hl` | `search_lang` | not used |
+| `region` | `gl` | `country` (`uk` becomes `GB`; codes Brave does not list become `ALL`) | `userLocation` |
+| `recent_days` | `dateRestrict` | `freshness` date range | `startPublishedDate` |
+| `safe_search` | `safe=active` | `safesearch=moderate` | `moderation` |
+
+### `search_web`
+
+Run a web search and return the results with titles, snippets, URLs and metadata.
 
 Parameters:
 - `request` (Dict): Request object with the following keys:
   - `query` (str): Search query string (required)
   - `num_results` (int): Number of results to return, 1-100 (default: 10)
   - `search_genre` (Optional[str]): Genre filter, one of `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, `english` (default: None)
+  - `engine` (Optional[str]): `auto`, `google_custom`, `brave` or `exa` (default: the `SEARCH_ENGINE` setting)
   - `language` (str): Search language (default: "en")
   - `region` (str): Search region (default: "us")
   - `recent_days` (Optional[int]): Limit results to the past N days (default: None)
@@ -340,52 +365,65 @@ Parameters:
   - Also accepted: `safe_search` (bool, default: True)
 
 Features:
-- Automatic title and snippet extraction from search results
-- 6 search genres that add Google operators to the query: `pdf`, `documents`, `presentations`, `spreadsheets` (file type filters), `japanese`, `english` (language filters)
-- `search_genre` matching is case-insensitive. Any other value returns `success: false` with `error_code: invalid_search_genre` and the `valid_genres` list, before any network request. `batch_search_google` and `search_and_crawl` check `search_genre` the same way
-- URL classification and domain analysis
-- Safe search enforced by default
+- Each result has `rank`, `url`, `domain`, `title`, `snippet` and a URL `type` (for example `academic`, `documentation`, `video`)
+- 6 search genres: `pdf`, `documents`, `presentations`, `spreadsheets` (file type filters), `japanese`, `english` (language filters). `google_custom` and `brave` add the genre's operator to the query. `exa` has no file type filter: naming `exa` with a file type genre returns `error_code: unsupported_search_genre`, and `auto` skips `exa` for those genres. With `exa`, `japanese` sets the location to JP and `english` has no effect
+- `search_genre` matching is case-insensitive. Any other value returns `success: false` with `error_code: invalid_search_genre` and the `valid_genres` list, before any network request. `batch_search_web` and `search_and_crawl` check `search_genre` and `engine` the same way
+- When an engine returns zero results, the response suggests shorter queries in `alternative_queries`
+- Safe search is on by default
+
+### `search_google`
+
+Deprecated alias of `search_web`. Its `request` dict takes the same keys (`query`, `num_results`, `search_genre`, `engine`, `language`, `region`, `recent_days`, `content_limit`, `content_offset`, `output_path`, `include_content_in_response`, `overwrite`) and returns the same results. The engine is chosen as for `search_web`, so it is not limited to Google. Kept so that existing clients keep working.
 
 ### `search_and_crawl`
 
-Perform Google search and automatically crawl top results.
+Run a web search and crawl the top results.
 
 Parameters:
 - `request` (Dict): Request object with the following keys:
-  - `search_query` (str): Google search query (required)
+  - `search_query` (str): Search query (required). It is sent to the engine as written
   - `crawl_top_results` (int): Number of top results to crawl, max 3 (default: 2)
-  - `search_genre` (Optional[str]): Genre filter, same values as `search_google` (default: None)
+  - `search_genre` (Optional[str]): Genre filter, same values as `search_web` (default: None)
+  - `engine` (Optional[str]): Search engine, same values as `search_web` (default: the `SEARCH_ENGINE` setting)
   - `recent_days` (Optional[int]): Limit search results to the past N days (default: None)
   - `generate_markdown` (bool): Generate markdown content from crawled pages (default: True)
   - `max_content_per_page` (int): Maximum content characters per crawled page in the response (default: 5000)
   - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a directory of per-page `.md` files + `index.json`, written before `max_content_per_page` truncation)
 
 Returns:
-- Search metadata and crawled content
+- `engine`, search metadata and crawled content (`search_fallback_info` when `auto` moved past an engine)
 - Success rates and processing statistics
 - A combined summary of the search and crawl results
 
-### `batch_search_google`
+### `batch_search_web`
 
-Perform multiple Google searches concurrently (up to 3 queries).
+Run up to 3 web searches concurrently.
 
 Parameters:
 - `request` (Dict): Request object with the following keys:
   - `queries` (List[str]): List of search query strings (max 3, required)
   - `num_results_per_query` (int): Number of results per query, 1-100 (default: 10)
-  - `search_genre` (Optional[str]): Genre filter applied to all queries, same values as `search_google` (default: None)
+  - `search_genre` (Optional[str]): Genre filter applied to all queries, same values as `search_web` (default: None)
+  - `engine` (Optional[str]): Search engine for all queries, same values as `search_web` (default: the `SEARCH_ENGINE` setting)
   - `recent_days` (Optional[int]): Limit results to the past N days (default: None)
   - `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.json` file with the full result set)
   - Also accepted: `language` (str, default: "en"), `region` (str, default: "us"), `max_concurrent` (int, default: 3, max 5)
 
+Each entry in `results` has its own `engine` (and `fallback_info` when `auto` moved past an engine), so in `auto` mode different queries can be answered by different engines.
+
+### `batch_search_google`
+
+Deprecated alias of `batch_search_web`. Its `request` dict takes the same keys (`queries`, `num_results_per_query`, `search_genre`, `engine`, `recent_days`, `output_path`, `include_content_in_response`, `overwrite`) and returns the same results.
+
 ### `get_search_genres`
 
-Returns the supported `search_genre` values. No parameters required.
+Returns the supported `search_genre` values and the search engine configuration. No parameters required.
 
 Response keys:
 - `genres`: genre name to description
 - `query_operators`: genre name to the operator added to the query
-- `total_genres`, `usage_example`, `configuration` (search mode, supported languages and regions), and `notes`
+- `configuration`: `default_engine`, `auto_order`, `configured_engines` (engines with API keys), `engines`, `genre_support` (how each engine applies genres), and the supported languages and regions
+- `total_genres`, `usage_example`, and `notes`
 
 ## Batch Operations
 
@@ -417,11 +455,11 @@ Parameters:
 
 ### By Complexity
 - Simple: `crawl_url`, `process_file`, `get_youtube_video_info`, `get_search_genres`, `get_supported_file_formats`
-- Moderate: `deep_crawl_site`, `search_google`, `extract_youtube_transcript`, `extract_youtube_comments`, `batch_crawl`
-- Multi-step or LLM-backed: `extract_structured_data`, `intelligent_extract`, `extract_entities`, `search_and_crawl`, `batch_search_google`, `multi_url_crawl`, `batch_extract_youtube_transcripts`, `enhanced_process_large_content`
+- Moderate: `deep_crawl_site`, `search_web`, `extract_youtube_transcript`, `extract_youtube_comments`, `batch_crawl`
+- Multi-step or LLM-backed: `extract_structured_data`, `intelligent_extract`, `extract_entities`, `search_and_crawl`, `batch_search_web`, `multi_url_crawl`, `batch_extract_youtube_transcripts`, `enhanced_process_large_content`
 
 ### By Use Case
-- Content discovery: `search_google`, `search_and_crawl`, `batch_search_google`, `get_search_genres`
+- Content discovery: `search_web`, `search_and_crawl`, `batch_search_web`, `get_search_genres`
 - Data extraction: `crawl_url`, `extract_structured_data`, `intelligent_extract`, `extract_entities`
 - Media processing: `extract_youtube_transcript`, `extract_youtube_comments`, `batch_extract_youtube_transcripts`, `process_file`, `get_supported_file_formats`
 - Site analysis: `deep_crawl_site`, `crawl_url_with_fallback`, `batch_crawl`, `multi_url_crawl`

@@ -10,7 +10,8 @@ Crawl4AI MCPサーバーの全19ツールのパラメータと動作をまとめ
 |-------------|---------------------|------------------|
 | 単一ページ | `crawl_url` | 基本クローリング、JS対応 |
 | 複数ページ（最大10） | `deep_crawl_site` | サイトマッピング、リンクフォロー |
-| 検索+クローリング | `search_and_crawl` | Google検索+自動クロール |
+| Web検索 | `search_web` | Google Custom Search、Brave、Exa で検索 |
+| 検索+クローリング | `search_and_crawl` | Web検索+自動クロール |
 | 取得しにくいサイト | `crawl_url_with_fallback` | 複数のリトライ戦略 |
 | 構造化データ | `extract_structured_data` | CSS/LLMスキーマ |
 | LLMデータ抽出 | `intelligent_extract` | 目標指向・フィルタ対応の抽出 |
@@ -23,7 +24,7 @@ Crawl4AI MCPサーバーの全19ツールのパラメータと動作をまとめ
 | 動画メタデータ | `get_youtube_video_info` | タイトル、説明、公開日時、要約 |
 | バッチクロール | `batch_crawl` | 最大3 URLを順次処理 |
 | 設定付き複数URL | `multi_url_crawl` | 最大5 URL、URLごとの設定 |
-| バッチ検索 | `batch_search_google` | 最大3クエリを同時実行 |
+| バッチ検索 | `batch_search_web` | 最大3クエリを同時実行 |
 | 検索ジャンル | `get_search_genres` | 利用可能なジャンルフィルタ一覧 |
 | 対応ファイル形式 | `get_supported_file_formats` | 対応形式の一覧 |
 
@@ -59,7 +60,7 @@ LLMを使う抽出では、次のように使い分けます。
 - `include_content_in_response` (bool): `true` にすると内容もレスポンスに入ります（`content_limit`、`content_offset`、`max_content_per_page` によるスライスはそのままかかります）。`false`（デフォルト）ではメタデータとファイルパスだけを返します。
 - `overwrite` (bool): 既存の出力ファイルを上書きします（デフォルト: `false`）。単一ファイル系では `output_path` のファイル、バッチ系ではディレクトリ内に作る項目ごとのファイルと `index.json` が対象です。バッチの `output_path` 自体が通常ファイルだった場合は、overwrite の値にかかわらずエラーになります。
 
-リクエスト辞書系ツール（`search_google`、`batch_search_google`、`search_and_crawl`、`batch_extract_youtube_transcripts`）では、これら3つはトップレベルのパラメータではなく `request` 辞書のキーとして指定します。
+リクエスト辞書系ツール（`search_web`、`batch_search_web`、`search_and_crawl`、`batch_extract_youtube_transcripts`、エイリアスの `search_google`/`batch_search_google`）では、これら3つはトップレベルのパラメータではなく `request` 辞書のキーとして指定します。
 
 **動作:**
 - 書き込みはアトミックです（一時ファイルに書いてから `os.replace`）。親ディレクトリは自動で作ります。
@@ -68,7 +69,7 @@ LLMを使う抽出では、次のように使い分けます。
 - バッチ（ディレクトリ）系のツールは `success=false` の項目をファイルに保存しません。それでも `index.json` には出力パスが null の項目として載ります（`deep_crawl_site`/`search_and_crawl`/`batch_extract_youtube_transcripts` は `file: null`、`batch_crawl`/`multi_url_crawl` は `output_file: null`）。
 
 **`output_path` に対応するツール:**
-- `output_path` にファイルを指定するもの: `crawl_url`, `crawl_url_with_fallback`, `extract_structured_data`, `intelligent_extract`, `extract_entities`, `process_file`, `enhanced_process_large_content`, `extract_youtube_transcript`, `extract_youtube_comments`, `get_youtube_video_info`, `search_google`, `batch_search_google`
+- `output_path` にファイルを指定するもの: `crawl_url`, `crawl_url_with_fallback`, `extract_structured_data`, `intelligent_extract`, `extract_entities`, `process_file`, `enhanced_process_large_content`, `extract_youtube_transcript`, `extract_youtube_comments`, `get_youtube_video_info`, `search_web`, `batch_search_web`（エイリアスの `search_google`/`batch_search_google` も同じ）
 - `output_path` にディレクトリを指定するもの: `deep_crawl_site`, `search_and_crawl`, `batch_crawl`, `multi_url_crawl`, `batch_extract_youtube_transcripts`
 
 ## Webクローリングツール
@@ -332,17 +333,41 @@ YouTube動画のメタデータと、トランスクリプトがどの言語で�
 - 翻訳可能な言語の情報
 - 公開日時 `published_at`（`timezone` に変換済み。`published_at.original` にはYouTubeのオフセットを保持）
 
-## Google検索ツール
+## 検索ツール
 
-### `search_google`
+検索ツールは検索エンジンのAPIを呼び出します。対応しているエンジンは3つです。
 
-Google検索を実行し、ジャンルで絞り込んだ結果とそのメタデータを返します。
+| エンジン | `engine` の値 | APIキー | 備考 |
+|---|---|---|---|
+| Google Custom Search JSON API | `google_custom` | `GOOGLE_SEARCH_API_KEY` と `GOOGLE_SEARCH_ENGINE_ID` | 新規受付は終了しており、2027-01-01 に提供が終わる |
+| Brave Search API | `brave` | `BRAVE_SEARCH_API_KEY` | クエリに検索演算子（`site:`、`filetype:`、`lang:`）を書ける。1リクエストで返るのは20件まで。`num_results` がそれより多いと、20件ごとに1リクエストを送る。リクエストは1本ずつ送り、HTTP 429 の `X-RateLimit-Reset` が2秒以下ならその秒数待って再試行する（2回まで） |
+| Exa | `exa` | `EXA_API_KEY` | クエリを自然文として読む。`site:` と `-site:` はドメインの絞り込みとして送り、それ以外の演算子はクエリの文字列に残る。Exa が返せば、結果に `published_date` と `author` が付く |
+
+エンジンの選び方:
+- リクエストの `engine` キーで、その呼び出しのエンジンを選ぶ。指定がなければ環境変数 `SEARCH_ENGINE` に従う（デフォルト: `auto`）
+- `auto` は、APIキーが設定されたエンジンを `SEARCH_ENGINE_ORDER` の順（デフォルト: `google_custom,brave,exa`）に試す。レート制限、キーの拒否、クレジット切れ、通信エラー、5xx で失敗したら次のエンジンへ進む。0件は正しい応答として扱い、次へは進まない。試した経過はレスポンスの `fallback_info.attempts` に入る
+- APIキーのないエンジンを名指しすると、通信の前に `error_code: search_engine_not_configured` を返す。`engine` に未知の値を渡すと `error_code: invalid_search_engine` を返し、`valid_engines` に指定できる値を並べる
+- レスポンスの `engine` キーに、実際に応答したエンジンが入る
+
+共通のキーとエンジンごとのパラメータの対応:
+
+| キー | `google_custom` | `brave` | `exa` |
+|---|---|---|---|
+| `language` | `hl` | `search_lang` | 使わない |
+| `region` | `gl` | `country`（`uk` は `GB` に変える。Brave の一覧にないコードは `ALL`） | `userLocation` |
+| `recent_days` | `dateRestrict` | `freshness` の日付範囲 | `startPublishedDate` |
+| `safe_search` | `safe=active` | `safesearch=moderate` | `moderation` |
+
+### `search_web`
+
+Web検索を実行し、タイトル、スニペット、URL、メタデータを付けた結果を返します。
 
 **パラメータ:**
 - `request` (Dict, 必須): 以下のキーを持つリクエスト辞書
   - `query` (str, 必須): 検索クエリ文字列
   - `num_results` (int): 返す結果数 1-100（デフォルト: 10）
   - `search_genre` (Optional[str]): ジャンルフィルタ。`pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` のいずれか（デフォルト: None）
+  - `engine` (Optional[str]): `auto`、`google_custom`、`brave`、`exa` のいずれか（デフォルト: `SEARCH_ENGINE` の設定）
   - `language` (str): 検索言語（デフォルト: "en"）
   - `region` (str): 検索地域（デフォルト: "us"）
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
@@ -352,52 +377,65 @@ Google検索を実行し、ジャンルで絞り込んだ結果とそのメタ�
   - その他に受け付けるキー: `safe_search` (bool、デフォルト: True)
 
 **機能:**
-- 検索結果のタイトルとスニペットを取り出す
-- 検索ジャンルは6つあり、クエリにGoogleの検索演算子を付けて絞り込む。`pdf`、`documents`、`presentations`、`spreadsheets` はファイル形式、`japanese` と `english` は言語で絞る
-- `search_genre` は大文字と小文字を区別せずに照合する。一覧にない値を渡すと、通信を始める前に `success: false` と `error_code: invalid_search_genre` を返し、`valid_genres` に指定できる値を並べる。`batch_search_google` と `search_and_crawl` の `search_genre` も同じように検査する
-- URLを分類し、ドメインを分析する
+- 各結果には `rank`、`url`、`domain`、`title`、`snippet` と、URLの種類を示す `type`（`academic`、`documentation`、`video` など）が入る
+- 検索ジャンルは6つあり、`pdf`、`documents`、`presentations`、`spreadsheets` はファイル形式で、`japanese` と `english` は言語で絞る。`google_custom` と `brave` ではジャンルの検索演算子をクエリに付ける。`exa` にはファイル形式の絞り込みがないので、`exa` を名指ししてファイル形式のジャンルを指定すると `error_code: unsupported_search_genre` を返し、`auto` ではそのジャンルのとき `exa` を飛ばす。`exa` で `japanese` を指定すると地域を JP にし、`english` は何もしない
+- `search_genre` は大文字と小文字を区別せずに照合する。一覧にない値を渡すと、通信を始める前に `success: false` と `error_code: invalid_search_genre` を返し、`valid_genres` に指定できる値を並べる。`batch_search_web` と `search_and_crawl` も `search_genre` と `engine` を同じように検査する
+- エンジンが0件を返したときは、短くしたクエリの候補を `alternative_queries` に入れる
 - セーフサーチはデフォルトで有効
+
+### `search_google`
+
+`search_web` の非推奨エイリアスです。`request` 辞書で受け付けるキー（`query`、`num_results`、`search_genre`、`engine`、`language`、`region`、`recent_days`、`content_limit`、`content_offset`、`output_path`、`include_content_in_response`、`overwrite`）も結果も `search_web` と同じです。エンジンも `search_web` と同じ規則で選ぶため、Google に限りません。既存のクライアントが動き続けるように残しています。
 
 ### `search_and_crawl`
 
-Google検索を実行し、上位の結果をそのままクロールします。
+Web検索を実行し、上位の結果をそのままクロールします。
 
 **パラメータ:**
 - `request` (Dict, 必須): 以下のキーを持つリクエスト辞書
-  - `search_query` (str, 必須): Google検索クエリ
+  - `search_query` (str, 必須): 検索クエリ。書いたとおりにエンジンへ送る
   - `crawl_top_results` (int): クロール対象の上位結果数、最大3（デフォルト: 2）
-  - `search_genre` (Optional[str]): ジャンルフィルタ。値は `search_google` と同じ（デフォルト: None）
+  - `search_genre` (Optional[str]): ジャンルフィルタ。値は `search_web` と同じ（デフォルト: None）
+  - `engine` (Optional[str]): 検索エンジン。値は `search_web` と同じ（デフォルト: `SEARCH_ENGINE` の設定）
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
   - `generate_markdown` (bool): クロールしたページからMarkdownを生成（デフォルト: True）
   - `max_content_per_page` (int): レスポンス内のページごとの最大文字数（デフォルト: 5000）
   - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（ページごとの `.md` ファイルと `index.json` をディレクトリに保存。`max_content_per_page` による切り詰めの前に保存）
 
 **戻り値:**
-- 検索のメタデータと、クロールしたコンテンツ
+- `engine`、検索のメタデータ、クロールしたコンテンツ（`auto` で次のエンジンへ進んだときは `search_fallback_info` も入る）
 - 成功率などの処理統計
 - 検索結果とクロール結果をまとめた分析
 
-### `batch_search_google`
+### `batch_search_web`
 
-複数のGoogle検索を並行して実行します。1回の呼び出しで3クエリまでです。
+複数のWeb検索を並行して実行します。1回の呼び出しで3クエリまでです。
 
 **パラメータ:**
 - `request` (Dict, 必須): 以下のキーを持つリクエスト辞書
   - `queries` (List[str], 必須): 検索クエリのリスト（最大3件）
   - `num_results_per_query` (int): クエリごとの結果数 1-100（デフォルト: 10）
-  - `search_genre` (Optional[str]): 全クエリに適用するジャンルフィルタ。値は `search_google` と同じ（デフォルト: None）
+  - `search_genre` (Optional[str]): 全クエリに適用するジャンルフィルタ。値は `search_web` と同じ（デフォルト: None）
+  - `engine` (Optional[str]): 全クエリに使う検索エンジン。値は `search_web` と同じ（デフォルト: `SEARCH_ENGINE` の設定）
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
   - `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（全結果を単一の `.json` ファイルに保存）
   - その他に受け付けるキー: `language` (str、デフォルト: "en")、`region` (str、デフォルト: "us")、`max_concurrent` (int、デフォルト: 3、最大5)
 
+`results` の各要素に `engine` が入り、`auto` で次のエンジンへ進んだときは `fallback_info` も入ります。`auto` では、クエリごとに応答したエンジンが異なることがあります。
+
+### `batch_search_google`
+
+`batch_search_web` の非推奨エイリアスです。`request` 辞書で受け付けるキー（`queries`、`num_results_per_query`、`search_genre`、`engine`、`recent_days`、`output_path`、`include_content_in_response`、`overwrite`）も結果も `batch_search_web` と同じです。
+
 ### `get_search_genres`
 
-`search_genre` に指定できるジャンルと、その説明を返します。パラメータはありません。
+`search_genre` に指定できるジャンルと、検索エンジンの設定を返します。パラメータはありません。
 
 **レスポンスのキー:**
 - `genres`: ジャンル名と説明の対応
 - `query_operators`: ジャンル名と、クエリに付ける検索演算子の対応
-- `total_genres`、`usage_example`、`configuration`（検索モード、対応する言語と地域）、`notes`
+- `configuration`: `default_engine`、`auto_order`、`configured_engines`（APIキーのあるエンジン）、`engines`、`genre_support`（エンジンごとのジャンルの扱い）、対応する言語と地域
+- `total_genres`、`usage_example`、`notes`
 
 ## バッチ操作ツール
 
@@ -434,24 +472,24 @@ Google検索を実行し、上位の結果をそのままクロールします�
 | Webクローリング | `crawl_url`, `deep_crawl_site`, `crawl_url_with_fallback` | 3 |
 | データ抽出 | `intelligent_extract`, `extract_entities`, `extract_structured_data` | 3 |
 | YouTube | `extract_youtube_transcript`, `batch_extract_youtube_transcripts`, `get_youtube_video_info`, `extract_youtube_comments` | 4 |
-| 検索 | `search_google`, `batch_search_google`, `search_and_crawl`, `get_search_genres` | 4 |
+| 検索 | `search_web`, `batch_search_web`, `search_and_crawl`, `get_search_genres`, `search_google`（非推奨）, `batch_search_google`（非推奨） | 6 |
 | ファイル処理 | `process_file`, `get_supported_file_formats`, `enhanced_process_large_content` | 3 |
 | バッチ操作 | `batch_crawl`, `multi_url_crawl` | 2 |
-| **合計** | | **19** |
+| **合計** | | **21** |
 
 ### 複雑さ別
 
 | 複雑さ | ツール |
 |------|--------|
 | 単純 | `crawl_url`, `process_file`, `get_youtube_video_info`, `get_search_genres`, `get_supported_file_formats` |
-| 中程度 | `deep_crawl_site`, `search_google`, `extract_youtube_transcript`, `extract_youtube_comments`, `batch_crawl` |
-| 複雑 | `extract_structured_data`, `intelligent_extract`, `extract_entities`, `search_and_crawl`, `batch_search_google`, `multi_url_crawl`, `batch_extract_youtube_transcripts`, `enhanced_process_large_content` |
+| 中程度 | `deep_crawl_site`, `search_web`, `extract_youtube_transcript`, `extract_youtube_comments`, `batch_crawl` |
+| 複雑 | `extract_structured_data`, `intelligent_extract`, `extract_entities`, `search_and_crawl`, `batch_search_web`, `multi_url_crawl`, `batch_extract_youtube_transcripts`, `enhanced_process_large_content` |
 
 ### 用途別
 
 | 用途 | ツール |
 |------|--------|
-| コンテンツを探す | `search_google`, `search_and_crawl`, `batch_search_google`, `get_search_genres` |
+| コンテンツを探す | `search_web`, `search_and_crawl`, `batch_search_web`, `get_search_genres` |
 | データを抽出する | `crawl_url`, `extract_structured_data`, `intelligent_extract`, `extract_entities` |
 | 動画やファイルを処理する | `extract_youtube_transcript`, `extract_youtube_comments`, `batch_extract_youtube_transcripts`, `process_file`, `get_supported_file_formats` |
 | サイトを調べる | `deep_crawl_site`, `crawl_url_with_fallback`, `batch_crawl`, `multi_url_crawl` |

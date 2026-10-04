@@ -14,7 +14,7 @@ tests/
 │   ├── test_youtube_tools.py    # YouTube transcript tools
 │   ├── test_crawl_tools.py      # Web crawling tools
 │   ├── test_file_tools.py       # File processing tools
-│   ├── test_search_tools.py     # Google search tools
+│   ├── test_search_tools.py     # Web search tools (skipped without a search engine API key)
 │   └── test_utility_tools.py    # Utility tools
 ├── client/                  # Legacy client framework (maintained)
 ├── integration/             # Integration tests
@@ -94,7 +94,7 @@ Tests that require MCP server connection. Organized by tool category:
 | `test_youtube_tools.py` | extract_youtube_transcript, batch_extract_youtube_transcripts, get_youtube_video_info, get_youtube_api_setup_guide |
 | `test_crawl_tools.py` | crawl_url, crawl_url_with_fallback, deep_crawl_site, intelligent_extract, extract_entities, extract_structured_data |
 | `test_file_tools.py` | process_file, get_supported_file_formats, enhanced_process_large_content |
-| `test_search_tools.py` | search_google, batch_search_google, search_and_crawl, get_search_genres |
+| `test_search_tools.py` | search_web, search_google (alias), batch_search_web, search_and_crawl, get_search_genres |
 | `test_utility_tools.py` | get_llm_config_info, batch_crawl, multi_url_crawl, get_tool_selection_guide, get_system_diagnostics |
 
 ## Test Markers

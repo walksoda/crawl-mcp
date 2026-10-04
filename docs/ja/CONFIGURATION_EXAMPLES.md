@@ -146,13 +146,14 @@ python -m crawl4ai_mcp.server --transport streamable-http --host 127.0.0.1 --por
 | `AZURE_OPENAI_ENDPOINT` | なし | Azure OpenAIのエンドポイントURL |
 | `AZURE_OPENAI_API_VERSION` | `2024-02-15-preview` | 要約クライアントがAzure OpenAIで使うAPIバージョン |
 | `MCP_LLM_CONFIG` | なし | LLM設定一式のJSON（後述）。組み込みのプロバイダー一覧を置き換える |
-| `GOOGLE_SEARCH_MODE` | `hybrid` | `googlesearch_only`、`custom_search_only`、`hybrid`（googlesearch-pythonを使い、失敗時にCustom Search APIへ切り替え） |
-| `GOOGLE_SEARCH_API_KEY` | なし | Google Custom Search APIのキー |
+| `SEARCH_ENGINE` | `auto` | 既定の検索エンジン。`auto`、`google_custom`、`brave`、`exa` のいずれか。リクエストの `engine` キーで1回ごとに上書きできる |
+| `SEARCH_ENGINE_ORDER` | `google_custom,brave,exa` | `auto` が、APIキーのあるエンジンを試す順番。未知の名前は無視する |
+| `GOOGLE_SEARCH_API_KEY` | なし | Google Custom Search APIのキー。新規受付は終了しており、2027-01-01 に提供が終わる |
 | `GOOGLE_SEARCH_ENGINE_ID` | なし | カスタム検索エンジンのID |
-| `GOOGLESEARCH_PYTHON_RPM` | `60` | googlesearch-pythonの1分あたりのリクエスト数 |
-| `CUSTOM_SEARCH_API_RPM` | `100` | Custom Search APIの1分あたりのリクエスト数 |
-| `GOOGLE_SEARCH_MAX_RETRIES` | `3` | 検索方式をあきらめるまでのリトライ回数 |
-| `GOOGLE_SEARCH_FALLBACK_DELAY` | `2.0` | 検索方式を切り替える前の待ち時間（秒） |
+| `BRAVE_SEARCH_API_KEY` | なし | Brave Search APIのキー |
+| `EXA_API_KEY` | なし | ExaのAPIキー |
+| `CUSTOM_SEARCH_API_RPM` | `100` | Custom Search APIの1分あたりのリクエスト数。サーバー側で制限する。Brave と Exa は各サービスが制限し、HTTP 429 を返す。そのとき `auto` は次のエンジンへ進む |
+| `GOOGLE_SEARCH_MODE` | なし | `SEARCH_ENGINE` が未設定のときだけ読む。`custom_search_only` は `google_custom` として扱う。`hybrid` と `googlesearch_only` は `auto` として扱う（googlesearch-python は削除した） |
 | `CRAWL4AI_BROWSER_TYPE` | 未設定 | `chromium`、`firefox`、`webkit` のどれかを指定するとそのブラウザだけを使う。未設定ならWebKit、Chromiumの順に試す。検出回避ブラウザは常にChromium |
 | `CRAWL4AI_CACHE_TTL_SECONDS` | `3600` | 取得したページを新しいとみなす秒数。過ぎると、次にそのURLをクロールしたときにキャッシュを使わず取り直す。`0` なら期限なしで、キャッシュを使い続ける |
 | `CRAWL4AI_MCP_LOG_LEVEL` | 未設定（ログなし） | `DEBUG`、`INFO`、`WARNING`、`ERROR` のどれかでログをstderrに出す。`.env` を読み込む前に参照するので、プロセスの環境変数かクライアントの `env` ブロックで設定する |

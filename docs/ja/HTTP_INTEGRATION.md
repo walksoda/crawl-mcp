@@ -107,9 +107,9 @@ JavaScriptの多いページをクロールする場合:
 
 大きなページは `auto_summarize` を `true` にしない限り要約されません。指定しなければ、約25,000トークンを超えるレスポンスは切り詰められ、対処方法の案内が付きます。`content_limit` / `content_offset` で分割取得するか、`output_path` で全文をファイルに保存してください。
 
-Google検索の場合、検索系のツールは `request` オブジェクトを1つ受け取ります。
+Web検索の場合、検索系のツールは `request` オブジェクトを1つ受け取ります（`engine` は省略可）。
 ```json
-{"name": "search_google", "arguments": {"request": {"query": "python web scraping", "num_results": 10}}}
+{"name": "search_web", "arguments": {"request": {"query": "python web scraping", "num_results": 10}}}
 ```
 
 ファイルを処理する場合:

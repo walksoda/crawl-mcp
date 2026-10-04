@@ -205,7 +205,7 @@ With `auto_summarize: true`, `crawl_url` summarizes pages longer than about 15,0
 | `batch_crawl` | 3 URLs, processed one after another |
 | `multi_url_crawl` | 5 URL configurations, processed one after another (`max_concurrent` has no effect) |
 | `batch_extract_youtube_transcripts` | 3 URLs; optional `max_concurrent` (default 3, capped at 5) |
-| `batch_search_google` | 3 queries; optional `max_concurrent` (default 3, capped at 5) |
+| `batch_search_web` | 3 queries; optional `max_concurrent` (default 3, capped at 5) |
 | `search_and_crawl` | `crawl_top_results` up to 3 |
 | `deep_crawl_site` | `max_depth` 1-2, `max_pages` 1-10 |
 
@@ -282,7 +282,7 @@ The search tools take a single `request` object. `search_and_crawl` searches and
 }
 ```
 
-`batch_search_google` runs up to three queries:
+`batch_search_web` runs up to three queries. Add `"engine": "brave"` (or `google_custom`, `exa`) to the request to pick the engine for this call:
 
 ```json
 {
@@ -299,13 +299,13 @@ The search tools take a single `request` object. `search_and_crawl` searches and
 }
 ```
 
-`search_genre` accepts `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, and `english`, in any letter case. `search_google`, `batch_search_google`, and `search_and_crawl` reject other values with an `invalid_search_genre` error and a `valid_genres` list, before any search runs. `get_search_genres` returns each genre with the operator it adds to the query.
+`search_genre` accepts `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, and `english`, in any letter case. `search_web`, `batch_search_web`, and `search_and_crawl` reject other values with an `invalid_search_genre` error and a `valid_genres` list, before any search runs. `get_search_genres` returns each genre with the operator it adds to the query.
 
 ## Workflows
 
 ### Research across several sources
 
-1. Find pages with `search_google`.
+1. Find pages with `search_web`.
 2. Collect them with `search_and_crawl` (up to 3 results) or `batch_crawl` (up to 3 URLs), using `output_path` to keep the full text on disk.
 3. Pull out the details you need with `extract_structured_data` or `intelligent_extract`.
 4. Compare the saved Markdown files. For long documents, use `enhanced_process_large_content`.

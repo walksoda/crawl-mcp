@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Web search through the Brave Search API (`BRAVE_SEARCH_API_KEY`) and Exa (`EXA_API_KEY`), alongside the Google Custom Search JSON API (`GOOGLE_SEARCH_API_KEY`, `GOOGLE_SEARCH_ENGINE_ID`).
+- `SEARCH_ENGINE` (`auto`, `google_custom`, `brave`, `exa`; default `auto`) picks the default engine, and the `engine` request key of `search_web`, `batch_search_web` and `search_and_crawl` overrides it for one call. `auto` tries the engines that have API keys in the order of `SEARCH_ENGINE_ORDER` (default `google_custom,brave,exa`) and moves to the next one on errors, not on zero results. Responses carry `engine`, and `fallback_info.attempts` when an engine was skipped.
+- `search_web` and `batch_search_web` tools. `search_google` and `batch_search_google` remain as deprecated aliases with the same request keys and results.
+- `get_search_genres` reports the engine configuration (`default_engine`, `auto_order`, `configured_engines`, `genre_support`).
+
+### Changed
+- `recent_days` is passed to each engine's date parameter (`dateRestrict`, `freshness`, `startPublishedDate`) instead of appending `after:YYYY-MM-DD` to the query.
+- `search_and_crawl` sends the query as written. It previously rewrote multi-word queries to `word1 OR word2 OR ...`.
+- Search results no longer fetch each result page to read its title and description; the snippet comes from the engine.
+- An unknown `engine` value returns `error_code: invalid_search_engine`, and a named engine without an API key returns `error_code: search_engine_not_configured`, both before any network request. Exa has no file type filter: naming `exa` with the `pdf`, `documents`, `presentations` or `spreadsheets` genre returns `error_code: unsupported_search_genre`, and `auto` skips Exa for those genres.
+- `GOOGLE_SEARCH_MODE` is read only when `SEARCH_ENGINE` is unset. `custom_search_only` means `google_custom`; `hybrid` and `googlesearch_only` mean `auto`.
+
+### Removed
+- Google results scraping with googlesearch-python, which returns no results now that Google requires JavaScript. `GOOGLESEARCH_PYTHON_RPM`, `GOOGLE_SEARCH_MAX_RETRIES` and `GOOGLE_SEARCH_FALLBACK_DELAY` are no longer read.
+
+### Dependencies
+- Removed `googlesearch-python`.
+
 ## [0.3.4] - 2026-10-04
 
 ### Added

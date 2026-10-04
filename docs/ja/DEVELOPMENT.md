@@ -22,12 +22,12 @@ crawl-mcp/
 │   │   ├── crawl_tools.py       # crawl_url、crawl_url_with_fallback、deep_crawl_site
 │   │   ├── extraction_tools.py  # intelligent_extract、extract_entities、extract_structured_data
 │   │   ├── youtube_tools.py     # YouTube のトランスクリプト・情報・コメント系ツール
-│   │   ├── search_tools.py      # search_google、batch_search_google、search_and_crawl
+│   │   ├── search_tools.py      # search_web、batch_search_web、search_and_crawl（search_google 系エイリアス）
 │   │   ├── file_tools.py        # process_file、enhanced_process_large_content など
 │   │   └── batch_tools.py       # batch_crawl、multi_url_crawl
 │   ├── tools/                   # 後方互換のための再エクスポートfacade（実装なし）
 │   ├── core/                    # ビジネスロジック（クロール、フォールバック、抽出、YouTube、検索、ファイル、バッチ）
-│   ├── processors/              # YouTube・Google検索・ファイル変換のプロセッサー
+│   ├── processors/              # YouTube・Web検索（search_engines/: Google Custom Search、Brave、Exa）・ファイル変換のプロセッサー
 │   ├── infra/                   # ブラウザ設定、フォールバック戦略、fingerprint、セッション、戦略/コンテンツキャッシュ
 │   ├── utils/                   # LLMクライアント、トークン計算、時刻パース
 │   ├── models/                  # Pydanticのリクエスト/レスポンスモデル
@@ -186,10 +186,12 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export AZURE_OPENAI_API_KEY="your-key"
 export AZURE_OPENAI_ENDPOINT="https://resource.openai.azure.com"
 
-# Google検索
-export GOOGLE_SEARCH_MODE=hybrid            # googlesearch_only | custom_search_only | hybrid（デフォルト）
+# Web検索（少なくとも1つのエンジンのキー）
+export SEARCH_ENGINE=auto                   # auto（デフォルト） | google_custom | brave | exa
 export GOOGLE_SEARCH_API_KEY="..."
 export GOOGLE_SEARCH_ENGINE_ID="..."
+export BRAVE_SEARCH_API_KEY="..."
+export EXA_API_KEY="..."
 ```
 
 ### ローカルMCPクライアントの設定
