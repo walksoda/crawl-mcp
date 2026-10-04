@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.4] - 2026-10-04
 
 ### Added
 - `get_youtube_video_info`, `extract_youtube_transcript` and `batch_extract_youtube_transcripts` accept a `timezone` parameter (IANA name, default `UTC`). The full publish timestamp is returned under `published_at` (`metadata.published_at` for transcripts), converted to that timezone, with the original YouTube offset kept in `published_at.original`.
