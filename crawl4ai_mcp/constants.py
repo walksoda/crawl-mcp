@@ -169,3 +169,37 @@ MAX_BATCH_YOUTUBE_URLS = 3
 # Default TTL for content freshness in seconds (1 hour)
 # Set CRAWL4AI_CACHE_TTL_SECONDS=0 to disable TTL (infinite cache)
 DEFAULT_CRAWL_CACHE_TTL_SECONDS = 3600
+
+# =============================================================================
+# Google Search Genres
+# =============================================================================
+
+# Single source of truth for the search_genre values. Each genre appends
+# its operator to the query as " (<operator>)". Any other value is rejected
+# by validators.validate_search_genre.
+SEARCH_GENRES: Dict[str, Dict[str, str]] = {
+    "pdf": {
+        "operator": "filetype:pdf",
+        "description": "PDF documents only",
+    },
+    "documents": {
+        "operator": "filetype:pdf OR filetype:doc OR filetype:docx",
+        "description": "Document files (PDF, Word)",
+    },
+    "presentations": {
+        "operator": "filetype:ppt OR filetype:pptx",
+        "description": "Presentation files (PowerPoint)",
+    },
+    "spreadsheets": {
+        "operator": "filetype:xls OR filetype:xlsx",
+        "description": "Spreadsheet files (Excel)",
+    },
+    "japanese": {
+        "operator": "site:jp OR lang:ja",
+        "description": "Japanese language content and .jp domains",
+    },
+    "english": {
+        "operator": "lang:en",
+        "description": "English language content",
+    },
+}

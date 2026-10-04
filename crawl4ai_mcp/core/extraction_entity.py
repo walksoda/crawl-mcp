@@ -12,6 +12,58 @@ from typing import Any, Dict, List, Optional
 from ..models import CrawlRequest
 
 
+# Built-in regex patterns for the non-LLM path. Keys are the canonical
+# (plural) entity type names.
+ENTITY_PATTERNS: Dict[str, str] = {
+    "emails": r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+    "phones": r'(?:\+?1[-.\s]?)?(?:\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})',
+    "urls": r'https?://(?:[-\w.])+(?:[:\d]+)?(?:/(?:[\w/_.])*(?:\?(?:[\w&=%.])*)?(?:#(?:[\w.])*)?)?',
+    "dates": r'\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{2,4}[/-]\d{1,2}[/-]\d{1,2})\b',
+    "ips": r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b',
+    "prices": r'[$£€¥]?\s?\d+(?:[.,]\d{2,3})*(?:[.,]\d{2})?',
+    "credit_cards": r'\b(?:\d{4}[-\s]?){3}\d{4}\b',
+    "coordinates": r'[-+]?(?:[1-8]?\d(?:\.\d+)?|90(?:\.0+)?),\s*[-+]?(?:180(?:\.0+)?|(?:(?:1[0-7]\d)|(?:[1-9]?\d))(?:\.\d+)?)'
+}
+
+# Singular / alternative spellings accepted in entity_types.
+ENTITY_TYPE_ALIASES: Dict[str, str] = {
+    "email": "emails",
+    "phone": "phones",
+    "url": "urls",
+    "date": "dates",
+    "ip": "ips",
+    "price": "prices",
+    "credit_card": "credit_cards",
+    "coordinate": "coordinates",
+    "person": "people",
+    "organization": "organizations",
+    "location": "locations",
+    "product": "products",
+    "event": "events",
+}
+
+
+def normalize_entity_types(
+    entity_types: List[str],
+    custom_patterns: Optional[Dict[str, str]] = None,
+) -> List[str]:
+    """Map singular aliases (email -> emails, ...) to canonical names.
+
+    Names that are keys of ``custom_patterns`` are kept as given. The order
+    is preserved and duplicates are dropped.
+    """
+    custom_keys = set(custom_patterns or {})
+    normalized: List[str] = []
+    for raw in entity_types or []:
+        name = str(raw).strip()
+        if name not in custom_keys:
+            lowered = name.lower()
+            name = ENTITY_TYPE_ALIASES.get(lowered, lowered)
+        if name and name not in normalized:
+            normalized.append(name)
+    return normalized
+
+
 def _regex_worker(pattern: str, text: str, flags: int, result_queue) -> None:
     """
     Worker function for regex execution in separate process.
@@ -99,17 +151,7 @@ async def _internal_extract_entities(
         entities = {}
         pattern_errors = {}
 
-        patterns = {
-            "emails": r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-            "phones": r'(?:\+?1[-.\s]?)?(?:\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})',
-            "urls": r'https?://(?:[-\w.])+(?:[:\d]+)?(?:/(?:[\w/_.])*(?:\?(?:[\w&=%.])*)?(?:#(?:[\w.])*)?)?',
-            "dates": r'\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{2,4}[/-]\d{1,2}[/-]\d{1,2})\b',
-            "ips": r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b',
-            "prices": r'[$£€¥]?\s?\d+(?:[.,]\d{2,3})*(?:[.,]\d{2})?',
-            "credit_cards": r'\b(?:\d{4}[-\s]?){3}\d{4}\b',
-            "coordinates": r'[-+]?(?:[1-8]?\d(?:\.\d+)?|90(?:\.0+)?),\s*[-+]?(?:180(?:\.0+)?|(?:(?:1[0-7]\d)|(?:[1-9]?\d))(?:\.\d+)?)'
-        }
-
+        patterns = dict(ENTITY_PATTERNS)
         if custom_patterns:
             patterns.update(custom_patterns)
 
@@ -140,6 +182,15 @@ async def _internal_extract_entities(
 
         if pattern_errors:
             result["pattern_errors"] = pattern_errors
+
+        unsupported = [t for t in entity_types if t not in patterns]
+        if unsupported:
+            result["unsupported_entity_types"] = unsupported
+            result.setdefault("warnings", []).append(
+                f"Unsupported entity types without use_llm (no regex pattern): "
+                f"{', '.join(unsupported)}. Supported: {', '.join(patterns)}. "
+                f"Add a custom_patterns entry or set use_llm=True."
+            )
 
         return result
 
@@ -348,6 +399,7 @@ async def extract_entities(
     llm_model: Optional[str] = None
 ) -> Dict[str, Any]:
     """Extract entities (emails, phones, etc.) from web pages."""
+    entity_types = normalize_entity_types(entity_types, custom_patterns)
     if use_llm:
         return await _internal_llm_extract_entities(
             url=url,

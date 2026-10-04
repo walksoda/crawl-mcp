@@ -132,6 +132,56 @@ def is_block_result(result) -> bool:
     return False
 
 
+def http_error_status(result) -> Optional[int]:
+    """
+    Return the HTTP status of a crawl result if it is an error (>= 400).
+
+    crawl4ai reports success for pages that loaded with a 4xx/5xx status,
+    so the status has to be checked separately. Returns None when the status
+    is unknown or below 400.
+    """
+    status = result.get("status_code") if isinstance(result, dict) else getattr(result, "status_code", None)
+    if isinstance(status, int) and status >= 400:
+        return status
+    return None
+
+
+# Titles and opening lines of typical HTTP error pages (web servers, CDNs,
+# CMS "page not found" templates). Only short pages are matched.
+_ERROR_PAGE_RE = re.compile(
+    r"\b(?:40[0134]|410|50[0234])\b[^\n]{0,40}\b(?:not found|forbidden|gone|error|unavailable|bad request|unauthorized)\b"
+    r"|\b(?:page|file|resource) not found\b"
+    r"|\berror response\b"
+    r"|\berror code:? *[45]\d\d\b"
+    r"|\bnot found\b[^\n]{0,40}\b(?:40[34]|410)\b",
+    re.IGNORECASE,
+)
+ERROR_PAGE_MAX_TEXT_LENGTH = 1000
+
+
+def looks_like_error_page(result) -> bool:
+    """
+    Check whether a crawl result looks like an HTTP error page.
+
+    Used where the status code may be missing (cached results) and the URL is
+    a guess, such as the AMP fallback. Only short pages are considered, so
+    articles that mention "404" are not rejected.
+    """
+    def _field(name):
+        return result.get(name) if isinstance(result, dict) else getattr(result, name, None)
+
+    text = ""
+    for name in ("markdown", "content", "raw_content"):
+        value = _field(name)
+        if value and str(value).strip():
+            text = _visible_text(str(value))
+            break
+    if len(text) > ERROR_PAGE_MAX_TEXT_LENGTH:
+        return False
+    title = _field("title") or ""
+    return bool(_ERROR_PAGE_RE.search(title) or _ERROR_PAGE_RE.search(text))
+
+
 def get_content_length(result) -> int:
     """
     Get the total content length from a crawl result.

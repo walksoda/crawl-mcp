@@ -22,6 +22,9 @@ from ..validators import (
     validate_crawl_url_params,
     validate_content_slicing_params,
     validate_output_path,
+    validate_search_genre,
+    validate_crawl_depth,
+    validate_max_pages,
 )
 from ..middleware.file_persistence import (
     finalize_tool_response,
@@ -55,6 +58,9 @@ __all__ = [
     "validate_crawl_url_params",
     "validate_content_slicing_params",
     "validate_output_path",
+    "validate_search_genre",
+    "validate_crawl_depth",
+    "validate_max_pages",
     # file persistence
     "finalize_tool_response",
     "handle_screenshot_persistence",

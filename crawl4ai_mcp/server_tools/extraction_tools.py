@@ -150,8 +150,8 @@ def register_extraction_tools(mcp, get_modules):
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def extract_entities(
         url: Annotated[str, Field(description="Target URL")],
-        entity_types: Annotated[List[str], Field(description="Types: email, phone, url, date, ip, price")],
-        custom_patterns: Annotated[Optional[Dict[str, str]], Field(description="Custom regex patterns")] = None,
+        entity_types: Annotated[List[str], Field(description="Regex types: emails, phones, urls, dates, ips, prices, credit_cards, coordinates (singular forms like email/phone are accepted), plus any custom_patterns keys. Without use_llm, other types are listed under unsupported_entity_types with a warning. With use_llm=True any type name works (e.g. people, organizations, locations, products, events).")],
+        custom_patterns: Annotated[Optional[Dict[str, str]], Field(description="Custom regex patterns as {type_name: regex}; list the type_name in entity_types to use it (regex mode only)")] = None,
         include_context: Annotated[bool, Field(description="Include context")] = True,
         deduplicate: Annotated[bool, Field(description="Remove duplicates")] = True,
         use_llm: Annotated[bool, Field(description="Use LLM for NER")] = False,

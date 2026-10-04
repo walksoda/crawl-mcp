@@ -336,6 +336,18 @@ async def _internal_crawl_url(request: CrawlRequest) -> CrawlResponse:
         )
 
 
+def _deep_crawl_page(page) -> Dict[str, Any]:
+    """Per-page entry for CrawlResponse.crawled_pages."""
+    success = bool(getattr(page, 'success', True))
+    return {
+        "url": getattr(page, 'url', None) or "unknown",
+        "title": (getattr(page, 'metadata', None) or {}).get("title"),
+        "success": success,
+        "markdown": str(page.markdown) if success and getattr(page, 'markdown', None) else None,
+        "error": None if success else getattr(page, 'error_message', None),
+    }
+
+
 async def _handle_deep_crawl_list_result(result: list, request: CrawlRequest) -> CrawlResponse:
     """Handle deep crawling results returned as a list."""
     if not result:
@@ -348,8 +360,10 @@ async def _handle_deep_crawl_list_result(result: list, request: CrawlRequest) ->
     all_markdown = []
     all_media = []
     crawled_urls = []
+    pages = []
 
     for page_result in result:
+        pages.append(_deep_crawl_page(page_result))
         if hasattr(page_result, 'success') and page_result.success:
             crawled_urls.append(page_result.url if hasattr(page_result, 'url') else 'unknown')
             if hasattr(page_result, 'cleaned_html') and page_result.cleaned_html:
@@ -376,7 +390,8 @@ async def _handle_deep_crawl_list_result(result: list, request: CrawlRequest) ->
             "crawled_pages": len(crawled_urls),
             "crawled_urls": crawled_urls,
             "processing_method": "deep_crawling"
-        }
+        },
+        crawled_pages=pages,
     )
     response = await _check_and_summarize_if_needed(response, request)
     return _process_response_content(response, request.include_cleaned_html)
@@ -396,6 +411,7 @@ async def _handle_deep_crawl_object_result(result, request: CrawlRequest) -> Cra
     all_markdown = []
     all_media = []
 
+    pages = [_deep_crawl_page(page) for page in result.crawled_pages]
     for page in result.crawled_pages:
         if page.cleaned_html:
             all_content.append(f"=== {page.url} ===\n{page.cleaned_html}")
@@ -455,7 +471,8 @@ async def _handle_deep_crawl_object_result(result, request: CrawlRequest) -> Cra
         content=combined_content, markdown=combined_markdown,
         media=all_media if request.extract_media else None,
         screenshot=result.screenshot if request.take_screenshot else None,
-        extracted_data=extracted_data
+        extracted_data=extracted_data,
+        crawled_pages=pages,
     )
     response = await _check_and_summarize_if_needed(response, request)
     return _process_response_content(response, request.include_cleaned_html)
@@ -514,7 +531,8 @@ async def _handle_single_page_result(result, request: CrawlRequest) -> CrawlResp
         content=content_to_use, markdown=markdown_to_use,
         media=_convert_media_to_list(result.media) if request.extract_media else None,
         screenshot=result.screenshot if request.take_screenshot else None,
-        extracted_data=extracted_data
+        extracted_data=extracted_data,
+        status_code=getattr(result, "status_code", None),
     )
     response = await _check_and_summarize_if_needed(response, request)
     return _process_response_content(response, request.include_cleaned_html)

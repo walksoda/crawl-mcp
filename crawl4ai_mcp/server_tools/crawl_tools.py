@@ -8,6 +8,8 @@ from ._shared import (
     validate_crawl_url_params,
     validate_content_slicing_params,
     validate_output_path,
+    validate_crawl_depth,
+    validate_max_pages,
     _convert_result_to_dict,
     _process_content_fields,
     _should_trigger_fallback,
@@ -19,6 +21,11 @@ from ._shared import (
     modules_unavailable_error,
     READONLY_ANNOTATIONS,
 )
+
+
+# Documented deep_crawl_site limits, enforced before any network access.
+DEEP_CRAWL_MAX_DEPTH = 2
+DEEP_CRAWL_MAX_PAGES = 10
 
 
 def register_crawl_tools(mcp, get_modules):
@@ -233,8 +240,8 @@ def register_crawl_tools(mcp, get_modules):
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def deep_crawl_site(
         url: Annotated[str, Field(description="Starting URL")],
-        max_depth: Annotated[int, Field(description="Link depth (1-2)")] = 2,
-        max_pages: Annotated[int, Field(description="Max pages (max: 10)")] = 5,
+        max_depth: Annotated[int, Field(description="Link depth, 1-2 (default: 2). Values outside the range return an error.")] = 2,
+        max_pages: Annotated[int, Field(description="Max pages, 1-10 (default: 5). Values outside the range return an error.")] = 5,
         crawl_strategy: Annotated[str, Field(description="'bfs'|'dfs'|'best_first'")] = "bfs",
         include_external: Annotated[bool, Field(description="Follow external links")] = False,
         url_pattern: Annotated[Optional[str], Field(description="URL filter pattern")] = None,
@@ -246,6 +253,13 @@ def register_crawl_tools(mcp, get_modules):
         overwrite: Annotated[bool, Field(description="Overwrite existing per-URL files inside output_path. Defaults to False (existing files cause an output_path_exists error).")] = False,
     ) -> Dict[str, Any]:
         """Crawl multiple pages from a site with configurable depth. Use output_path (directory) to persist per-URL markdown files + index.json; the response is then slimmed to metadata only."""
+        limit_error = (
+            validate_crawl_depth(max_depth, max_allowed=DEEP_CRAWL_MAX_DEPTH)
+            or validate_max_pages(max_pages, max_allowed=DEEP_CRAWL_MAX_PAGES)
+        )
+        if limit_error:
+            return limit_error
+
         # Output path validation (Guard A)
         output_error = validate_output_path(output_path, overwrite)
         if output_error:
@@ -273,6 +287,11 @@ def register_crawl_tools(mcp, get_modules):
                     tool_kind=KIND_MARKDOWN_BATCH_DICT,
                     source_tool="deep_crawl_site",
                 )
+                if not output_path:
+                    # The combined markdown already holds every page; keep
+                    # only the per-page metadata.
+                    for page in result.get("crawled_pages") or []:
+                        page.pop("markdown", None)
                 # Apply token limit fallback before returning
                 return apply_token_limit(result, max_tokens=25000)
 

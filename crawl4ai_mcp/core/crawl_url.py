@@ -97,7 +97,7 @@ async def deep_crawl_site(
 
     result = await _internal_crawl_url(request)
 
-    return {
+    response = {
         "success": result.success,
         "url": result.url,
         "title": result.title,
@@ -108,3 +108,6 @@ async def deep_crawl_site(
         "error": result.error,
         "processing_method": "deep_crawling"
     }
+    if result.crawled_pages is not None:
+        response["crawled_pages"] = result.crawled_pages
+    return response

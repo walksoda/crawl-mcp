@@ -5,7 +5,7 @@ Contains request and response models for web crawling operations.
 """
 
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 from .base import BaseRequest, BaseResponse
 
 
@@ -76,6 +76,19 @@ class CrawlResponse(BaseResponse):
     media: Optional[List[Dict[str, Any]]] = None
     screenshot: Optional[str] = None
     extracted_data: Optional[Dict[str, Any]] = None
+    # HTTP status of the crawled page. Used internally (the fallback chain
+    # rejects 4xx/5xx pages) and left out of serialized tool responses.
+    status_code: Optional[int] = Field(None, exclude=True)
+    # Per-page results of a deep crawl (url, title, success, markdown). Lets
+    # output_path write one file per page; omitted from other responses.
+    crawled_pages: Optional[List[Dict[str, Any]]] = None
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_crawled_pages(self, handler):
+        data = handler(self)
+        if data.get("crawled_pages") is None:
+            data.pop("crawled_pages", None)
+        return data
 
 
 class LargeContentRequest(BaseRequest):

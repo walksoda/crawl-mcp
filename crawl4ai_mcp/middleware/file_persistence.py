@@ -97,6 +97,9 @@ _STRIP_PATHS: Dict[str, List[str]] = {
         "archive_contents",
     ],
     KIND_MARKDOWN_BATCH_DICT: [
+        # deep_crawl_site also returns all pages merged at the top level
+        "content",
+        "markdown",
         "results[*].content",
         "results[*].markdown",
         "results[*].cleaned_html",

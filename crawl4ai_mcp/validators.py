@@ -381,6 +381,35 @@ def validate_search_params(
     return None
 
 
+def validate_search_genre(search_genre: Any) -> Optional[Dict[str, Any]]:
+    """
+    Validate the optional search_genre parameter.
+
+    None or an empty string means "no genre". Matching is case-insensitive.
+    Valid values come from constants.SEARCH_GENRES.
+
+    Returns:
+        Error dictionary if invalid, None if valid
+    """
+    from .constants import SEARCH_GENRES
+
+    if search_genre is None or (isinstance(search_genre, str) and not search_genre.strip()):
+        return None
+
+    valid_genres = list(SEARCH_GENRES)
+    if not isinstance(search_genre, str) or search_genre.strip().lower() not in SEARCH_GENRES:
+        return {
+            "success": False,
+            "error": (
+                f"Invalid search_genre: {search_genre!r}. "
+                f"Must be one of: {', '.join(valid_genres)}"
+            ),
+            "error_code": "invalid_search_genre",
+            "valid_genres": valid_genres,
+        }
+    return None
+
+
 def validate_content_slicing_params(
     content_limit: int,
     content_offset: int

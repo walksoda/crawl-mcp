@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any
 from urllib.parse import urlparse
 from googlesearch import search
 
+from ..constants import SEARCH_GENRES
 from .google_search_helpers import RateLimiter
 from .google_custom_search import CustomSearchAPIClient
 from .google_search_analysis import GoogleSearchAnalysisMixin
@@ -393,35 +394,17 @@ class GoogleSearchProcessor(GoogleSearchAnalysisMixin):
         return False
 
     def _enhance_query_with_genre(self, query: str, genre: Optional[str]) -> str:
-        """Enhance search query based on specified genre"""
+        """Append the genre's search operator (see constants.SEARCH_GENRES)."""
         if not genre:
             return query
 
-        genre_enhancements = {
-            'pdf': 'filetype:pdf',
-            'documents': 'filetype:pdf OR filetype:doc OR filetype:docx',
-            'presentations': 'filetype:ppt OR filetype:pptx',
-            'spreadsheets': 'filetype:xls OR filetype:xlsx',
-            'japanese': 'site:jp OR lang:ja',
-            'english': 'lang:en'
-        }
-
-        enhancement = genre_enhancements.get(genre.lower())
-        if enhancement:
-            enhanced_query = f"{query} ({enhancement})"
-            return enhanced_query
-        else:
-            return query
+        spec = SEARCH_GENRES.get(str(genre).strip().lower())
+        if spec:
+            return f"{query} ({spec['operator']})"
+        return query
 
     def get_available_genres(self) -> Dict[str, str]:
-        """Get list of available search genres with descriptions"""
-        return {
-            'pdf': 'PDF documents only',
-            'documents': 'Document files (PDF, Word, etc.)',
-            'presentations': 'Presentation files (PowerPoint, etc.)',
-            'spreadsheets': 'Spreadsheet files (Excel, etc.)',
-            'japanese': 'Japanese language content and .jp domains',
-            'english': 'English language content'
-        }
+        """Get the supported search genres with descriptions."""
+        return {name: spec['description'] for name, spec in SEARCH_GENRES.items()}
 
     # _extract_title_and_snippet and _classify_url are inherited from GoogleSearchAnalysisMixin

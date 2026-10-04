@@ -54,7 +54,7 @@ class TestSearchGoogle:
                 "request": {
                     "query": query_info["query"],
                     "num_results": 2,
-                    "search_genre": "technical"
+                    "search_genre": "english"
                 }
             }
         )
@@ -91,8 +91,7 @@ class TestSearchGoogle:
             {
                 "request": {
                     "query": query_info["query"],
-                    "num_results": 2,
-                    "search_genre": "news"
+                    "num_results": 2
                 }
             }
         )
@@ -325,7 +324,7 @@ class TestSearchAndCrawl:
                 "request": {
                     "search_query": query_info["query"],
                     "crawl_top_results": 1,
-                    "search_genre": "academic"
+                    "search_genre": "pdf"
                 }
             }
         )

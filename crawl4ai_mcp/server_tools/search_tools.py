@@ -2,11 +2,13 @@
 Search tool registrations.
 """
 
+from ..constants import SEARCH_GENRES
 from ._shared import (
     Annotated, Dict, Field, Any,
     apply_token_limit,
     validate_content_slicing_params,
     validate_output_path,
+    validate_search_genre,
     _apply_search_content_slicing,
     _get_search_cache_key,
     _get_cached_search_result,
@@ -18,6 +20,13 @@ from ._shared import (
     modules_unavailable_error,
     READONLY_ANNOTATIONS,
     READONLY_CLOSED_ANNOTATIONS,
+)
+
+
+# Text for the search_genre key in the request descriptions.
+_GENRE_DESC = (
+    "search_genre (optional, one of: " + ", ".join(SEARCH_GENRES)
+    + "; adds a filetype/language operator to the query, other values return an error)"
 )
 
 
@@ -35,9 +44,13 @@ def register_search_tools(mcp, get_modules):
 
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def search_google(
-        request: Annotated[Dict[str, Any], Field(description="Dict with: query (required), num_results, search_genre, language, region, recent_days, content_limit (int), content_offset (int). Optional persistence keys: output_path (absolute file path, auto .json extension — full unsliced results written to disk BEFORE content_limit/content_offset slicing), include_content_in_response (bool, default False — when True keeps results in the response too, still subject to slicing), overwrite (bool, default False).")]
+        request: Annotated[Dict[str, Any], Field(description="Dict with: query (required), num_results, " + _GENRE_DESC + ", language, region, recent_days, content_limit (int), content_offset (int). Optional persistence keys: output_path (absolute file path, auto .json extension — full unsliced results written to disk BEFORE content_limit/content_offset slicing), include_content_in_response (bool, default False — when True keeps results in the response too, still subject to slicing), overwrite (bool, default False).")]
     ) -> Dict[str, Any]:
-        """Search Google with genre filtering. Genres: academic, news, technical, commercial, social. Supply output_path in the request to persist the full unsliced result set to disk as JSON and receive a slim response."""
+        """Search Google with optional search_genre filtering (file types or language; see get_search_genres). Supply output_path in the request to persist the full unsliced result set to disk as JSON and receive a slim response."""
+        genre_error = validate_search_genre(request.get('search_genre'))
+        if genre_error:
+            return genre_error
+
         # Output path validation (Guard A)
         output_path, include_content_in_response, overwrite = _extract_persist_opts(request)
         output_error = validate_output_path(output_path, overwrite)
@@ -128,13 +141,17 @@ def register_search_tools(mcp, get_modules):
 
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def batch_search_google(
-        request: Annotated[Dict[str, Any], Field(description="Dict with: queries (max 3), num_results_per_query, search_genre, recent_days. Optional persistence keys: output_path (absolute file path, auto .json extension — full result set written to disk), include_content_in_response (bool, default False — when True keeps results in the response too), overwrite (bool, default False).")]
+        request: Annotated[Dict[str, Any], Field(description="Dict with: queries (max 3), num_results_per_query, " + _GENRE_DESC + ", recent_days. Optional persistence keys: output_path (absolute file path, auto .json extension — full result set written to disk), include_content_in_response (bool, default False — when True keeps results in the response too), overwrite (bool, default False).")]
     ) -> Dict[str, Any]:
         """Perform multiple Google searches. Max 3 queries per call. Supply output_path in the request to persist the full result set to disk as JSON and receive a slim response."""
         # Query limit check (MCP best practice: bounded toolsets)
         queries = request.get('queries', [])
         if len(queries) > 3:
             return {"success": False, "error": "Maximum 3 queries allowed per batch. Split into multiple calls."}
+
+        genre_error = validate_search_genre(request.get('search_genre'))
+        if genre_error:
+            return genre_error
 
         # Output path validation (Guard A)
         output_path, include_content_in_response, overwrite = _extract_persist_opts(request)
@@ -167,9 +184,13 @@ def register_search_tools(mcp, get_modules):
 
     @mcp.tool(annotations=READONLY_ANNOTATIONS)
     async def search_and_crawl(
-        request: Annotated[Dict[str, Any], Field(description="Dict with: search_query (required), crawl_top_results, search_genre, recent_days, generate_markdown, max_content_per_page. Optional persistence keys: output_path (absolute directory — per-page .md files + index.json, the full page bodies are written BEFORE max_content_per_page truncation; dot-containing dir names are fine), include_content_in_response (bool, default False — when True keeps crawled_pages in the response too, still subject to max_content_per_page truncation), overwrite (bool, default False). Failed pages appear in index.json with file=null.")]
+        request: Annotated[Dict[str, Any], Field(description="Dict with: search_query (required), crawl_top_results, " + _GENRE_DESC + ", recent_days, generate_markdown, max_content_per_page. Optional persistence keys: output_path (absolute directory — per-page .md files + index.json, the full page bodies are written BEFORE max_content_per_page truncation; dot-containing dir names are fine), include_content_in_response (bool, default False — when True keeps crawled_pages in the response too, still subject to max_content_per_page truncation), overwrite (bool, default False). Failed pages appear in index.json with file=null.")]
     ) -> Dict[str, Any]:
         """Search Google and crawl top results. Combines search with full content extraction. Supply output_path (directory) in the request to persist per-page markdown (unsliced) + index.json and receive a slim response."""
+        genre_error = validate_search_genre(request.get('search_genre'))
+        if genre_error:
+            return genre_error
+
         # Output path validation (Guard A)
         output_path, include_content_in_response, overwrite = _extract_persist_opts(request)
         output_error = validate_output_path(output_path, overwrite)

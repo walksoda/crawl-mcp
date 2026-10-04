@@ -34,6 +34,8 @@ from ..infra.content_processors import (
     is_block_page as _is_block_page,
     is_block_result as _is_block_result,
     has_meaningful_content as _has_meaningful_content,
+    http_error_status as _http_error_status,
+    looks_like_error_page as _looks_like_error_page,
 )
 from ..constants import FALLBACK_MIN_CONTENT_LENGTH
 from .crawl_url import crawl_url
@@ -353,7 +355,9 @@ async def crawl_url_with_fallback(
                     wait_for_js=False, cache_mode="enabled")
                 has_content, content_source = _has_meaningful_content(result, min_length=100)
                 if has_content:
-                    if _is_block_result(result):
+                    if _http_error_status(result):
+                        print(f"  HTTP {result.status_code} in static fast path, skipping")
+                    elif _is_block_result(result):
                         print("  Block page detected in static fast path, skipping")
                     else:
                         _rec_success(1, "static_fast_path")
@@ -428,6 +432,13 @@ async def crawl_url_with_fallback(
                 _rec_failure(stage_num, strategy["name"], actual_error)
                 continue
 
+            error_status = _http_error_status(result)
+            if error_status:
+                last_error = f"Strategy {strategy['name']}: HTTP {error_status}"
+                print(f"  HTTP {error_status} response, skipping strategy {strategy['name']}")
+                _rec_failure(stage_num, strategy["name"], f"http_{error_status}")
+                continue
+
             has_content, content_source = _has_meaningful_content(result, min_length=FALLBACK_MIN_CONTENT_LENGTH)
             if has_content:
                 if _is_block_result(result):
@@ -464,10 +475,21 @@ async def crawl_url_with_fallback(
             amp_result = await crawl_url(
                 url=amp_url, css_selector=css_selector, generate_markdown=generate_markdown,
                 include_cleaned_html=include_cleaned_html, timeout=min(timeout, 20), wait_for_js=False)
+            # The AMP URL is a guess, so a missing page (404 or an error page
+            # served with 200) must not be returned as the original's content.
+            amp_error_status = _http_error_status(amp_result)
             has_content, content_source = _has_meaningful_content(amp_result, min_length=100)
-            if has_content:
+            if not amp_result.success:
+                _rec_failure(6, "amp_page", amp_result.error or "crawl_failed")
+            elif amp_error_status:
+                print(f"  AMP page returned HTTP {amp_error_status}, skipping")
+                _rec_failure(6, "amp_page", f"http_{amp_error_status}")
+            elif has_content:
                 if _is_block_result(amp_result):
                     print("  Block page detected in AMP result, skipping")
+                elif _looks_like_error_page(amp_result):
+                    print("  AMP result looks like an error page, skipping")
+                    _rec_failure(6, "amp_page", "error_page_detected")
                 else:
                     _rec_success(6, "amp_page")
                     if amp_result.extracted_data is None:

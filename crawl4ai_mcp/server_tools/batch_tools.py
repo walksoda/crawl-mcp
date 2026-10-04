@@ -28,7 +28,7 @@ def register_batch_tools(mcp, get_modules):
         generate_markdown: Annotated[bool, Field(description="Generate markdown (default: True)")] = True,
         extract_media: Annotated[bool, Field(description="Extract media (default: False)")] = False,
         wait_for_js: Annotated[bool, Field(description="Wait for JS (default: False)")] = False,
-        output_path: Annotated[Optional[str], Field(description="Absolute directory path to persist per-URL markdown files + index.json. Existing regular files at this path are rejected; otherwise the directory is created if missing (dot-containing names like /tmp/run.v1 are fine). The list return shape is preserved; each successful item gains an 'output_file' key. Failed items (success=False) are NOT written as .md but still appear in index.json with file=null.")] = None,
+        output_path: Annotated[Optional[str], Field(description="Absolute directory path to persist per-URL markdown files + index.json. Existing regular files at this path are rejected; otherwise the directory is created if missing (dot-containing names like /tmp/run.v1 are fine). The list return shape is preserved; each successful item gains an 'output_file' key. Failed items (success=False) are NOT written as .md but still appear in index.json with output_file=null.")] = None,
         include_content_in_response: Annotated[bool, Field(description="When True (with output_path), keep full markdown/content in each list item. Defaults to False so the response stays token-efficient.")] = False,
         overwrite: Annotated[bool, Field(description="Overwrite existing per-URL files inside output_path. Defaults to False (existing files cause an output_path_exists error, returned as a single-element list).")] = False,
     ) -> List[Dict[str, Any]]:
@@ -223,8 +223,8 @@ def register_batch_tools(mcp, get_modules):
         pattern_matching: Annotated[str, Field(description="Pattern: 'wildcard' or 'regex' (default: wildcard)")] = "wildcard",
         default_config: Annotated[Optional[Dict], Field(description="Default config")] = None,
         base_timeout: Annotated[int, Field(description="Timeout per URL (default: 30)")] = 30,
-        max_concurrent: Annotated[int, Field(description="Max concurrent (default: 3)")] = 3,
-        output_path: Annotated[Optional[str], Field(description="Absolute directory path to persist per-URL markdown files + index.json. Existing regular files at this path are rejected; otherwise the directory is created if missing (dot-containing names are fine). The list return shape is preserved; each successful item gains an 'output_file' key. Failed items (success=False) are NOT written as .md but still appear in index.json with file=null.")] = None,
+        max_concurrent: Annotated[int, Field(description="Has no effect; kept for compatibility. URLs are processed sequentially.")] = 3,
+        output_path: Annotated[Optional[str], Field(description="Absolute directory path to persist per-URL markdown files + index.json. Existing regular files at this path are rejected; otherwise the directory is created if missing (dot-containing names are fine). The list return shape is preserved; each successful item gains an 'output_file' key. Failed items (success=False) are NOT written as .md but still appear in index.json with output_file=null.")] = None,
         include_content_in_response: Annotated[bool, Field(description="When True (with output_path), keep full markdown/content in each list item. Defaults to False.")] = False,
         overwrite: Annotated[bool, Field(description="Overwrite existing per-URL files inside output_path. Defaults to False.")] = False,
     ) -> List[Dict[str, Any]]:

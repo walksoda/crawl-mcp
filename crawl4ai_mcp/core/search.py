@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from ..constants import SEARCH_GENRES
 from ..processors.google_search import GoogleSearchProcessor
 from .crawler_summarizer import summarize_web_content
 
@@ -264,108 +265,24 @@ async def batch_search_google(
 
 async def get_search_genres() -> Dict[str, Any]:
     """
-    Get list of available search genres for content filtering.
+    Get the supported search_genre values.
 
-    Provides comprehensive information about available search genres and their capabilities.
-
-    Parameters: None
-
-    Returns dictionary with available genres and their descriptions.
+    Each genre appends a search operator to the query (file type or
+    language). Any other search_genre value is rejected by the search tools.
     """
     try:
-        # Get genres from GoogleSearchProcessor
-        genres = google_search_processor.get_available_genres()
-
-        # Get configuration info for additional context
         config = google_search_processor.get_search_configuration()
 
         return {
             "success": True,
-            "total_genres": len(genres),
-            "genres": genres,
-            "categories": {
-                "Academic & Research": [
-                    {"genre": "academic", "description": genres.get("academic", "")},
-                    {"genre": "research", "description": genres.get("research", "")},
-                    {"genre": "education", "description": genres.get("education", "")}
-                ],
-                "News & Media": [
-                    {"genre": "news", "description": genres.get("news", "")},
-                    {"genre": "latest_news", "description": genres.get("latest_news", "")}
-                ],
-                "Technical & Development": [
-                    {"genre": "technical", "description": genres.get("technical", "")},
-                    {"genre": "programming", "description": genres.get("programming", "")},
-                    {"genre": "documentation", "description": genres.get("documentation", "")}
-                ],
-                "Commerce & Shopping": [
-                    {"genre": "shopping", "description": genres.get("shopping", "")},
-                    {"genre": "reviews", "description": genres.get("reviews", "")}
-                ],
-                "Social & Community": [
-                    {"genre": "forum", "description": genres.get("forum", "")},
-                    {"genre": "social", "description": genres.get("social", "")}
-                ],
-                "Media & Entertainment": [
-                    {"genre": "video", "description": genres.get("video", "")},
-                    {"genre": "images", "description": genres.get("images", "")}
-                ],
-                "Government & Official": [
-                    {"genre": "government", "description": genres.get("government", "")},
-                    {"genre": "legal", "description": genres.get("legal", "")}
-                ],
-                "File Types": [
-                    {"genre": "pdf", "description": genres.get("pdf", "")},
-                    {"genre": "documents", "description": genres.get("documents", "")},
-                    {"genre": "presentations", "description": genres.get("presentations", "")},
-                    {"genre": "spreadsheets", "description": genres.get("spreadsheets", "")}
-                ],
-                "Time-based": [
-                    {"genre": "recent", "description": genres.get("recent", "")},
-                    {"genre": "historical", "description": genres.get("historical", "")}
-                ],
-                "Language & Region": [
-                    {"genre": "japanese", "description": genres.get("japanese", "")},
-                    {"genre": "english", "description": genres.get("english", "")}
-                ],
-                "Content Quality": [
-                    {"genre": "authoritative", "description": genres.get("authoritative", "")},
-                    {"genre": "beginner", "description": genres.get("beginner", "")},
-                    {"genre": "advanced", "description": genres.get("advanced", "")}
-                ]
+            "total_genres": len(SEARCH_GENRES),
+            "genres": {name: spec["description"] for name, spec in SEARCH_GENRES.items()},
+            "query_operators": {name: spec["operator"] for name, spec in SEARCH_GENRES.items()},
+            "usage_example": {
+                "genre": "pdf",
+                "query_example": "technical documentation",
+                "enhanced_query": f"technical documentation ({SEARCH_GENRES['pdf']['operator']})",
             },
-            "usage_examples": [
-                {
-                    "genre": "academic",
-                    "query_example": "machine learning algorithms",
-                    "enhanced_query": "machine learning algorithms (site:edu OR site:ac.uk OR site:scholar.google.com OR filetype:pdf)",
-                    "description": "Find academic papers about machine learning"
-                },
-                {
-                    "genre": "programming",
-                    "query_example": "Python data structures",
-                    "enhanced_query": "Python data structures (site:stackoverflow.com OR site:github.com OR \"code\" OR \"programming\")",
-                    "description": "Search for Python programming tutorials and code examples"
-                },
-                {
-                    "genre": "news",
-                    "query_example": "AI breakthrough",
-                    "enhanced_query": "AI breakthrough (site:bbc.com OR site:cnn.com OR site:reuters.com OR site:nytimes.com OR site:guardian.com)",
-                    "description": "Get latest news articles from major news sources"
-                },
-                {
-                    "genre": "pdf",
-                    "query_example": "technical documentation",
-                    "enhanced_query": "technical documentation (filetype:pdf)",
-                    "description": "Find PDF documents and technical papers"
-                },
-                {
-                    "genre": "beginner",
-                    "query_example": "JavaScript basics",
-                    "enhanced_query": "JavaScript basics (\"beginner\" OR \"introduction\" OR \"basics\" OR \"tutorial\")",
-                    "description": "Search for beginner-friendly tutorials and guides"
-                }
-            ],
             "configuration": {
                 "search_mode": config.get("search_mode", "hybrid"),
                 "rate_limiting_enabled": True,
@@ -373,14 +290,11 @@ async def get_search_genres() -> Dict[str, Any]:
                 "supported_languages": ["en", "ja", "es", "fr", "de", "it", "pt", "ru", "zh", "ko"],
                 "supported_regions": ["us", "uk", "jp", "de", "fr", "ca", "au", "in"]
             },
-            "tips": [
-                "Use specific genres to narrow down search results to relevant content types",
-                "Combine multiple search terms for better results",
-                "Use 'recent' genre for latest information and 'historical' for archived content",
-                "Academic and research genres are excellent for in-depth, authoritative information",
-                "Technical genres help find documentation and programming resources",
-                "News genres provide current events and breaking news from reputable sources"
-            ]
+            "notes": [
+                "search_genre is optional; omit it for an unfiltered search",
+                "Other search_genre values return an invalid_search_genre error",
+                "Use recent_days for date filtering",
+            ],
         }
 
     except Exception as e:
