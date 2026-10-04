@@ -8,11 +8,13 @@ The query string accepts operators such as site:, filetype: and lang:.
 import asyncio
 import os
 from datetime import date, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 import aiohttp
 
-from .common import failure, failure_kind_for_status, make_result, normalize_region, strip_html
+from .common import (
+    failure, failure_kind_for_status, main_result_type, make_result, normalize_region, strip_html,
+)
 
 # Values the country parameter accepts; anything else is sent as ALL.
 BRAVE_COUNTRIES = frozenset(
@@ -21,8 +23,12 @@ BRAVE_COUNTRIES = frozenset(
 )
 # search_lang codes that differ from the plain language code.
 _LANG_ALIASES = {'zh': 'zh-hans', 'pt': 'pt-pt'}
-# Forum post text longer than this is cut, so a dozen posts stay readable.
+# Forum post and FAQ answer text longer than this is cut, so a dozen entries stay readable.
 FORUM_TEXT_LIMIT = 1000
+# Result types read from sections of the web search response. "news" comes
+# from the News Search endpoint instead: the web response's news section is
+# empty for most queries that name a specific event or a concept.
+_WEB_SECTIONS = ('web', 'discussions', 'faq', 'videos')
 
 
 class BraveSearchClient:
@@ -30,7 +36,9 @@ class BraveSearchClient:
 
     name = 'brave'
     base_url = 'https://api.search.brave.com/res/v1/web/search'
+    news_url = 'https://api.search.brave.com/res/v1/news/search'
     max_per_page = 20
+    max_news_per_page = 50
     max_page_offset = 9
 
     # Per-second limit hits (X-RateLimit-Reset of a few seconds) are retried;
@@ -52,11 +60,11 @@ class BraveSearchClient:
             self._lock_loop = loop
         return self._lock
 
-    async def _get_page(self, session, params: Dict[str, Any], headers: Dict[str, str]):
+    async def _get_page(self, session, params: Dict[str, Any], headers: Dict[str, str], url: Optional[str] = None):
         """GET one page, waiting out short per-second rate limits. Returns (status, data)."""
         async with self._request_lock():
             for attempt in range(self.max_rate_limit_retries + 1):
-                async with session.get(self.base_url, params=params, headers=headers) as response:
+                async with session.get(url or self.base_url, params=params, headers=headers) as response:
                     data = await _json_or_none(response)
                     status = response.status
                     wait = _reset_seconds(response.headers) if status == 429 else None
@@ -77,17 +85,18 @@ class BraveSearchClient:
         region: Optional[str] = None,
         safe_search: bool = True,
         recent_days: Optional[int] = None,
-        result_type: str = 'web',
+        result_types: Sequence[str] = ('web',),
     ) -> Dict[str, Any]:
-        """Query parameters for one page of results (result_type: 'web' or 'discussions')."""
+        """Query parameters for one page of results; result_types becomes result_filter."""
         params: Dict[str, Any] = {
             'q': query,
             'count': count,
             'offset': page_offset,
             'safesearch': 'moderate' if safe_search else 'off',
-            'result_filter': result_type,
             'text_decorations': 'false',
         }
+        if result_types:
+            params['result_filter'] = ','.join(result_types)
         if language:
             lang = str(language).strip().lower()
             params['search_lang'] = _LANG_ALIASES.get(lang, lang)
@@ -108,67 +117,50 @@ class BraveSearchClient:
         region: Optional[str] = 'us',
         safe_search: bool = True,
         recent_days: Optional[int] = None,
-        result_type: str = 'web',
+        result_types: Sequence[str] = ('web',),
     ) -> Dict[str, Any]:
         """
         Search, paging with offset when num_results exceeds one page.
 
-        result_type='discussions' returns Brave's forum cluster instead of web
-        results. count and offset do not apply to it, so one request is sent
-        and the cluster is cut to num_results.
+        result_types selects web, discussions, faq, videos and news. The first
+        four come from one web search request (count and offset apply to web
+        only, so paging adds web results and the other sections come from the
+        first page). news comes from a separate News Search request, paged
+        50 at a time. The main type (web when requested, else the first) goes
+        to results, the others to extra_results.
         """
         if not self.is_configured():
             return failure('not_configured', 'Brave Search API not configured',
                            suggestion='Set BRAVE_SEARCH_API_KEY')
 
+        result_types = tuple(result_types) or ('web',)
+        main = main_result_type(result_types)
+        web_types = tuple(t for t in result_types if t in _WEB_SECTIONS)
         headers = {
             'Accept': 'application/json',
             'X-Subscription-Token': self.api_key,
         }
-        results = []
-        seen = set()
-        # offset counts pages of `count` results, so every page uses the same count.
-        count = min(self.max_per_page, num_results)
-        page_offset = 0
+        collected: Dict[str, list] = {t: [] for t in result_types}
+        extra_errors: Dict[str, str] = {}
         try:
             async with aiohttp.ClientSession(timeout=self.timeout) as session:
-                while len(results) < num_results and page_offset <= self.max_page_offset:
-                    params = self.build_params(
-                        query, count, page_offset, language, region, safe_search, recent_days, result_type
+                if web_types:
+                    error = await self._collect_web(
+                        session, headers, collected, web_types, query, num_results,
+                        language, region, safe_search, recent_days,
                     )
-                    status, data = await self._get_page(session, params, headers)
-                    if status != 200:
-                        return _brave_error(status, data)
-                    if not isinstance(data, dict):
-                        return failure('error', 'Brave Search API returned a response that is not a JSON object')
-
-                    items = (data.get(result_type) or {}).get('results') or []
-                    for item in items:
-                        url = item.get('url') if isinstance(item, dict) else None
-                        if not url or url in seen:
-                            continue
-                        seen.add(url)
-                        results.append(make_result(
-                            len(results) + 1,
-                            url,
-                            strip_html(item.get('title')),
-                            strip_html(item.get('description')),
-                            age=item.get('age'),
-                            published_date=item.get('page_age'),
-                            **(_forum_fields(item) if result_type == 'discussions' else {}),
-                        ))
-                        if len(results) >= num_results:
-                            break
-
-                    if result_type == 'discussions':
-                        break
-                    # A page can hold fewer than `count` results while more remain.
-                    more = (data.get('query') or {}).get('more_results_available')
-                    if not more or not items:
-                        break
-                    page_offset += 1
-                    # Plans have a per-second limit; spread page requests out.
-                    await asyncio.sleep(1.0)
+                    if error:
+                        return error
+                if 'news' in result_types:
+                    error = await self._collect_news(
+                        session, headers, collected['news'], query, num_results,
+                        language, region, safe_search, recent_days,
+                    )
+                    if error:
+                        if main == 'news':
+                            return error
+                        # The web request already succeeded; keep its results.
+                        extra_errors['news'] = error['error']
         except asyncio.TimeoutError:
             return failure('network', 'Brave Search API timed out')
         except aiohttp.ClientError as e:
@@ -176,23 +168,127 @@ class BraveSearchClient:
         except Exception as e:
             return failure('error', f'Brave Search API error: {e}')
 
-        if not results:
-            if result_type == 'discussions':
+        if not any(collected.values()):
+            if main != 'web':
                 return failure(
-                    'no_results', 'No discussion results found', query=query,
-                    suggestion='Brave returns discussions only for some queries; '
+                    'no_results', f'No {main} results found', query=query,
+                    suggestion=f'Brave returns {main} only for some queries; '
                                'try another wording or result_type web',
                 )
             return failure('no_results', 'No search results found', query=query)
 
-        return {
+        out = {
             'success': True,
             'query': query,
-            'result_type': result_type,
-            'total_results': len(results),
-            'results': results,
+            'result_type': main,
+            'total_results': len(collected[main]),
+            'results': collected[main],
             'processing_method': 'brave_search_api',
         }
+        extras = {t: collected[t] for t in result_types if t != main}
+        if extras:
+            out['extra_results'] = extras
+        if extra_errors:
+            out['extra_errors'] = extra_errors
+        return out
+
+    async def _collect_web(
+        self, session, headers, collected, web_types, query, num_results,
+        language, region, safe_search, recent_days,
+    ) -> Optional[Dict[str, Any]]:
+        """Fill collected from the web search endpoint. Returns a failure dict or None."""
+        seen: set = set()
+        # offset counts pages of `count` results, so every page uses the same count.
+        count = min(self.max_per_page, num_results)
+        page_offset = 0
+        while page_offset <= self.max_page_offset:
+            # Later pages only add web results.
+            page_types = web_types if page_offset == 0 else ('web',)
+            params = self.build_params(
+                query, count, page_offset, language, region, safe_search, recent_days, page_types
+            )
+            status, data = await self._get_page(session, params, headers)
+            if status != 200:
+                return _brave_error(status, data)
+            if not isinstance(data, dict):
+                return failure('error', 'Brave Search API returned a response that is not a JSON object')
+
+            for rtype in page_types:
+                items = (data.get(rtype) or {}).get('results') or []
+                _append_new(collected[rtype], seen, rtype, items, num_results)
+
+            if 'web' not in web_types or len(collected['web']) >= num_results:
+                return None
+            # A page can hold fewer than `count` results while more remain.
+            more = (data.get('query') or {}).get('more_results_available')
+            if not more or not (data.get('web') or {}).get('results'):
+                return None
+            page_offset += 1
+            # Plans have a per-second limit; spread page requests out.
+            await asyncio.sleep(1.0)
+        return None
+
+    async def _collect_news(
+        self, session, headers, bucket, query, num_results,
+        language, region, safe_search, recent_days,
+    ) -> Optional[Dict[str, Any]]:
+        """Fill bucket from the News Search endpoint (up to 50 per page). Returns a failure dict or None."""
+        seen: set = set()
+        count = min(self.max_news_per_page, num_results)
+        page_offset = 0
+        while page_offset <= self.max_page_offset:
+            params = self.build_params(
+                query, count, page_offset, language, region, safe_search, recent_days, result_types=()
+            )
+            status, data = await self._get_page(session, params, headers, url=self.news_url)
+            if status != 200:
+                return _brave_error(status, data)
+            if not isinstance(data, dict):
+                return failure('error', 'Brave News Search API returned a response that is not a JSON object')
+
+            items = data.get('results') or []
+            _append_new(bucket, seen, 'news', items, num_results)
+            if len(bucket) >= num_results or len(items) < count:
+                return None
+            page_offset += 1
+            await asyncio.sleep(1.0)
+        return None
+
+
+def _append_new(bucket: list, seen: set, rtype: str, items, limit: int) -> None:
+    """Add items of one result type to bucket, skipping repeats and stopping at limit."""
+    for item in items:
+        if len(bucket) >= limit:
+            return
+        url = item.get('url') if isinstance(item, dict) else None
+        # One page can hold several FAQ entries, so the question is part of the key.
+        key = (rtype, url, item.get('question') if rtype == 'faq' else None)
+        if not url or key in seen:
+            continue
+        seen.add(key)
+        bucket.append(_make_typed_result(rtype, len(bucket) + 1, url, item))
+
+
+def _make_typed_result(rtype: str, rank: int, url: str, item: Dict[str, Any]) -> Dict[str, Any]:
+    """One result entry with the fields specific to its Brave section."""
+    if rtype == 'faq':
+        answer = strip_html(item.get('answer'))
+        return make_result(
+            rank, url, strip_html(item.get('title')), _truncate(answer) if answer else None,
+            question=strip_html(item.get('question')) or None,
+        )
+    extra: Dict[str, Any] = {'age': item.get('age'), 'published_date': item.get('page_age')}
+    if rtype == 'discussions':
+        extra.update(_forum_fields(item))
+    elif rtype == 'videos':
+        video = item.get('video') if isinstance(item.get('video'), dict) else {}
+        extra.update(duration=video.get('duration'), creator=video.get('creator'),
+                     publisher=video.get('publisher'))
+    elif rtype == 'news':
+        meta = item.get('meta_url') if isinstance(item.get('meta_url'), dict) else {}
+        profile = item.get('profile') if isinstance(item.get('profile'), dict) else {}
+        extra.update(source=profile.get('name') or meta.get('hostname'), breaking=item.get('breaking'))
+    return make_result(rank, url, strip_html(item.get('title')), strip_html(item.get('description')), **extra)
 
 
 def _truncate(text: str, limit: int = FORUM_TEXT_LIMIT) -> str:

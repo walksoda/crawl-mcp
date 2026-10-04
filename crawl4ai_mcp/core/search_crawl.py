@@ -26,7 +26,7 @@ async def search_and_crawl(
     base_timeout: int = 30,
     recent_days: Optional[Any] = None,
     engine: Optional[str] = None,
-    result_type: str = 'web'
+    result_type: Any = 'web'
 ) -> Dict[str, Any]:
     """
     Perform a web search and automatically crawl top results for full content analysis.
@@ -169,6 +169,9 @@ async def search_and_crawl(
                 'content_extraction_success_rate': f"{(successful_crawls/len(crawled_pages)*100):.1f}%" if crawled_pages else "0%"
             }
         }
+        for key in ('extra_results', 'extra_errors'):
+            if key in search_result:
+                response[key] = search_result[key]
         if 'fallback_info' in search_result:
             response['search_fallback_info'] = search_result['fallback_info']
         return response

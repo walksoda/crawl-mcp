@@ -40,9 +40,12 @@ _ENGINE_DESC = (
 
 # Text for the result_type key in the request descriptions.
 _RESULT_TYPE_DESC = (
-    "result_type (optional, web (default) or discussions; discussions returns forum posts from Brave's"
-    " discussions cluster with the forum name, answer count, post score, question and top comment, runs on brave only,"
-    " is returned for some queries only, and holds at most about a dozen posts)"
+    "result_type (optional; default web; one of web, discussions, faq, videos, news, or several as a list or a"
+    " comma-separated string; everything except web runs on brave only; news is a separate Brave News Search request;"
+    " results holds web when requested, else the first type, and the other types go to extra_results;"
+    " discussions are forum posts with the forum name, answer count, post score, question and top comment;"
+    " faq are question and answer excerpts; Brave returns these sections for some queries only,"
+    " and num_results only shortens them)"
 )
 
 _SEARCH_REQUEST_DESC = (

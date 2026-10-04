@@ -38,7 +38,7 @@ class WebSearchAnalysisMixin:
         recent_days: Optional[int] = None,
         engine: Optional[str] = None,
         safe_search: bool = True,
-        result_type: str = 'web',
+        result_type: Any = 'web',
     ) -> List[Dict[str, Any]]:
         """Run several searches with limited concurrency"""
 

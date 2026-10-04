@@ -274,7 +274,7 @@ class TestBrave:
         ]}
         session = _install(monkeypatch, brave, [(200, {"type": "search", "query": {"more_results_available": True},
                                                        "discussions": cluster})])
-        result = await BraveSearchClient().search("q", num_results=5, result_type="discussions")
+        result = await BraveSearchClient().search("q", num_results=5, result_types=("discussions",))
 
         params = session.calls[0]["params"]
         assert params["result_filter"] == "discussions"
@@ -292,10 +292,114 @@ class TestBrave:
         assert len(first["question"]) <= brave.FORUM_TEXT_LIMIT + 3
 
     @pytest.mark.asyncio
+    async def test_several_sections_in_one_request(self, monkeypatch):
+        monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "k")
+        first = _brave_page(20)
+        first["discussions"] = {"results": [
+            {"title": "T", "url": "https://www.reddit.com/r/x/1", "description": "d",
+             "data": {"forum_name": "r/x", "num_answers": 3, "score": "5"}}]}
+        first["faq"] = {"results": [
+            {"question": "Q1?", "answer": "<b>A1</b>", "title": "Page", "url": "https://faq.example/1"},
+            {"question": "Q2?", "answer": "A2", "title": "Page", "url": "https://faq.example/1"},
+            {"question": "Q2?", "answer": "A2", "title": "Page", "url": "https://faq.example/1"}]}
+        first["videos"] = {"results": [
+            {"title": "V", "url": "https://www.youtube.com/watch?v=1", "description": "vd", "age": "1 day ago",
+             "video": {"duration": "06:53", "creator": "C", "publisher": "YouTube"}}]}
+        second = _brave_page(20, 20, more=False)
+        news = {"type": "news", "results": [
+            {"title": "N", "url": "https://news.example/1", "description": "nd", "age": "2 days ago",
+             "page_age": "2026-10-02T00:00:00", "profile": {"name": "Example News"},
+             "meta_url": {"hostname": "news.example"}, "breaking": False}]}
+        session = _install(monkeypatch, brave, [(200, first), (200, second), (200, news)])
+
+        result = await BraveSearchClient().search(
+            "q", num_results=25, result_types=("discussions", "web", "faq", "videos", "news"))
+
+        urls = [c["url"] for c in session.calls]
+        params = [c["params"] for c in session.calls]
+        assert urls == [brave.BraveSearchClient.base_url] * 2 + [brave.BraveSearchClient.news_url]
+        # news is not read from the web search response.
+        assert params[0]["result_filter"] == "discussions,web,faq,videos"
+        # Later pages only page through web results.
+        assert params[1]["result_filter"] == "web"
+        assert "result_filter" not in params[2]
+        assert params[2]["count"] == 25
+        assert result["result_type"] == "web"
+        assert len(result["results"]) == 25
+        extras = result["extra_results"]
+        assert list(extras) == ["discussions", "faq", "videos", "news"]
+        assert extras["discussions"][0]["forum_name"] == "r/x"
+        assert extras["faq"][0] == {
+            "rank": 1, "url": "https://faq.example/1", "domain": "faq.example", "title": "Page",
+            "snippet": "A1", "type": "general", "question": "Q1?",
+        }
+        # Same page, different questions are kept; exact repeats are dropped.
+        assert [f["question"] for f in extras["faq"]] == ["Q1?", "Q2?"]
+        video = extras["videos"][0]
+        assert (video["duration"], video["creator"], video["publisher"]) == ("06:53", "C", "YouTube")
+        assert video["type"] == "video"
+        item = extras["news"][0]
+        assert (item["source"], item["age"], item["breaking"]) == ("Example News", "2 days ago", False)
+        assert item["published_date"] == "2026-10-02T00:00:00"
+
+    @pytest.mark.asyncio
+    async def test_news_only_uses_news_endpoint_and_pages_by_50(self, monkeypatch):
+        monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "k")
+
+        def news_page(start, n):
+            return 200, {"type": "news", "results": [
+                {"title": f"N{i}", "url": f"https://n.example/{i}", "meta_url": {"hostname": "n.example"}}
+                for i in range(start, start + n)]}
+        session = _install(monkeypatch, brave, [news_page(0, 50), news_page(50, 7)])
+        result = await BraveSearchClient().search("q", num_results=80, region="jp", recent_days=1,
+                                                  result_types=("news",))
+
+        assert [c["url"] for c in session.calls] == [brave.BraveSearchClient.news_url] * 2
+        assert [(c["params"]["count"], c["params"]["offset"]) for c in session.calls] == [(50, 0), (50, 1)]
+        assert session.calls[0]["params"]["country"] == "JP"
+        assert "freshness" in session.calls[0]["params"]
+        assert result["result_type"] == "news"
+        assert len(result["results"]) == 57
+        assert result["results"][0]["source"] == "n.example"
+        assert "extra_results" not in result
+
+    @pytest.mark.asyncio
+    async def test_news_endpoint_error(self, monkeypatch):
+        monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "k")
+        _install(monkeypatch, brave, [(200, _brave_page(3, more=False)),
+                                      (429, {"error": {"code": "RATE_LIMITED", "detail": "limit"}})])
+        result = await BraveSearchClient().search("q", num_results=3, result_types=("web", "news"))
+        # Web results are kept; the news failure is reported next to them.
+        assert result["success"] is True
+        assert len(result["results"]) == 3
+        assert result["extra_results"] == {"news": []}
+        assert "limit" in result["extra_errors"]["news"]
+
+    @pytest.mark.asyncio
+    async def test_news_only_failure_fails(self, monkeypatch):
+        monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "k")
+        _install(monkeypatch, brave, [(503, None)])
+        result = await BraveSearchClient().search("q", result_types=("news",))
+        assert result["failure_kind"] == "server"
+
+    @pytest.mark.asyncio
+    async def test_main_type_without_web_is_first_listed(self, monkeypatch):
+        monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "k")
+        page = {"query": {"more_results_available": True},
+                "faq": {"results": [{"question": "Q", "answer": "A", "title": "P", "url": "https://f.example/"}]},
+                "videos": {"results": []}}
+        session = _install(monkeypatch, brave, [(200, page)])
+        result = await BraveSearchClient().search("q", num_results=30, result_types=("faq", "videos"))
+        assert len(session.calls) == 1
+        assert result["result_type"] == "faq"
+        assert result["results"][0]["question"] == "Q"
+        assert result["extra_results"] == {"videos": []}
+
+    @pytest.mark.asyncio
     async def test_discussions_absent_is_no_results(self, monkeypatch):
         monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "k")
         _install(monkeypatch, brave, [(200, {"type": "search", "query": {}})])
-        result = await BraveSearchClient().search("q", result_type="discussions")
+        result = await BraveSearchClient().search("q", result_types=("discussions",))
         assert result["failure_kind"] == "no_results"
         assert "only for some queries" in result["suggestion"]
 
@@ -618,10 +722,10 @@ class TestWebSearchProcessor:
         result = await _processor(google_custom=g, brave=b, exa=e).search("q", result_type="discussions")
         assert result["engine"] == "brave"
         assert result["result_type"] == "discussions"
-        assert result["search_metadata"]["search_params"]["result_type"] == "discussions"
+        assert result["search_metadata"]["search_params"]["result_type"] == ["discussions"]
         assert g.calls == [] and e.calls == []
         # brave: (query, num_results, language, region, safe_search, recent_days, result_type)
-        assert b.calls[0][6] == "discussions"
+        assert b.calls[0][6] == ("discussions",)
         assert "fallback_info" not in result
 
     @pytest.mark.asyncio
@@ -646,8 +750,27 @@ class TestWebSearchProcessor:
         assert result["alternative_queries"]
 
     @pytest.mark.asyncio
+    async def test_several_types_use_brave_only(self):
+        g = StubClient(result=_ok())
+        b = StubClient(result={**_ok(), "extra_results": {"faq": []}})
+        result = await _processor(google_custom=g, brave=b).search("q", result_type=["web", "faq"])
+        assert result["engine"] == "brave"
+        assert result["result_type"] == "web"
+        assert result["extra_results"] == {"faq": []}
+        assert b.calls[0][6] == ("web", "faq")
+        assert result["search_metadata"]["search_params"]["result_type"] == ["web", "faq"]
+        assert g.calls == []
+
+    @pytest.mark.asyncio
+    async def test_several_types_on_google_custom(self):
+        result = await _processor(google_custom=StubClient(result=_ok())).search(
+            "q", result_type="web,faq", engine="google_custom")
+        assert result["error_code"] == "unsupported_result_type"
+        assert "faq" in result["error"]
+
+    @pytest.mark.asyncio
     async def test_invalid_result_type(self):
-        result = await _processor(brave=StubClient(result=_ok())).search("q", result_type="news")
+        result = await _processor(brave=StubClient(result=_ok())).search("q", result_type="images")
         assert result["error_code"] == "invalid_result_type"
 
     @pytest.mark.asyncio
@@ -655,7 +778,7 @@ class TestWebSearchProcessor:
         b = StubClient(result=_ok())
         result = await _processor(brave=b).search("q")
         assert result["result_type"] == "web"
-        assert b.calls[0][6] == "web"
+        assert b.calls[0][6] == ("web",)
 
     def test_google_search_processor_alias(self):
         from crawl4ai_mcp.processors import GoogleSearchProcessor
@@ -698,6 +821,23 @@ def test_rate_limiter_drops_old_history_for_unlimited_engines():
 
 
 @pytest.mark.parametrize("value,expected", [
+    (None, ("web",)), ("", ("web",)), ([], ("web",)), ("Web", ("web",)),
+    ("web,discussions", ("web", "discussions")), (" faq , web ,faq", ("faq", "web")),
+    (["videos", "NEWS"], ("videos", "news")),
+])
+def test_parse_result_types(value, expected):
+    from crawl4ai_mcp.processors.search_engines.common import parse_result_types
+    assert parse_result_types(value) == (expected, None)
+
+
+@pytest.mark.parametrize("value", ["images", ["web", 3], 5, "web,forum"])
+def test_parse_result_types_rejects(value):
+    from crawl4ai_mcp.processors.search_engines.common import parse_result_types
+    types, error = parse_result_types(value)
+    assert types is None and error
+
+
+@pytest.mark.parametrize("value,expected", [
     (None, None), (0, None), (-3, None), (7, 7), ("14", 14), ("2w", 14), ("bogus", None),
 ])
 def test_recent_days_to_int(value, expected):
@@ -730,6 +870,16 @@ async def test_batch_keeps_engine_and_fallback_info(monkeypatch):
     assert len(entry["fallback_info"]["attempts"]) == 2
 
 
+@pytest.mark.asyncio
+async def test_core_search_web_returns_extra_results(monkeypatch):
+    from crawl4ai_mcp.core import search as core_search
+    b = StubClient(result={**_ok(), "extra_results": {"discussions": [{"url": "https://r.example"}]}})
+    monkeypatch.setattr(core_search, "web_search_processor", _processor(brave=b))
+    result = await core_search.search_web({"query": "q", "result_type": ["web", "discussions"]})
+    assert result["extra_results"] == {"discussions": [{"url": "https://r.example"}]}
+    assert result["result_type"] == "web"
+
+
 def test_cache_key_includes_engine():
     base = {"query": "q"}
     assert _get_search_cache_key(base) == _get_search_cache_key({**base, "engine": ""})
@@ -737,6 +887,10 @@ def test_cache_key_includes_engine():
     assert _get_search_cache_key({**base, "engine": "Brave"}) == _get_search_cache_key({**base, "engine": "brave"})
     assert _get_search_cache_key(base) == _get_search_cache_key({**base, "result_type": "web"})
     assert _get_search_cache_key(base) != _get_search_cache_key({**base, "result_type": "discussions"})
+    assert _get_search_cache_key({**base, "result_type": "web,faq"}) == _get_search_cache_key(
+        {**base, "result_type": ["Web", "faq"]})
+    assert _get_search_cache_key({**base, "result_type": "web,faq"}) != _get_search_cache_key(
+        {**base, "result_type": "faq,web"})
 
 
 class FakeMcp:
@@ -780,9 +934,9 @@ class TestSearchToolsEngine:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("tool,request_dict", [
-        ("search_web", {"query": "x", "result_type": "news"}),
+        ("search_web", {"query": "x", "result_type": "images"}),
         ("batch_search_web", {"queries": ["x"], "result_type": 3}),
-        ("search_and_crawl", {"search_query": "x", "result_type": "forum"}),
+        ("search_and_crawl", {"search_query": "x", "result_type": ["web", "forum"]}),
     ])
     async def test_invalid_result_type_errors_before_search(self, tool, request_dict):
         search = MagicMock()
@@ -790,7 +944,7 @@ class TestSearchToolsEngine:
         search.search_web = search.batch_search_web = search.search_and_crawl = boom
         result = await _tools(search)[tool](request=request_dict)
         assert result["error_code"] == "invalid_result_type"
-        assert result["valid_result_types"] == ["web", "discussions"]
+        assert result["valid_result_types"] == ["web", "discussions", "faq", "videos", "news"]
 
     @pytest.mark.asyncio
     async def test_search_and_crawl_passes_result_type(self):

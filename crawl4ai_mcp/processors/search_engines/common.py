@@ -11,7 +11,7 @@ engine in auto mode for every kind except 'no_results'.
 
 import html
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 FAILURE_KINDS = (
@@ -111,3 +111,40 @@ def normalize_region(region: Optional[str]) -> Optional[str]:
         return None
     code = str(region).strip().upper()
     return 'GB' if code == 'UK' else code
+
+
+def parse_result_types(value: Any) -> Tuple[Optional[Tuple[str, ...]], Optional[str]]:
+    """
+    Normalize result_type: a string ("web", "web,discussions") or a list.
+
+    Returns (types, error). types keeps the given order without duplicates;
+    None/""/[] mean ("web",).
+    """
+    from ...constants import SEARCH_RESULT_TYPES
+
+    if value is None:
+        return ('web',), None
+    if isinstance(value, str):
+        parts = value.split(',')
+    elif isinstance(value, (list, tuple)):
+        parts = list(value)
+    else:
+        return None, f"result_type must be a string or a list, got {type(value).__name__}"
+
+    types = []
+    for part in parts:
+        if not isinstance(part, str):
+            return None, f"Invalid result_type entry: {part!r}"
+        name = part.strip().lower()
+        if not name:
+            continue
+        if name not in SEARCH_RESULT_TYPES:
+            return None, f"Invalid result_type: {part!r}. Must be one of: {', '.join(SEARCH_RESULT_TYPES)}"
+        if name not in types:
+            types.append(name)
+    return (tuple(types) or ('web',)), None
+
+
+def main_result_type(types: Tuple[str, ...]) -> str:
+    """The type listed in results: web when requested, else the first one."""
+    return 'web' if 'web' in types else types[0]

@@ -38,7 +38,7 @@ async def search_web(
 
     Request keys: query, num_results, search_genre, language, region,
     safe_search, recent_days, engine (auto, google_custom, brave, exa),
-    result_type (web, discussions).
+    result_type (web, discussions, faq, videos, news; a string or a list).
     """
     try:
         query = request.get('query', '')
@@ -81,7 +81,7 @@ async def search_web(
             for key in ('error_code', 'engine', 'configured_engines', 'alternative_queries'):
                 if key in result:
                     response[key] = result[key]
-        for key in ('fallback_info', 'cost_dollars'):
+        for key in ('extra_results', 'extra_errors', 'fallback_info', 'cost_dollars'):
             if key in result:
                 response[key] = result[key]
         return response
@@ -177,7 +177,7 @@ async def batch_search_web(
                     "error_code": result.get('error_code'),
                     "suggestion": result.get('suggestion')
                 }
-            for key in ('fallback_info', 'cost_dollars'):
+            for key in ('result_type', 'extra_results', 'extra_errors', 'fallback_info', 'cost_dollars'):
                 if key in result:
                     entry[key] = result[key]
             processed_results.append(entry)
@@ -294,7 +294,10 @@ async def get_search_genres() -> Dict[str, Any]:
                 "engines": list(SEARCH_ENGINES),
                 "result_types": {
                     "web": "web results (all engines)",
-                    "discussions": "forum posts from Brave's discussions cluster (brave only; returned for some queries)",
+                    "discussions": "forum posts with forum name, answer count and score (brave only)",
+                    "faq": "question and answer excerpts from pages (brave only)",
+                    "videos": "videos with duration and creator (brave only)",
+                    "news": "news articles (brave only)",
                 },
                 "genre_support": {
                     "google_custom": "all genres (operators added to the query)",

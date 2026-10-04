@@ -95,8 +95,10 @@ def _get_search_cache_key(request: dict) -> str:
     # Normalize engine (None/'' mean the server default)
     engine = str(request.get('engine') or '').strip().lower()
 
-    # Normalize result_type (None/'' mean 'web')
-    result_type = str(request.get('result_type') or 'web').strip().lower()
+    # Normalize result_type ("web,faq" and ["web", "faq"] are the same request)
+    from ..processors.search_engines.common import parse_result_types
+    types, _ = parse_result_types(request.get('result_type'))
+    result_type = ','.join(types or ())
 
     # Build cache key with all parameters that affect search results
     key_parts = [

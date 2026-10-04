@@ -441,23 +441,22 @@ def validate_search_result_type(result_type: Any) -> Optional[Dict[str, Any]]:
     """
     Validate the optional result_type parameter of the search tools.
 
-    None or an empty string means "web". Matching is case-insensitive.
+    Accepts a string ("web", "web,discussions") or a list of names. None, an
+    empty string or an empty list mean "web". Matching is case-insensitive.
 
     Returns:
         Error dictionary if invalid, None if valid
     """
     from .constants import SEARCH_RESULT_TYPES
+    from .processors.search_engines.common import parse_result_types
 
-    if result_type is None or (isinstance(result_type, str) and not result_type.strip()):
-        return None
-
-    valid = list(SEARCH_RESULT_TYPES)
-    if not isinstance(result_type, str) or result_type.strip().lower() not in valid:
+    _, error = parse_result_types(result_type)
+    if error:
         return {
             "success": False,
-            "error": f"Invalid result_type: {result_type!r}. Must be one of: {', '.join(valid)}",
+            "error": error,
             "error_code": "invalid_result_type",
-            "valid_result_types": valid,
+            "valid_result_types": list(SEARCH_RESULT_TYPES),
         }
     return None
 

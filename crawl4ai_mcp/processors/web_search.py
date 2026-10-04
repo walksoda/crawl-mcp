@@ -10,9 +10,9 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..constants import SEARCH_ENGINES, SEARCH_GENRES, SEARCH_RESULT_TYPES
+from ..constants import SEARCH_ENGINES, SEARCH_GENRES
 from .search_engines import BraveSearchClient, CustomSearchAPIClient, ExaSearchClient, RateLimiter
-from .search_engines.common import failure
+from .search_engines.common import failure, main_result_type, parse_result_types
 from .web_search_analysis import WebSearchAnalysisMixin
 
 DEFAULT_AUTO_ORDER = ('google_custom', 'brave', 'exa')
@@ -23,11 +23,8 @@ ENGINE_ENV_VARS = {
 }
 # Genres made of filetype: operators. Exa has no file type filter.
 FILE_TYPE_GENRES = frozenset({'pdf', 'documents', 'presentations', 'spreadsheets'})
-# Engines that can return each result_type.
-RESULT_TYPE_ENGINES = {
-    'web': frozenset(SEARCH_ENGINES),
-    'discussions': frozenset({'brave'}),
-}
+# Engines that can return result types other than web (Brave result sections).
+NON_WEB_RESULT_ENGINES = frozenset({'brave'})
 
 
 def resolve_default_engine() -> str:
@@ -130,19 +127,19 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
             }
 
     @staticmethod
-    def _unsupported(name: str, genre: Optional[str], result_type: str) -> Optional[Tuple[str, str, str]]:
+    def _unsupported(name: str, genre: Optional[str], result_types: Tuple[str, ...]) -> Optional[Tuple[str, str, str]]:
         """(failure_kind, error_code, message) when the engine cannot serve the request."""
-        if name not in RESULT_TYPE_ENGINES[result_type]:
-            supported = ', '.join(sorted(RESULT_TYPE_ENGINES[result_type]))
+        non_web = [t for t in result_types if t != 'web']
+        if non_web and name not in NON_WEB_RESULT_ENGINES:
             return ('unsupported_result_type', 'unsupported_result_type',
-                    f"result_type '{result_type}' is not supported by {name} (only {supported})")
+                    f"result_type {', '.join(non_web)} is not supported by {name} (brave only)")
         if name == 'exa' and genre in FILE_TYPE_GENRES:
             return ('unsupported_genre', 'unsupported_search_genre',
                     f"search_genre '{genre}' is not supported by exa (no file type filter)")
         return None
 
     def plan_engines(
-        self, engine: Optional[str], search_genre: Optional[str], result_type: str = 'web'
+        self, engine: Optional[str], search_genre: Optional[str], result_types: Tuple[str, ...] = ('web',)
     ) -> Tuple[List[str], List[Tuple[str, Dict[str, Any]]], Optional[Dict[str, Any]]]:
         """
         Decide which engines to try.
@@ -152,12 +149,6 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
         """
         requested = (engine or self.default_engine).strip().lower()
         genre = _normalize_genre(search_genre)
-        if result_type not in RESULT_TYPE_ENGINES:
-            return [], [], {
-                'success': False,
-                'error': f"Invalid result_type: {result_type!r}. Must be one of: {', '.join(SEARCH_RESULT_TYPES)}",
-                'error_code': 'invalid_result_type',
-            }
 
         if requested != 'auto':
             if requested not in SEARCH_ENGINES:
@@ -174,7 +165,7 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
                     'suggestion': f"Set {ENGINE_ENV_VARS[requested]}",
                     'configured_engines': self.configured_engines(),
                 }
-            unsupported = self._unsupported(requested, genre, result_type)
+            unsupported = self._unsupported(requested, genre, result_types)
             if unsupported:
                 _, code, message = unsupported
                 suggestion = ('Use engine brave or google_custom, or omit search_genre'
@@ -193,7 +184,7 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
         for name in self.auto_order:
             if not self.clients[name].is_configured():
                 continue
-            unsupported = self._unsupported(name, genre, result_type)
+            unsupported = self._unsupported(name, genre, result_types)
             if unsupported:
                 # Engines that cannot return the result type at all are left out silently.
                 if unsupported[0] != 'unsupported_result_type':
@@ -202,8 +193,8 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
             engines.append(name)
 
         if not engines:
-            if result_type != 'web':
-                error = f"No configured engine supports result_type '{result_type}'"
+            if result_types != ('web',):
+                error = f"No configured engine supports result_type {', '.join(result_types)}"
             elif skipped:
                 error = f"No configured engine supports search_genre '{genre}'"
             else:
@@ -227,9 +218,14 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
         search_genre: Optional[str] = None,
         recent_days: Optional[int] = None,
         engine: Optional[str] = None,
-        result_type: str = 'web',
+        result_type: Any = 'web',
     ) -> Dict[str, Any]:
-        """Search with the requested engine, or the configured engines in auto order."""
+        """
+        Search with the requested engine, or the configured engines in auto order.
+
+        result_type is a string ("web", "web,discussions") or a list; types
+        other than web are Brave result sections (see parse_result_types).
+        """
         try:
             validation = self.validate_query(query)
             if not validation['valid']:
@@ -240,8 +236,11 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
                 }
 
             num_results = max(1, min(100, num_results))
-            result_type = (result_type or 'web').strip().lower()
-            engines, attempts, error = self.plan_engines(engine, search_genre, result_type)
+            result_types, type_error = parse_result_types(result_type)
+            if type_error:
+                return {'success': False, 'error': type_error, 'error_code': 'invalid_result_type', 'query': query}
+            result_type = main_result_type(result_types)
+            engines, attempts, error = self.plan_engines(engine, search_genre, result_types)
             if error:
                 error['query'] = query
                 return error
@@ -255,7 +254,7 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
                     try:
                         result = await self._search_engine(
                             name, query, num_results, language, region, safe_search, search_genre, recent_days,
-                            result_type
+                            result_types
                         )
                     except Exception as e:
                         result = failure('error', f'{name} search error: {e}')
@@ -284,7 +283,7 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
                     result['results'], validation, num_results, language, region,
                     safe_search, search_genre, recent_days, result['engine'], result.get('enhanced_query', query)
                 )
-                result['search_metadata']['search_params']['result_type'] = result_type
+                result['search_metadata']['search_params']['result_type'] = list(result_types)
             elif result.get('failure_kind') == 'no_results':
                 suggestions = self._generate_simplified_query_suggestions(query)
                 if suggestions:
@@ -314,7 +313,7 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
         include_snippets: bool = True,
         recent_days: Optional[int] = None,
         engine: Optional[str] = None,
-        result_type: str = 'web',
+        result_type: Any = 'web',
     ) -> Dict[str, Any]:
         """Former GoogleSearchProcessor.search_google signature. include_snippets is ignored."""
         return await self.search(
@@ -331,7 +330,7 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
         safe_search: bool,
         search_genre: Optional[str],
         recent_days: Optional[int],
-        result_type: str = 'web',
+        result_types: Tuple[str, ...] = ('web',),
     ) -> Dict[str, Any]:
         """Run one engine, applying search_genre the way that engine supports."""
         client = self.clients[name]
@@ -343,7 +342,7 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
         enhanced_query = self._enhance_query_with_genre(query, search_genre)
         if name == 'brave':
             result = await client.search(enhanced_query, num_results, language, region, safe_search, recent_days,
-                                         result_type)
+                                         result_types)
         else:
             result = await client.search(enhanced_query, num_results, language, region, safe_search, recent_days)
         result['enhanced_query'] = enhanced_query
