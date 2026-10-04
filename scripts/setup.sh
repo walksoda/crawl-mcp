@@ -16,11 +16,16 @@ echo "依存関係をインストール中..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
+# クロールに使うブラウザのインストール
+echo "Playwright の Chromium をインストール中..."
+python -m playwright install chromium
+
 echo "セットアップが完了しました！"
 echo ""
 echo "使用方法:"
 echo "1. 仮想環境を有効化: source venv/bin/activate"
 echo "2. サーバーを起動: python -m crawl4ai_mcp.server"
-echo "3. 例の実行: python example_usage.py"
+echo "3. オプションの確認: python -m crawl4ai_mcp.server --help"
+echo "4. HTTPで起動: python -m crawl4ai_mcp.server --transport streamable-http --host 127.0.0.1 --port 8000"
 echo ""
 echo "サーバーを停止するには Ctrl+C を押してください"

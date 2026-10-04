@@ -13,7 +13,7 @@ services:
     
     # Environment variables
     environment:
-      - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-INFO}
+      - CRAWL4AI_MCP_LOG_LEVEL=${CRAWL4AI_MCP_LOG_LEVEL:-}
       - PYTHONUNBUFFERED=1
       # Headless browser optimization
       - CRAWL4AI_BROWSER_TYPE=${CRAWL4AI_BROWSER_TYPE:-chromium}
@@ -48,7 +48,7 @@ services:
     restart: unless-stopped
     
     environment:
-      - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-INFO}
+      - CRAWL4AI_MCP_LOG_LEVEL=${CRAWL4AI_MCP_LOG_LEVEL:-}
       - PYTHONUNBUFFERED=1
       # Headless browser optimization
       - CRAWL4AI_BROWSER_TYPE=${CRAWL4AI_BROWSER_TYPE:-chromium}
@@ -70,8 +70,20 @@ services:
     profiles:
       - http
     
+    # The server has no /health route. A plain GET on /mcp is answered with
+    # 406 Not Acceptable (or 400) by a running server, so any HTTP status
+    # below 500 counts as healthy; a refused connection or 5xx does not.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health", "||", "exit", "1"]
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, urllib.request, urllib.error
+          try:
+              urllib.request.urlopen("http://localhost:8000/mcp", timeout=5)
+          except urllib.error.HTTPError as e:
+              sys.exit(0 if e.code < 500 else 1)
       interval: 30s
       timeout: 10s
       retries: 3

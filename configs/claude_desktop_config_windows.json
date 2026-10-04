@@ -9,7 +9,7 @@
         "cd /home/user/prj/crawl && source venv/bin/activate && python -m crawl4ai_mcp.server"
       ],
       "env": {
-        "FASTMCP_LOG_LEVEL": "DEBUG"
+        "CRAWL4AI_MCP_LOG_LEVEL": "DEBUG"
       },
       "llm_config": {
         "default_provider": "openai",

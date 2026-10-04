@@ -3,10 +3,10 @@
     "crawl4ai": {
       "command": "wsl",
       "args": [
-        "/home/user/prj/crawl/run_server.sh"
+        "/home/user/prj/crawl/scripts/run_server.sh"
       ],
       "env": {
-        "FASTMCP_LOG_LEVEL": "DEBUG"
+        "CRAWL4AI_MCP_LOG_LEVEL": "DEBUG"
       },
       "llm_config": {
         "default_provider": "openai",
