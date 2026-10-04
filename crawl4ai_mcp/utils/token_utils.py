@@ -172,6 +172,9 @@ def _generate_recommendations(result: Dict[str, Any]) -> List[str]:
             "Use content_limit and content_offset to retrieve content in chunks "
             "(e.g., content_limit=5000, content_offset=0 for first 5000 chars)"
         )
+        recommendations.append(
+            "Use output_path to save the full content to a file"
+        )
 
     if "search_query" in result or "query" in result:
         recommendations.append(

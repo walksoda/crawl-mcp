@@ -426,7 +426,7 @@ def register_crawl_tools(mcp, get_modules):
                     source_tool="crawl_url_with_fallback",
                 )
             result_dict = _apply_content_slicing(result_dict, content_limit, content_offset)
-            return result_dict
+            return apply_token_limit(result_dict, max_tokens=25000)
         except Exception as e:
             return {
                 "success": False,

@@ -114,7 +114,14 @@ async def _check_and_summarize_if_needed(
     """
     Check if response content exceeds token limits and apply summarization if needed.
     Respects user-specified limits when provided.
+
+    Only runs when the caller opted in with auto_summarize=True. Otherwise the
+    full content goes to the tool layer, which persists it (output_path) and
+    then truncates the response copy with apply_token_limit.
     """
+    if not request.auto_summarize:
+        return response
+
     # Skip if response failed
     if not response.success:
         return response
