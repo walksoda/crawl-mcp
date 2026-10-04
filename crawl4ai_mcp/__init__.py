@@ -39,6 +39,10 @@ def _detect_version() -> str:
 
 
 __version__ = _detect_version()
+
+from .crawl4ai_guard import install as _install_crawl4ai_guard
+
+_install_crawl4ai_guard()
 __author__ = "walksoda"
 __email__ = "walksoda@users.noreply.github.com"
 __original_lib__ = "crawl4ai"
