@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0] - 2026-10-10
 
 ### Added
 - `result_type` request key for `search_web`, `batch_search_web` and `search_and_crawl`: `web` (default), `discussions`, `faq`, `videos` and `news`, alone or several as a list or a comma-separated string. `discussions`, `faq` and `videos` are Brave web search sections fetched in one request, and `news` is a separate Brave News Search request. `discussions` returns forum posts with `forum_name`, `num_answers`, `score`, `question` and `top_comment`, and `faq` returns question and answer excerpts. `results` holds web results when `web` is requested, otherwise the first type; the other types go to `extra_results`. Only the `brave` engine supports them (`auto` uses Brave alone; other engines return `unsupported_result_type`), and Brave returns them for some queries only.
