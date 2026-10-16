@@ -6,7 +6,7 @@ crawl4aiをラップしたModel Context Protocol（MCP）サーバーで、Web�
 
 ## 主な機能
 
-- Google Custom Search、Brave、Exa でWeb検索でき、エンジン間で自動的にフォールバックします。結果は6つのジャンル（ファイル形式と言語）で絞り込めます
+- Google Custom Search、Brave、Exa、セルフホストの SearXNG でWeb検索でき、エンジン間で自動的にフォールバックします。結果は6つのジャンル（ファイル形式と言語）で絞り込めます
 - JavaScriptを実行するWebクローリング、指定した深さでのサイト巡回、エンティティ抽出
 - Webページ、PDF、Word、Excel、PowerPoint、ZIPアーカイブからのコンテンツ抽出
 - LLMによる要約は `auto_summarize=true` を指定したときだけ動きます。指定しない場合、大きなレスポンスは約25000トークンで切り詰められ、全文は `output_path` で保存できます
@@ -153,7 +153,7 @@ DockerのHTTPモードを使う場合:
 - `get_search_genres` - 利用可能な検索ジャンルとエンジン設定の取得
 - `search_google`、`batch_search_google` - `search_web` と `batch_search_web` の非推奨エイリアス
 
-検索ツールを使うには、少なくとも1つのエンジンのAPIキーが要ります。`GOOGLE_SEARCH_API_KEY` と `GOOGLE_SEARCH_ENGINE_ID`（Google Custom Search。新規受付は終了しており、2027-01-01 に提供が終わる）、`BRAVE_SEARCH_API_KEY`、`EXA_API_KEY` のいずれかです。既定のエンジンは `SEARCH_ENGINE` で決めます。`auto` にすると、設定済みのエンジンを `SEARCH_ENGINE_ORDER`（デフォルト `google_custom,brave,exa`）の順に試します。リクエストの `engine` キーを指定すれば、その呼び出しだけエンジンを変えられます。詳しくは[APIリファレンス](docs/ja/API_REFERENCE.md#検索ツール)を参照してください。
+検索ツールを使うには、少なくとも1つのエンジンの設定が要ります。`GOOGLE_SEARCH_API_KEY` と `GOOGLE_SEARCH_ENGINE_ID`（Google Custom Search。新規受付は終了しており、2027-01-01 に提供が終わる）、`BRAVE_SEARCH_API_KEY`、`EXA_API_KEY`、`SEARXNG_URL`（セルフホストの [SearXNG](https://docs.searxng.org/)。APIキーは不要）のいずれかです。既定のエンジンは `SEARCH_ENGINE` で決めます。`auto` にすると、設定済みのエンジンを `SEARCH_ENGINE_ORDER`（デフォルト `google_custom,brave,exa,searxng`）の順に試します。リクエストの `engine` キーを指定すれば、その呼び出しだけエンジンを変えられます。詳しくは[APIリファレンス](docs/ja/API_REFERENCE.md#検索ツール)を参照してください。
 
 `search_web`、`batch_search_web`、`search_and_crawl` の `search_genre` に指定できる値は共通で、`pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` です。大文字と小文字は区別しません。それ以外の値を渡すと、検索を始める前に `invalid_search_genre` エラーが返ります。Exa はファイル形式で絞り込めないため、`auto` ではファイル形式のジャンルのとき Exa を飛ばします。
 

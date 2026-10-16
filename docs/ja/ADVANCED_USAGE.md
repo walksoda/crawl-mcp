@@ -282,7 +282,7 @@ URLごとに設定を変えたいときは `multi_url_crawl` を使います。
 }
 ```
 
-`batch_search_web` は3件までのクエリをまとめて検索します。リクエストに `"engine": "brave"`（または `google_custom`、`exa`）を加えると、この呼び出しで使うエンジンを選べます。
+`batch_search_web` は3件までのクエリをまとめて検索します。リクエストに `"engine": "brave"`（または `google_custom`、`exa`、`searxng`）を加えると、この呼び出しで使うエンジンを選べます。
 
 ```json
 {

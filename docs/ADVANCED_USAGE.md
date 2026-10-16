@@ -282,7 +282,7 @@ The search tools take a single `request` object. `search_and_crawl` searches and
 }
 ```
 
-`batch_search_web` runs up to three queries. Add `"engine": "brave"` (or `google_custom`, `exa`) to the request to pick the engine for this call:
+`batch_search_web` runs up to three queries. Add `"engine": "brave"` (or `google_custom`, `exa`, `searxng`) to the request to pick the engine for this call:
 
 ```json
 {

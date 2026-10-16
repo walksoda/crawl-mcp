@@ -2,11 +2,11 @@
 
 > This is an unofficial MCP server for the [crawl4ai](https://github.com/unclecode/crawl4ai) library. It is not affiliated with the crawl4ai project.
 
-A Model Context Protocol (MCP) server that wraps crawl4ai. It extracts content from web pages, PDFs, Office documents, YouTube videos, and web search results (Google Custom Search, Brave, or Exa). To keep token usage low, it can summarize content with an LLM (`auto_summarize`, opt-in) and write full results to disk (`output_path`).
+A Model Context Protocol (MCP) server that wraps crawl4ai. It extracts content from web pages, PDFs, Office documents, YouTube videos, and web search results (Google Custom Search, Brave, Exa, or a self-hosted SearXNG). To keep token usage low, it can summarize content with an LLM (`auto_summarize`, opt-in) and write full results to disk (`output_path`).
 
 ## Key Features
 
-- Web search through Google Custom Search, Brave, or Exa, with automatic fallback between engines and 6 genres (file type and language filters)
+- Web search through Google Custom Search, Brave, Exa, or a self-hosted SearXNG instance, with automatic fallback between engines and 6 genres (file type and language filters)
 - Web crawling with JavaScript rendering, recursive site crawls, and entity extraction
 - Content extraction from web pages, PDFs, Word, Excel, PowerPoint, and ZIP archives
 - LLM summarization when `auto_summarize=true`. Without it, large responses are truncated at about 25000 tokens, and `output_path` saves the full content
@@ -154,7 +154,7 @@ For Docker in HTTP mode:
 - `get_search_genres` - Get available search genres and the engine configuration
 - `search_google`, `batch_search_google` - Deprecated aliases of `search_web` and `batch_search_web`
 
-The search tools need an API key for at least one engine: `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID` (Google Custom Search, closed to new customers and ending on 2027-01-01), `BRAVE_SEARCH_API_KEY`, or `EXA_API_KEY`. `SEARCH_ENGINE` sets the default engine (`auto` tries the configured engines in `SEARCH_ENGINE_ORDER`, default `google_custom,brave,exa`), and the `engine` request key overrides it for one call. See the [API Reference](docs/API_REFERENCE.md#search-tools).
+The search tools need at least one configured engine: `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID` (Google Custom Search, closed to new customers and ending on 2027-01-01), `BRAVE_SEARCH_API_KEY`, `EXA_API_KEY`, or `SEARXNG_URL` (a self-hosted [SearXNG](https://docs.searxng.org/) instance, no API key). `SEARCH_ENGINE` sets the default engine (`auto` tries the configured engines in `SEARCH_ENGINE_ORDER`, default `google_custom,brave,exa,searxng`), and the `engine` request key overrides it for one call. See the [API Reference](docs/API_REFERENCE.md#search-tools).
 
 `search_web`, `batch_search_web` and `search_and_crawl` accept the same `search_genre` values: `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, `english`. Matching is case-insensitive. Any other value returns an `invalid_search_genre` error before the search runs. Exa cannot filter by file type, so `auto` skips Exa for the file type genres.
 

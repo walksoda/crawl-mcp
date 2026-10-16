@@ -10,7 +10,7 @@ Reference for the MCP tools provided by the Crawl4AI MCP Server.
 |-------------|---------------------|------------------|
 | Single webpage | `crawl_url` | Basic crawling, JS support |
 | Multiple pages (up to 10) | `deep_crawl_site` | Site mapping, link following |
-| Web search | `search_web` | Google Custom Search, Brave or Exa |
+| Web search | `search_web` | Google Custom Search, Brave, Exa or SearXNG |
 | Search + Crawling | `search_and_crawl` | Web search + auto-crawl |
 | Difficult sites | `crawl_url_with_fallback` | Multiple retry strategies |
 | Structured data | `extract_structured_data` | CSS/LLM schemas |
@@ -323,30 +323,33 @@ Returns:
 
 ## Search Tools
 
-The search tools call a search engine API. Three engines are supported:
+The search tools call a search engine API. Four engines are supported:
 
 | Engine | `engine` value | API key | Notes |
 |---|---|---|---|
 | Google Custom Search JSON API | `google_custom` | `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID` | Closed to new customers; Google ends the API on 2027-01-01 |
 | Brave Search API | `brave` | `BRAVE_SEARCH_API_KEY` | Accepts query operators (`site:`, `filetype:`, `lang:`). At most 20 results per request; larger `num_results` values send one request per 20 results. Requests go out one at a time; an HTTP 429 whose `X-RateLimit-Reset` is 2 seconds or less is retried after that wait (at most twice) |
 | Exa | `exa` | `EXA_API_KEY` | Reads the query as natural language. `site:` and `-site:` terms are sent as domain filters; other operators stay in the query text. Results include `published_date` and `author` when Exa returns them |
+| SearXNG (self-hosted metasearch) | `searxng` | none; set `SEARXNG_URL` (an `http://` or `https://` URL) | Sends the query, with any operators, to the instance's engines (`SEARXNG_ENGINES`, default: the instance's own). Reads up to 5 result pages to reach `num_results` and drops duplicate URLs. Results include `source_engines`, `score` and `published_date` when SearXNG returns them. The instance must allow the `json` format (`search.formats` in `settings.yml`); otherwise it answers HTTP 403 and the error has a `suggestion` |
 
 Engine selection:
 - The `engine` request key picks the engine for one call. Without it, the `SEARCH_ENGINE` environment variable decides (default `auto`).
-- `auto` tries the engines that have API keys in the order set by `SEARCH_ENGINE_ORDER` (default `google_custom,brave,exa`). It moves to the next engine when a request fails (rate limit, rejected key, no credits, network error, 5xx). Zero results is a valid answer and does not move on. The response lists each try in `fallback_info.attempts`.
-- A named engine without an API key returns `error_code: search_engine_not_configured` before any network request. An unknown `engine` value returns `error_code: invalid_search_engine` with the `valid_engines` list.
+- `auto` tries the configured engines in the order set by `SEARCH_ENGINE_ORDER` (default `google_custom,brave,exa,searxng`). It moves to the next engine when a request fails (rate limit, rejected key, no credits, network error, 5xx). Zero results is a valid answer and does not move on. The response lists each try in `fallback_info.attempts`.
+- A named engine that is not configured returns `error_code: search_engine_not_configured` before any network request. An unknown `engine` value returns `error_code: invalid_search_engine` with the `valid_engines` list.
 - Every response has an `engine` key with the engine that answered.
 
 How the common keys map to each engine:
 
-| Key | `google_custom` | `brave` | `exa` |
-|---|---|---|---|
-| `language` | `hl` | `search_lang` | not used |
-| `region` | `gl` | `country` (`uk` becomes `GB`; codes Brave does not list become `ALL`) | `userLocation` |
-| `recent_days` | `dateRestrict` | `freshness` (see below) | `startPublishedDate`, exactly N days before now |
-| `safe_search` | `safe=active` | `safesearch=moderate` | `moderation` |
+| Key | `google_custom` | `brave` | `exa` | `searxng` |
+|---|---|---|---|---|
+| `language` | `hl` | `search_lang` | not used | `language`, combined with `region` (for example `en-US`) |
+| `region` | `gl` | `country` (`uk` becomes `GB`; codes Brave does not list become `ALL`) | `userLocation` | part of `language` (`uk` becomes `GB`) |
+| `recent_days` | `dateRestrict` | `freshness` (see below) | `startPublishedDate`, exactly N days before now | `time_range` (see below) |
+| `safe_search` | `safe=active` | `safesearch=moderate` | `moderation` | `safesearch=1` |
 
 For `brave`, `recent_days` of 1, 7, 31 and 365 use Brave's rolling windows (`pd`, `pw`, `pm`, `py`: the past 24 hours, 7 days, 31 days and 365 days). Other values become a date range in UTC from N days ago through today. Whole days are counted, so results can be up to one day older than N days.
+
+For `searxng`, `recent_days` becomes the smallest SearXNG `time_range` that covers it: 1 is `day`, 2-7 `week`, 8-31 `month`, 32-365 `year`. Values over 365 apply no date filter. The range used is returned as `time_range`. When some of the engines behind SearXNG fail, the response lists them in `unresponsive_engines` (for example `"google: timeout"`). When all of them fail and nothing is returned, the result is a failure that `auto` moves past, not zero results.
 
 ### `search_web`
 
@@ -357,7 +360,7 @@ Parameters:
   - `query` (str): Search query string (required)
   - `num_results` (int): Number of results to return, 1-100 (default: 10)
   - `search_genre` (Optional[str]): Genre filter, one of `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, `english` (default: None)
-  - `engine` (Optional[str]): `auto`, `google_custom`, `brave` or `exa` (default: the `SEARCH_ENGINE` setting)
+  - `engine` (Optional[str]): `auto`, `google_custom`, `brave`, `exa` or `searxng` (default: the `SEARCH_ENGINE` setting)
   - `result_type` (str or List[str]): `web`, `discussions`, `faq`, `videos`, `news`, or several of them as a list or a comma-separated string (default: "web"). See below
   - `language` (str): Search language (default: "en")
   - `region` (str): Search region (default: "us")
@@ -369,12 +372,12 @@ Parameters:
 
 Features:
 - Each result has `rank`, `url`, `domain`, `title`, `snippet` and a URL `type` (for example `academic`, `documentation`, `video`)
-- 6 search genres: `pdf`, `documents`, `presentations`, `spreadsheets` (file type filters), `japanese`, `english` (language filters). `google_custom` and `brave` add the genre's operator to the query. `exa` has no file type filter: naming `exa` with a file type genre returns `error_code: unsupported_search_genre`, and `auto` skips `exa` for those genres. With `exa`, `japanese` sets the location to JP and `english` has no effect
+- 6 search genres: `pdf`, `documents`, `presentations`, `spreadsheets` (file type filters), `japanese`, `english` (language filters). `google_custom`, `brave` and `searxng` add the genre's operator to the query (SearXNG passes it to its engines). `exa` has no file type filter: naming `exa` with a file type genre returns `error_code: unsupported_search_genre`, and `auto` skips `exa` for those genres. With `exa`, `japanese` sets the location to JP and `english` has no effect
 - `search_genre` matching is case-insensitive. Any other value returns `success: false` with `error_code: invalid_search_genre` and the `valid_genres` list, before any network request. `batch_search_web` and `search_and_crawl` check `search_genre` and `engine` the same way
 - When an engine returns zero results, the response suggests shorter queries in `alternative_queries`
 - Safe search is on by default
 - `result_type` picks Brave result sections besides web results: `discussions` (forum posts such as Reddit threads and GitHub issues, with `forum_name`, `num_answers`, `score`, `question` and `top_comment`), `faq` (question and answer excerpts from pages, with `question` and the answer as `snippet`), `videos` (with `duration`, `creator`, `publisher`) and `news` (with `source` and `age`). `web`, `discussions`, `faq` and `videos` come from one Brave web search request. `news` comes from a separate request to Brave's News Search endpoint (up to 50 articles per request), because the news section of web search is empty for most queries that name a specific event or a concept. News Search returns dated articles in general, so blog posts and documentation pages can appear too; for Japanese news pass `region: jp`. `results` holds the web results when `web` is requested, otherwise the first type listed; the other types go to `extra_results` keyed by type (an empty list when Brave returned none). Forum post and answer text is cut at 1,000 characters. If the news request fails while `news` is an extra type, the other results are still returned and the error is in `extra_errors`. An empty list in `extra_results` means Brave returned nothing for that type; a failed request always shows up in `extra_errors`
-- Only `brave` returns types other than `web`: `auto` uses Brave alone, and naming `google_custom` or `exa` returns `error_code: unsupported_result_type`. Brave returns `discussions`, `faq` and `videos` for some queries only, `num_results` can only shorten them, and paging past 20 results adds web results only. When none of the requested sections has results, the response is `success: false` with a suggestion to reword or use `web`. An unknown type returns `error_code: invalid_result_type` before any network request
+- Only `brave` returns types other than `web`: `auto` uses Brave alone, and naming `google_custom`, `exa` or `searxng` returns `error_code: unsupported_result_type`. Brave returns `discussions`, `faq` and `videos` for some queries only, `num_results` can only shorten them, and paging past 20 results adds web results only. When none of the requested sections has results, the response is `success: false` with a suggestion to reword or use `web`. An unknown type returns `error_code: invalid_result_type` before any network request
 
 ### `search_google`
 
@@ -430,7 +433,7 @@ Returns the supported `search_genre` values and the search engine configuration.
 Response keys:
 - `genres`: genre name to description
 - `query_operators`: genre name to the operator added to the query
-- `configuration`: `default_engine`, `auto_order`, `configured_engines` (engines with API keys), `engines`, `result_types`, `genre_support` (how each engine applies genres), and the supported languages and regions
+- `configuration`: `default_engine`, `auto_order`, `configured_engines` (engines with an API key or, for `searxng`, `SEARXNG_URL`), `engines`, `result_types`, `genre_support` (how each engine applies genres), and the supported languages and regions
 - `total_genres`, `usage_example`, and `notes`
 
 ## Batch Operations
