@@ -34,7 +34,7 @@ _GENRE_DESC = (
 # Text for the engine key in the request descriptions.
 _ENGINE_DESC = (
     "engine (optional, one of: auto, " + ", ".join(SEARCH_ENGINES)
-    + "; default from SEARCH_ENGINE, auto tries the engines that have API keys in SEARCH_ENGINE_ORDER"
+    + "; default from SEARCH_ENGINE, auto tries the configured engines in SEARCH_ENGINE_ORDER"
     " and moves to the next one on errors other than zero results)"
 )
 
@@ -177,7 +177,7 @@ def register_search_tools(mcp, get_modules):
     async def search_web(
         request: Annotated[Dict[str, Any], Field(description=_SEARCH_REQUEST_DESC)]
     ) -> Dict[str, Any]:
-        """Search the web with Google Custom Search, Brave or Exa (engine key, or the server default). Optional search_genre filtering (file types or language; see get_search_genres). Supply output_path in the request to persist the full unsliced result set to disk as JSON and receive a slim response."""
+        """Search the web with Google Custom Search, Brave, Exa or SearXNG (engine key, or the server default). Optional search_genre filtering (file types or language; see get_search_genres). Supply output_path in the request to persist the full unsliced result set to disk as JSON and receive a slim response."""
         return await _search_web(request, "search_web")
 
     @mcp.tool(annotations=READONLY_ANNOTATIONS)

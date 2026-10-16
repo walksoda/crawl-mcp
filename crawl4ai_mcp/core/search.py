@@ -37,7 +37,7 @@ async def search_web(
     Run a web search on the selected engine and return structured results.
 
     Request keys: query, num_results, search_genre, language, region,
-    safe_search, recent_days, engine (auto, google_custom, brave, exa),
+    safe_search, recent_days, engine (auto, google_custom, brave, exa, searxng),
     result_type (web, discussions, faq, videos, news; a string or a list).
     """
     try:
@@ -81,7 +81,8 @@ async def search_web(
             for key in ('error_code', 'engine', 'configured_engines', 'alternative_queries'):
                 if key in result:
                     response[key] = result[key]
-        for key in ('extra_results', 'extra_errors', 'fallback_info', 'cost_dollars'):
+        for key in ('extra_results', 'extra_errors', 'fallback_info', 'cost_dollars',
+                    'time_range', 'unresponsive_engines'):
             if key in result:
                 response[key] = result[key]
         return response
@@ -177,7 +178,8 @@ async def batch_search_web(
                     "error_code": result.get('error_code'),
                     "suggestion": result.get('suggestion')
                 }
-            for key in ('result_type', 'extra_results', 'extra_errors', 'fallback_info', 'cost_dollars'):
+            for key in ('result_type', 'extra_results', 'extra_errors', 'fallback_info', 'cost_dollars',
+                        'time_range', 'unresponsive_engines'):
                 if key in result:
                     entry[key] = result[key]
             processed_results.append(entry)
@@ -302,6 +304,7 @@ async def get_search_genres() -> Dict[str, Any]:
                 "genre_support": {
                     "google_custom": "all genres (operators added to the query)",
                     "brave": "all genres (operators added to the query)",
+                    "searxng": "all genres (operators added to the query and passed to the SearXNG engines)",
                     "exa": (
                         "japanese (sets userLocation=JP) and english (no effect); "
                         + ", ".join(sorted(FILE_TYPE_GENRES))

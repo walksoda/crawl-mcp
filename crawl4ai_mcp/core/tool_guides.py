@@ -72,7 +72,7 @@ TOOL_SELECTION_GUIDE = {
         "tools": ["search_web", "search_and_crawl", "batch_search_web", "get_search_genres"],
         "description": "Search and discover content on the web with advanced filtering",
         "use_cases": [
-            "Web search (Google Custom Search, Brave, Exa) with genre-specific filtering",
+            "Web search (Google Custom Search, Brave, Exa, SearXNG) with genre-specific filtering",
             "Search result crawling and content extraction",
             "Batch search operations with analysis",
             "Academic, news, technical content discovery",
