@@ -146,13 +146,16 @@ python -m crawl4ai_mcp.server --transport streamable-http --host 127.0.0.1 --por
 | `AZURE_OPENAI_ENDPOINT` | なし | Azure OpenAIのエンドポイントURL |
 | `AZURE_OPENAI_API_VERSION` | `2024-02-15-preview` | 要約クライアントがAzure OpenAIで使うAPIバージョン |
 | `MCP_LLM_CONFIG` | なし | LLM設定一式のJSON（後述）。組み込みのプロバイダー一覧を置き換える |
-| `SEARCH_ENGINE` | `auto` | 既定の検索エンジン。`auto`、`google_custom`、`brave`、`exa` のいずれか。リクエストの `engine` キーで1回ごとに上書きできる |
-| `SEARCH_ENGINE_ORDER` | `google_custom,brave,exa` | `auto` が、APIキーのあるエンジンを試す順番。未知の名前は無視する |
+| `SEARCH_ENGINE` | `auto` | 既定の検索エンジン。`auto`、`google_custom`、`brave`、`exa`、`searxng` のいずれか。リクエストの `engine` キーで1回ごとに上書きできる |
+| `SEARCH_ENGINE_ORDER` | `google_custom,brave,exa,searxng` | `auto` が、設定済みのエンジンを試す順番。未知の名前は無視する |
 | `GOOGLE_SEARCH_API_KEY` | なし | Google Custom Search APIのキー。新規受付は終了しており、2027-01-01 に提供が終わる |
 | `GOOGLE_SEARCH_ENGINE_ID` | なし | カスタム検索エンジンのID |
 | `BRAVE_SEARCH_API_KEY` | なし | Brave Search APIのキー |
 | `EXA_API_KEY` | なし | ExaのAPIキー |
-| `CUSTOM_SEARCH_API_RPM` | `100` | Custom Search APIの1分あたりのリクエスト数。サーバー側で制限する。Brave と Exa は各サービスが制限し、HTTP 429 を返す。そのとき `auto` は次のエンジンへ進む |
+| `SEARXNG_URL` | なし | セルフホストの SearXNG インスタンスのURL（`http://` か `https://`）。例: `http://localhost:8080`。`searxng` エンジンを有効にする。それ以外の値は警告を出して無視する。インスタンスで `json` 形式を許可しておく必要がある |
+| `SEARXNG_ENGINES` | インスタンスの設定 | SearXNG に問い合わせさせるエンジンのカンマ区切り。例: `google,bing,duckduckgo` |
+| `SEARXNG_TIMEOUT` | `30` | SearXNG への1リクエストの秒数。0より大きく120以下。それ以外の値は警告を出して30にする |
+| `CUSTOM_SEARCH_API_RPM` | `100` | Custom Search APIの1分あたりのリクエスト数。サーバー側で制限する。Brave と Exa は各サービスが制限し、HTTP 429 を返す（SearXNG はインスタンス側に制限があればそれに従う）。そのとき `auto` は次のエンジンへ進む |
 | `GOOGLE_SEARCH_MODE` | なし | `SEARCH_ENGINE` が未設定のときだけ読む。`custom_search_only` は `google_custom` として扱う。`hybrid` と `googlesearch_only` は `auto` として扱う（googlesearch-python は削除した） |
 | `CRAWL4AI_BROWSER_TYPE` | 未設定 | `chromium`、`firefox`、`webkit` のどれかを指定するとそのブラウザだけを使う。未設定ならWebKit、Chromiumの順に試す。検出回避ブラウザは常にChromium |
 | `CRAWL4AI_CACHE_TTL_SECONDS` | `3600` | 取得したページを新しいとみなす秒数。過ぎると、次にそのURLをクロールしたときにキャッシュを使わず取り直す。`0` なら期限なしで、キャッシュを使い続ける |

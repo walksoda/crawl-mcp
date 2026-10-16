@@ -27,7 +27,7 @@ crawl-mcp/
 │   │   └── batch_tools.py       # batch_crawl、multi_url_crawl
 │   ├── tools/                   # 後方互換のための再エクスポートfacade（実装なし）
 │   ├── core/                    # ビジネスロジック（クロール、フォールバック、抽出、YouTube、検索、ファイル、バッチ）
-│   ├── processors/              # YouTube・Web検索（search_engines/: Google Custom Search、Brave、Exa）・ファイル変換のプロセッサー
+│   ├── processors/              # YouTube・Web検索（search_engines/: Google Custom Search、Brave、Exa、SearXNG）・ファイル変換のプロセッサー
 │   ├── infra/                   # ブラウザ設定、フォールバック戦略、fingerprint、セッション、戦略/コンテンツキャッシュ
 │   ├── utils/                   # LLMクライアント、トークン計算、時刻パース
 │   ├── models/                  # Pydanticのリクエスト/レスポンスモデル
@@ -186,12 +186,13 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export AZURE_OPENAI_API_KEY="your-key"
 export AZURE_OPENAI_ENDPOINT="https://resource.openai.azure.com"
 
-# Web検索（少なくとも1つのエンジンのキー）
-export SEARCH_ENGINE=auto                   # auto（デフォルト） | google_custom | brave | exa
+# Web検索（少なくとも1つのエンジンの設定）
+export SEARCH_ENGINE=auto                   # auto（デフォルト） | google_custom | brave | exa | searxng
 export GOOGLE_SEARCH_API_KEY="..."
 export GOOGLE_SEARCH_ENGINE_ID="..."
 export BRAVE_SEARCH_API_KEY="..."
 export EXA_API_KEY="..."
+export SEARXNG_URL="http://localhost:8080"  # セルフホストの SearXNG（キー不要）
 ```
 
 ### ローカルMCPクライアントの設定

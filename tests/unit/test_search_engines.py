@@ -1,4 +1,4 @@
-"""Search engine clients (Google Custom Search, Brave, Exa), engine selection
+"""Search engine clients (Google Custom Search, Brave, Exa, SearXNG), engine selection
 and auto fallback. HTTP is replaced with a fake aiohttp session."""
 
 from __future__ import annotations
@@ -13,17 +13,19 @@ import pytest
 from crawl4ai_mcp.core.search import recent_days_to_int
 from crawl4ai_mcp.middleware.cache import _get_search_cache_key
 from crawl4ai_mcp.processors import web_search
-from crawl4ai_mcp.processors.search_engines import brave, exa, google_custom
+from crawl4ai_mcp.processors.search_engines import brave, exa, google_custom, searxng
 from crawl4ai_mcp.processors.search_engines.brave import BraveSearchClient
 from crawl4ai_mcp.processors.search_engines.common import failure
 from crawl4ai_mcp.processors.search_engines.exa import ExaSearchClient, split_site_operators
 from crawl4ai_mcp.processors.search_engines.google_custom import CustomSearchAPIClient
+from crawl4ai_mcp.processors.search_engines.searxng import SearXNGSearchClient
 from crawl4ai_mcp.processors.web_search import WebSearchProcessor
 from crawl4ai_mcp.server_tools.search_tools import register_search_tools
 
 ENGINE_ENV = (
     "SEARCH_ENGINE", "SEARCH_ENGINE_ORDER", "GOOGLE_SEARCH_MODE",
     "GOOGLE_SEARCH_API_KEY", "GOOGLE_SEARCH_ENGINE_ID", "BRAVE_SEARCH_API_KEY", "EXA_API_KEY",
+    "SEARXNG_URL", "SEARXNG_ENGINES", "SEARXNG_TIMEOUT",
 )
 
 
@@ -525,11 +527,155 @@ class TestGoogleCustom:
         assert result["failure_kind"] == "auth"
 
 
+# ---------------------------------------------------------------------------
+# SearXNG
+# ---------------------------------------------------------------------------
+
+
+def _searx_page(urls, unresponsive=None) -> Dict[str, Any]:
+    return {
+        "results": [
+            {"url": u, "title": f"T {u}", "content": "  a \n b ", "engines": ["bing", "duckduckgo"],
+             "score": 1.5, "publishedDate": None}
+            for u in urls
+        ],
+        "unresponsive_engines": unresponsive or [],
+    }
+
+
+class TestSearXNG:
+    @pytest.mark.parametrize("raw,configured", [
+        ("http://searx.local:8080/", True),
+        ("https://searx.example.org", True),
+        ("searx.local:8080", False),
+        ("ftp://searx.local", False),
+        ("", False),
+    ])
+    def test_url_validation(self, monkeypatch, raw, configured):
+        monkeypatch.setenv("SEARXNG_URL", raw)
+        client = SearXNGSearchClient()
+        assert client.is_configured() is configured
+        if configured:
+            assert not client.base_url.endswith("/")
+
+    @pytest.mark.parametrize("raw,expected", [
+        (None, 30.0), ("10", 10.0), ("0", 30.0), ("-5", 30.0), ("500", 30.0), ("soon", 30.0),
+    ])
+    def test_timeout_validation(self, monkeypatch, raw, expected):
+        if raw is not None:
+            monkeypatch.setenv("SEARXNG_TIMEOUT", raw)
+        assert SearXNGSearchClient().timeout.total == expected
+
+    @pytest.mark.parametrize("days,expected", [
+        (None, None), (0, None), (1, "day"), (2, "week"), (7, "week"), (8, "month"), (31, "month"),
+        (90, "year"), (365, "year"), (400, None),
+    ])
+    def test_time_range(self, days, expected):
+        assert searxng.time_range_for(days) == expected
+
+    def test_build_params(self, monkeypatch):
+        monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+        monkeypatch.setenv("SEARXNG_ENGINES", " bing, ,duckduckgo ")
+        params = SearXNGSearchClient().build_params("q", 2, "EN", "uk", False, 5)
+        assert params == {
+            "q": "q", "format": "json", "categories": "general", "safesearch": 0, "pageno": 2,
+            "engines": "bing,duckduckgo", "language": "en-GB", "time_range": "week",
+        }
+
+    def test_build_params_defaults(self, monkeypatch):
+        monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+        params = SearXNGSearchClient().build_params("q")
+        assert "engines" not in params  # the instance's default engines
+        assert "language" not in params and "time_range" not in params
+        assert params["safesearch"] == 1
+
+    @pytest.mark.asyncio
+    async def test_not_configured(self):
+        result = await SearXNGSearchClient().search("q")
+        assert result["failure_kind"] == "not_configured"
+
+    @pytest.mark.asyncio
+    async def test_pages_and_dedupes(self, monkeypatch):
+        monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+        session = _install(monkeypatch, searxng, [
+            (200, _searx_page(["https://a.com/1", "https://b.org/2"])),
+            (200, _searx_page(["https://b.org/2", "https://github.com/x/y"])),
+        ])
+        result = await SearXNGSearchClient().search("q", num_results=3, recent_days=3)
+
+        assert [c["params"]["pageno"] for c in session.calls] == [1, 2]
+        assert session.calls[0]["url"] == "http://searx.local/search"
+        assert result["success"] is True
+        assert result["processing_method"] == "searxng"
+        assert result["time_range"] == "week"
+        assert [r["url"] for r in result["results"]] == ["https://a.com/1", "https://b.org/2", "https://github.com/x/y"]
+        assert [r["rank"] for r in result["results"]] == [1, 2, 3]
+        first = result["results"][0]
+        assert first["snippet"] == "a b"
+        assert first["source_engines"] == ["bing", "duckduckgo"]
+        assert first["score"] == 1.5
+        assert "published_date" not in first
+        assert result["results"][2]["type"] == "documentation"
+
+    @pytest.mark.asyncio
+    async def test_stops_when_a_page_adds_nothing(self, monkeypatch):
+        monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+        session = _install(monkeypatch, searxng, [
+            (200, _searx_page(["https://a.com/1"])),
+            (200, _searx_page(["https://a.com/1"])),
+        ])
+        result = await SearXNGSearchClient().search("q", num_results=10)
+        assert len(session.calls) == 2
+        assert result["total_results"] == 1
+
+    @pytest.mark.asyncio
+    async def test_later_page_error_keeps_earlier_results(self, monkeypatch):
+        monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+        _install(monkeypatch, searxng, [(200, _searx_page(["https://a.com/1"])), (429, None)])
+        result = await SearXNGSearchClient().search("q", num_results=5)
+        assert result["success"] is True
+        assert result["total_results"] == 1
+
+    @pytest.mark.asyncio
+    async def test_unresponsive_engines_reported(self, monkeypatch):
+        monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+        _install(monkeypatch, searxng, [(200, _searx_page(["https://a.com/1"], [["google", "Suspended: access denied"]]))])
+        result = await SearXNGSearchClient().search("q", num_results=1)
+        assert result["success"] is True
+        assert result["unresponsive_engines"] == ["google: Suspended: access denied"]
+
+    @pytest.mark.asyncio
+    async def test_all_engines_unresponsive_is_server_failure(self, monkeypatch):
+        """Zero results because every engine failed must let auto move on."""
+        monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+        _install(monkeypatch, searxng, [(200, _searx_page([], [["google", "timeout"], ["bing", "CAPTCHA"]]))])
+        result = await SearXNGSearchClient().search("q")
+        assert result["failure_kind"] == "server"
+        assert result["unresponsive_engines"] == ["google: timeout", "bing: CAPTCHA"]
+
+    @pytest.mark.asyncio
+    async def test_zero_results(self, monkeypatch):
+        monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+        _install(monkeypatch, searxng, [(200, _searx_page([]))])
+        result = await SearXNGSearchClient().search("q")
+        assert result["failure_kind"] == "no_results"
+
+    @pytest.mark.asyncio
+    async def test_json_format_disabled(self, monkeypatch):
+        monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+        _install(monkeypatch, searxng, [(403, None)])
+        result = await SearXNGSearchClient().search("q")
+        assert result["success"] is False
+        assert result["status_code"] == 403
+        assert "search.formats" in result["suggestion"]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("module,client_cls,env", [
     (brave, BraveSearchClient, {"BRAVE_SEARCH_API_KEY": "k"}),
     (exa, ExaSearchClient, {"EXA_API_KEY": "k"}),
     (google_custom, CustomSearchAPIClient, {"GOOGLE_SEARCH_API_KEY": "k", "GOOGLE_SEARCH_ENGINE_ID": "cx"}),
+    (searxng, SearXNGSearchClient, {"SEARXNG_URL": "http://searx.local"}),
 ])
 @pytest.mark.parametrize("body", [None, ["not", "an", "object"]])
 async def test_malformed_200_is_an_error_not_zero_results(monkeypatch, module, client_cls, env, body):
@@ -563,10 +709,11 @@ class TestEngineConfig:
         assert web_search.resolve_default_engine() == expected
 
     @pytest.mark.parametrize("raw,expected", [
-        (None, ("google_custom", "brave", "exa")),
+        (None, ("google_custom", "brave", "exa", "searxng")),
         ("exa, brave", ("exa", "brave")),
         ("brave,bogus,brave", ("brave",)),
-        ("bogus", ("google_custom", "brave", "exa")),
+        ("bogus", ("google_custom", "brave", "exa", "searxng")),
+        ("searxng,brave", ("searxng", "brave")),
     ])
     def test_auto_order(self, monkeypatch, raw, expected):
         if raw is not None:
@@ -602,6 +749,7 @@ def _processor(engine="auto", order=None, **clients) -> WebSearchProcessor:
         "google_custom": clients.get("google_custom", StubClient(configured=False)),
         "brave": clients.get("brave", StubClient(configured=False)),
         "exa": clients.get("exa", StubClient(configured=False)),
+        "searxng": clients.get("searxng", StubClient(configured=False)),
     }
     return proc
 
@@ -898,6 +1046,29 @@ async def test_core_search_web_returns_extra_results(monkeypatch):
     assert result["result_type"] == "web"
 
 
+@pytest.mark.asyncio
+async def test_searxng_genre_operator_added_to_query():
+    s = StubClient(result=_ok())
+    await _processor(searxng=s).search("q", search_genre="pdf", recent_days=3)
+    # google_custom-style call: (query, num_results, language, region, safe_search, recent_days)
+    assert s.calls[0] == ("q (filetype:pdf)", 10, "en", "us", True, 3)
+
+
+@pytest.mark.asyncio
+async def test_core_search_web_keeps_searxng_metadata(monkeypatch):
+    from crawl4ai_mcp.core import search as core_search
+    s = StubClient(result={**_ok(), "time_range": "week", "unresponsive_engines": ["google: timeout"]})
+    monkeypatch.setattr(core_search, "web_search_processor", _processor(searxng=s))
+    result = await core_search.search_web({"query": "q", "recent_days": 5})
+    assert result["engine"] == "searxng"
+    assert result["time_range"] == "week"
+    assert result["unresponsive_engines"] == ["google: timeout"]
+
+    monkeypatch.setattr("crawl4ai_mcp.processors.web_search_analysis.asyncio.sleep", AsyncMock())
+    batch = await core_search.batch_search_web({"queries": ["a"], "recent_days": 5})
+    assert batch["results"][0]["time_range"] == "week"
+
+
 def test_cache_key_includes_engine():
     base = {"query": "q"}
     assert _get_search_cache_key(base) == _get_search_cache_key({**base, "engine": ""})
@@ -948,7 +1119,7 @@ class TestSearchToolsEngine:
         search.search_web = search.batch_search_web = search.search_and_crawl = boom
         result = await _tools(search)[tool](request=request_dict)
         assert result["error_code"] == "invalid_search_engine"
-        assert result["valid_engines"] == ["auto", "google_custom", "brave", "exa"]
+        assert result["valid_engines"] == ["auto", "google_custom", "brave", "exa", "searxng"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("tool,request_dict", [

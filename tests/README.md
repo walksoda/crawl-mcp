@@ -14,7 +14,7 @@ tests/
 │   ├── test_youtube_tools.py    # YouTube transcript tools
 │   ├── test_crawl_tools.py      # Web crawling tools
 │   ├── test_file_tools.py       # File processing tools
-│   ├── test_search_tools.py     # Web search tools (skipped without a search engine API key)
+│   ├── test_search_tools.py     # Web search tools (skipped when no search engine is configured)
 │   └── test_utility_tools.py    # Utility tools
 ├── client/                  # Legacy client framework (maintained)
 ├── integration/             # Integration tests

@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- SearXNG engine (`searxng`) for a self-hosted [SearXNG](https://docs.searxng.org/) instance, with no API key. `SEARXNG_URL` configures it (an `http://` or `https://` URL; other values are ignored with a warning), `SEARXNG_ENGINES` picks the SearXNG engines to query and `SEARXNG_TIMEOUT` sets the request timeout (default 30 seconds, at most 120). It is last in the default `SEARCH_ENGINE_ORDER`, so `auto` uses it only when it is configured and the other engines fail or are not configured. Genre operators are added to the query, `recent_days` becomes the SearXNG `time_range` that covers it (returned as `time_range`), and up to 5 result pages are read to reach `num_results`. Results carry `source_engines` and `score`, and engines behind SearXNG that failed are listed in `unresponsive_engines`. When all of them fail, the result is a failure that `auto` moves past instead of zero results. (#7)
+
 ## [0.4.0] - 2026-10-10
 
 ### Added

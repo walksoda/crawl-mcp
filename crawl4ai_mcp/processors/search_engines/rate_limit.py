@@ -2,7 +2,8 @@
 Client-side requests-per-minute limiter for search engines.
 
 Only google_custom has a client-side limit (CUSTOM_SEARCH_API_RPM, default
-100). Brave and Exa enforce their limits server-side with HTTP 429.
+100). Brave and Exa enforce their limits server-side with HTTP 429; a SearXNG
+instance applies its own limiter, if any.
 """
 
 import os

@@ -146,13 +146,16 @@ The server loads a `.env` file from the repository root, or from the current dir
 | `AZURE_OPENAI_ENDPOINT` | none | Azure OpenAI endpoint URL |
 | `AZURE_OPENAI_API_VERSION` | `2024-02-15-preview` | API version used by the summarization client for Azure OpenAI |
 | `MCP_LLM_CONFIG` | none | Full LLM configuration as JSON (see below). Replaces the built-in provider list |
-| `SEARCH_ENGINE` | `auto` | Default search engine: `auto`, `google_custom`, `brave`, or `exa`. The `engine` request key overrides it for one call |
-| `SEARCH_ENGINE_ORDER` | `google_custom,brave,exa` | Order in which `auto` tries the engines that have API keys. Unknown names are ignored |
+| `SEARCH_ENGINE` | `auto` | Default search engine: `auto`, `google_custom`, `brave`, `exa`, or `searxng`. The `engine` request key overrides it for one call |
+| `SEARCH_ENGINE_ORDER` | `google_custom,brave,exa,searxng` | Order in which `auto` tries the configured engines. Unknown names are ignored |
 | `GOOGLE_SEARCH_API_KEY` | none | Google Custom Search API key. The API is closed to new customers and ends on 2027-01-01 |
 | `GOOGLE_SEARCH_ENGINE_ID` | none | Custom Search engine ID |
 | `BRAVE_SEARCH_API_KEY` | none | Brave Search API key |
 | `EXA_API_KEY` | none | Exa API key |
-| `CUSTOM_SEARCH_API_RPM` | `100` | Requests per minute for the Custom Search API, enforced by the server. Brave and Exa enforce their own limits and answer HTTP 429, which makes `auto` move to the next engine |
+| `SEARXNG_URL` | none | Base URL of a self-hosted SearXNG instance (`http://` or `https://`), for example `http://localhost:8080`. Configures the `searxng` engine; other values are ignored with a warning. The instance must allow the `json` format |
+| `SEARXNG_ENGINES` | instance default | Comma-separated SearXNG engines to query, for example `google,bing,duckduckgo` |
+| `SEARXNG_TIMEOUT` | `30` | Seconds per SearXNG request, more than 0 and at most 120. Other values fall back to 30 with a warning |
+| `CUSTOM_SEARCH_API_RPM` | `100` | Requests per minute for the Custom Search API, enforced by the server. Brave and Exa enforce their own limits and answer HTTP 429 (a SearXNG instance applies its own limiter, if any), which makes `auto` move to the next engine |
 | `GOOGLE_SEARCH_MODE` | none | Read only when `SEARCH_ENGINE` is unset: `custom_search_only` means `google_custom`. `hybrid` and `googlesearch_only` mean `auto` (googlesearch-python was removed) |
 | `CRAWL4AI_BROWSER_TYPE` | unset | `chromium`, `firefox`, or `webkit` forces one browser. When unset, the crawler tries WebKit and then Chromium. The undetected browser always uses Chromium |
 | `CRAWL4AI_CACHE_TTL_SECONDS` | `3600` | Seconds a fetched page counts as fresh. After that, the next crawl of the URL bypasses the cache and fetches it again. `0` disables expiry, so cached pages are always reused |

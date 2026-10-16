@@ -7,8 +7,8 @@ Tests for search-related MCP tools:
 - search_and_crawl
 
 The tools call search engine APIs, so the suite is skipped when no engine
-has an API key (GOOGLE_SEARCH_API_KEY + GOOGLE_SEARCH_ENGINE_ID,
-BRAVE_SEARCH_API_KEY or EXA_API_KEY, from the environment or .env).
+is configured (GOOGLE_SEARCH_API_KEY + GOOGLE_SEARCH_ENGINE_ID,
+BRAVE_SEARCH_API_KEY, EXA_API_KEY or SEARXNG_URL, from the environment or .env).
 """
 
 import pytest
@@ -26,7 +26,7 @@ from tests.mcp.conftest import (
 
 pytestmark = pytest.mark.skipif(
     not WebSearchProcessor().configured_engines(),
-    reason="no search engine API key configured",
+    reason="no search engine configured",
 )
 
 
@@ -66,7 +66,7 @@ class TestSearchWeb:
         assert_tool_success(result)
         data = parse_mcp_json(result)
         assert data["success"] is True
-        assert data["engine"] in ("google_custom", "brave", "exa")
+        assert data["engine"] in ("google_custom", "brave", "exa", "searxng")
 
     @pytest.mark.asyncio
     async def test_search_with_genre(self, mcp_client, search_test_queries):

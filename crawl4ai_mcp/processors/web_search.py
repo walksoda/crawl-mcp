@@ -1,7 +1,7 @@
 """
 Web Search Processing Module
 
-Runs a query on one search engine API (Google Custom Search, Brave, Exa) or,
+Runs a query on one search engine (Google Custom Search, Brave, Exa, SearXNG) or,
 in auto mode, on the configured engines in order until one answers.
 """
 
@@ -11,15 +11,18 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..constants import SEARCH_ENGINES, SEARCH_GENRES
-from .search_engines import BraveSearchClient, CustomSearchAPIClient, ExaSearchClient, RateLimiter
+from .search_engines import (
+    BraveSearchClient, CustomSearchAPIClient, ExaSearchClient, RateLimiter, SearXNGSearchClient,
+)
 from .search_engines.common import failure, main_result_type, parse_result_types
 from .web_search_analysis import WebSearchAnalysisMixin
 
-DEFAULT_AUTO_ORDER = ('google_custom', 'brave', 'exa')
+DEFAULT_AUTO_ORDER = ('google_custom', 'brave', 'exa', 'searxng')
 ENGINE_ENV_VARS = {
     'google_custom': 'GOOGLE_SEARCH_API_KEY, GOOGLE_SEARCH_ENGINE_ID',
     'brave': 'BRAVE_SEARCH_API_KEY',
     'exa': 'EXA_API_KEY',
+    'searxng': 'SEARXNG_URL',
 }
 # Genres made of filetype: operators. Exa has no file type filter.
 FILE_TYPE_GENRES = frozenset({'pdf', 'documents', 'presentations', 'spreadsheets'})
@@ -62,7 +65,7 @@ def resolve_auto_order() -> Tuple[str, ...]:
 
 
 class WebSearchProcessor(WebSearchAnalysisMixin):
-    """Run web searches on Google Custom Search, Brave or Exa."""
+    """Run web searches on Google Custom Search, Brave, Exa or SearXNG."""
 
     def __init__(self):
         self.rate_limiter = RateLimiter()
@@ -70,6 +73,7 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
             'google_custom': CustomSearchAPIClient(),
             'brave': BraveSearchClient(),
             'exa': ExaSearchClient(),
+            'searxng': SearXNGSearchClient(),
         }
         self.default_engine = resolve_default_engine()
         self.auto_order = resolve_auto_order()
