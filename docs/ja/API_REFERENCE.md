@@ -325,13 +325,14 @@ YouTube動画のメタデータと、トランスクリプトがどの言語で�
 - `summary_length` (str): 要約の長さ、'short'、'medium'、'long' のいずれか（デフォルト: 'medium'）
 - `include_timestamps` (bool): タイムスタンプを含める（デフォルト: True）
 - `timezone` (str): `published_at` として返す公開日時の変換に使うIANAタイムゾーン名（例: 'Asia/Tokyo'、'America/New_York'）（デフォルト: 'UTC'）
-- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（動画情報とトランスクリプトを含む単一の `.md` ファイルを保存）
+- `output_path`、`include_content_in_response`、`overwrite`: [結果のディスク保存](#結果のディスク保存output_path)を参照（チャンネル、公開日時、長さ、再生回数、説明、取得できるトランスクリプトの言語、`summarize_transcript=True` のときはトランスクリプトの要約を、単一の `.md` ファイルに保存。縮めた応答には `transcript_info.transcript_summary` も含めない）
 
 **戻り値:**
 - 利用可能なトランスクリプト言語
 - 手動作成/自動生成の区別
 - 翻訳可能な言語の情報
 - 公開日時 `published_at`（`timezone` に変換済み。`published_at.original` にはYouTubeのオフセットを保持）
+- `metadata` の `description`、`channel_name`、`duration`、`duration_seconds`、`view_count`。YouTubeがページに埋め込んでいる動画情報から読みます（`extraction_source: video_details`。説明のない動画では `description` が空文字）。ページに動画情報がない場合はページの文面から推測するため（`extraction_source: page_crawl`）、誤りや null になることがあります
 
 ## 検索ツール
 

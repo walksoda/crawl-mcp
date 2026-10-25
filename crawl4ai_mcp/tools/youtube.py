@@ -15,6 +15,7 @@ from ..core.youtube import (
     batch_extract_youtube_transcripts,
     get_youtube_video_info,
     get_youtube_api_setup_guide,
+    render_video_info_markdown,
 )
 from ..core.youtube_comments import extract_youtube_comments
 
@@ -23,5 +24,6 @@ __all__ = [
     '_build_fallback_transcript', '_crawl_youtube_page_fallback',
     'extract_youtube_transcript', 'batch_extract_youtube_transcripts',
     'get_youtube_video_info', 'get_youtube_api_setup_guide',
+    'render_video_info_markdown',
     'extract_youtube_comments',
 ]

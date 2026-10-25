@@ -187,11 +187,11 @@ def register_youtube_tools(mcp, get_modules):
         summary_length: Annotated[str, Field(description="'short'|'medium'|'long'")] = "medium",
         include_timestamps: Annotated[bool, Field(description="Include timestamps")] = True,
         timezone: Annotated[str, Field(description="IANA timezone name (e.g. 'Asia/Tokyo', 'America/New_York') used to convert the video's publish time, returned under 'published_at'. When unspecified, defaults to 'UTC' (the original YouTube offset is always kept in published_at.original).")] = "UTC",
-        output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .md extension) to persist the full video info + transcript as markdown. When set, the response is slimmed to metadata+file path.")] = None,
-        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), also include the full transcript in the response. Defaults to False.")] = False,
+        output_path: Annotated[Optional[str], Field(description="Absolute file path (auto .md extension) to persist the video info as markdown: channel, publish time, duration, views, description, transcript languages and, with summarize_transcript=True, the transcript summary. When set, the response is slimmed to metadata+file path.")] = None,
+        include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), also include the rendered markdown in the response as content. Defaults to False.")] = False,
         overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
     ) -> Dict[str, Any]:
-        """Get YouTube video metadata and transcript availability. Use output_path to persist the full transcript to disk as markdown and receive a slim response."""
+        """Get YouTube video metadata and transcript availability. Use output_path to persist the video info to disk as markdown and receive a slim response."""
         # Output path validation (Guard A)
         output_error = validate_output_path(output_path, overwrite)
         if output_error:
@@ -212,6 +212,8 @@ def register_youtube_tools(mcp, get_modules):
 
             # Guard B: persist BEFORE apply_token_limit.
             if output_path:
+                if result.get("success"):
+                    result["content"] = youtube.render_video_info_markdown(result)
                 result = finalize_tool_response(
                     result,
                     output_path=output_path,

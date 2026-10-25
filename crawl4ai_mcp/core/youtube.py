@@ -483,6 +483,50 @@ async def get_youtube_video_info(
         }
 
 
+def render_video_info_markdown(info: Dict[str, Any]) -> str:
+    """Render a get_youtube_video_info result as a markdown document.
+
+    Used as the file body when the result is persisted with output_path.
+    """
+    metadata = info.get('metadata') or {}
+    published = info.get('published_at') or {}
+    transcript_info = info.get('transcript_info') or {}
+
+    lines = [f"# {info.get('title') or info.get('video_id')}", ""]
+    facts = [
+        ("URL", info.get('url')),
+        ("Channel", metadata.get('channel_name')),
+        ("Published", published.get('datetime') or published.get('original')),
+        ("Duration", metadata.get('duration')),
+        ("Views", metadata.get('view_count')),
+    ]
+    lines += [f"- {label}: {value}" for label, value in facts if value not in (None, "")]
+
+    if metadata.get('description'):
+        lines += ["", "## Description", "", metadata['description']]
+
+    lines += ["", "## Transcripts", ""]
+    languages = transcript_info.get('available_languages') or []
+    list_error = (
+        transcript_info.get('transcript_check_error')
+        or (info.get('video_info') or {}).get('error')
+    )
+    if languages:
+        for lang in languages:
+            kind = "auto-generated" if lang.get('is_generated') else "manual"
+            lines.append(f"- {lang.get('language')} ({lang.get('language_code')}, {kind})")
+    elif list_error:
+        # A failed request and disabled captions both end up here.
+        lines.append(f"Transcript languages could not be listed: {list_error}")
+    else:
+        lines.append("No transcript available.")
+
+    if transcript_info.get('transcript_summary'):
+        lines += ["", "## Transcript Summary", "", transcript_info['transcript_summary']]
+
+    return "\n".join(lines) + "\n"
+
+
 async def get_youtube_api_setup_guide() -> Dict[str, Any]:
     """Get setup information for youtube-transcript-api integration."""
     return {

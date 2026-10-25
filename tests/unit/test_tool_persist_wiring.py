@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from crawl4ai_mcp.core.youtube import render_video_info_markdown
 from crawl4ai_mcp.server_tools.batch_tools import register_batch_tools
 from crawl4ai_mcp.server_tools.crawl_tools import register_crawl_tools
 from crawl4ai_mcp.server_tools.extraction_tools import register_extraction_tools
@@ -548,13 +549,16 @@ class TestYouTubeCommentsWiring:
 class TestGetYoutubeVideoInfoWiring:
     @pytest.mark.asyncio
     async def test_persists(self, tmp_path):
+        # The real result has no content field; the handler renders one.
         youtube = MagicMock()
         youtube.get_youtube_video_info = AsyncMock(return_value={
             "success": True,
             "url": "https://youtube.com/watch?v=x",
             "title": "V",
-            "content": "long transcript " * 1000,
+            "metadata": {"channel_name": "Chan", "description": "long description " * 100},
+            "transcript_info": {"has_transcript": False},
         })
+        youtube.render_video_info_markdown = render_video_info_markdown
         fm = FakeMcp()
         register_youtube_tools(fm, lambda: _modules_tuple(youtube=youtube))
 
@@ -564,7 +568,10 @@ class TestGetYoutubeVideoInfoWiring:
             output_path=str(out_file),
         )
         assert result.get("persisted") is True
-        assert "long transcript" in out_file.read_text()
+        body = out_file.read_text()
+        assert "- Channel: Chan" in body
+        assert "long description" in body
+        assert "content" not in result
 
 
 class TestBatchYoutubeTranscriptsWiring:

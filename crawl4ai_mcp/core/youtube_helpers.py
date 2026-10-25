@@ -1,6 +1,7 @@
 """YouTube helper functions for page crawling fallback and metadata extraction."""
 
 import asyncio
+import json
 import re
 import os
 import contextlib
@@ -8,6 +9,8 @@ import sys
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from ..processors.youtube_processor_base import format_duration
 
 
 def convert_timestamp_to_timezone(iso_timestamp: str, tz_name: str) -> Dict[str, Any]:
@@ -49,10 +52,32 @@ def convert_timestamp_to_timezone(iso_timestamp: str, tz_name: str) -> Dict[str,
     }
 
 
+def _extract_video_details(
+    raw_html: str, video_id: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """Return the ``videoDetails`` object embedded in ytInitialPlayerResponse.
+
+    The page can hold several ``videoDetails`` objects (e.g. for related
+    videos); when ``video_id`` is given, only the one for that video is used.
+    """
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r'"videoDetails"\s*:\s*\{', raw_html):
+        try:
+            details, _ = decoder.raw_decode(raw_html, match.end() - 1)
+        except ValueError:
+            continue
+        if isinstance(details, dict) and (
+            video_id is None or details.get('videoId') == video_id
+        ):
+            return details
+    return None
+
+
 def _extract_youtube_metadata_from_html(
     markdown_content: str,
     html_content: Optional[str] = None,
-    raw_html: Optional[str] = None
+    raw_html: Optional[str] = None,
+    video_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Parse YouTube page content to extract metadata.
@@ -93,8 +118,24 @@ def _extract_youtube_metadata_from_html(
         if ts_match:
             metadata['published_at'] = ts_match.group(1)
 
+        # videoDetails carries the real description, channel, length and
+        # view count. When it is found, the markdown heuristics below are
+        # skipped: an empty description means the video has none.
+        details = _extract_video_details(raw_html, video_id)
+        if details:
+            metadata['title'] = details.get('title') or None
+            metadata['description'] = details.get('shortDescription', '')
+            metadata['channel_name'] = details.get('author') or None
+            if str(details.get('lengthSeconds', '')).isdigit():
+                seconds = int(details['lengthSeconds'])
+                metadata['duration'] = format_duration(seconds)
+                metadata['duration_seconds'] = seconds
+            if str(details.get('viewCount', '')).isdigit():
+                metadata['view_count'] = int(details['viewCount'])
+            metadata['extraction_source'] = 'video_details'
+
     # Extract from HTML title tag (this is preserved in crawl4ai cleaned_html)
-    if html_content:
+    if html_content and not metadata['title']:
         # Title from <title> tag, strip " - YouTube" suffix
         title_tag_match = re.search(r'<title>([^<]+)</title>', html_content, re.IGNORECASE)
         if title_tag_match:
@@ -126,7 +167,8 @@ def _extract_youtube_metadata_from_html(
         ]):
             content_lines.append(line)
 
-    if content_lines:
+    from_details = metadata['extraction_source'] == 'video_details'
+    if content_lines and not from_details:
         # Use the first substantial content line as description
         metadata['description'] = content_lines[0][:1000]
 
@@ -135,7 +177,7 @@ def _extract_youtube_metadata_from_html(
         r'([\d,]+)\s*(?:views?|回視聴)',
         r'視聴回数\s*([\d,]+)',
     ]
-    for pattern in view_patterns:
+    for pattern in view_patterns if not from_details else []:
         match = re.search(pattern, markdown_content, re.IGNORECASE)
         if match:
             view_str = match.group(1).replace(',', '')
@@ -151,7 +193,7 @@ def _extract_youtube_metadata_from_html(
     channel_patterns = [
         r'(?:by|from|チャンネル[：:])\s*([^\n]{3,50})',
     ]
-    for pattern in channel_patterns:
+    for pattern in channel_patterns if not from_details else []:
         match = re.search(pattern, markdown_content, re.IGNORECASE)
         if match:
             channel = match.group(1).strip()
@@ -343,7 +385,8 @@ async def _crawl_youtube_page_fallback(
         metadata = _extract_youtube_metadata_from_html(
             markdown_content=markdown_content,
             html_content=html_content,
-            raw_html=raw_html
+            raw_html=raw_html,
+            video_id=video_id
         )
 
         # Add video_id to metadata

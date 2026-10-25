@@ -694,6 +694,9 @@ class TestFinalizeStructuredJson:
         r = {
             "success": True,
             "url": "https://youtube.com/watch?v=x",
+            # the comment text is also rendered at the top level
+            "content": "rendered comments",
+            "markdown": "rendered comments",
             "extracted_data": {
                 "comments": [{"author": "a", "text": "t"}] * 300,
                 "comment_count": 300,
@@ -710,9 +713,51 @@ class TestFinalizeStructuredJson:
         # Disk has full 300 comments
         loaded = json.loads((tmp_path / "comments.json").read_text())
         assert len(loaded["extracted_data"]["comments"]) == 300
-        # Response has no comments array, but keeps comment_count
+        assert loaded["content"] == "rendered comments"
+        # Response has no comment text, but keeps comment_count
         assert "comments" not in out["extracted_data"]
+        assert "content" not in out
+        assert "markdown" not in out
         assert out["extracted_data"]["comment_count"] == 300
+
+    def test_youtube_comments_keep_text_when_requested(self, tmp_path):
+        r = {
+            "success": True,
+            "url": "https://youtube.com/watch?v=x",
+            "content": "rendered comments",
+            "markdown": "rendered comments",
+            "extracted_data": {"comments": [{"text": "t"}], "comment_count": 1},
+        }
+        out = finalize_tool_response(
+            r,
+            output_path=str(tmp_path / "comments.json"),
+            include_content_in_response=True,
+            overwrite=False,
+            tool_kind=KIND_YOUTUBE_COMMENTS,
+            source_tool="extract_youtube_comments",
+        )
+        assert out["content"] == "rendered comments"
+        assert out["extracted_data"]["comments"] == [{"text": "t"}]
+
+    def test_video_info_summary_strip(self, tmp_path):
+        def result():
+            return {
+                "success": True,
+                "url": "https://youtube.com/watch?v=x",
+                "content": "# V",
+                "transcript_info": {"has_transcript": True, "transcript_summary": "summary"},
+            }
+        out = finalize_tool_response(
+            result(), output_path=str(tmp_path / "a.md"), include_content_in_response=False,
+            overwrite=False, tool_kind=KIND_MARKDOWN_SINGLE, source_tool="get_youtube_video_info",
+        )
+        assert "transcript_summary" not in out["transcript_info"]
+        assert out["transcript_info"]["has_transcript"] is True
+        out = finalize_tool_response(
+            result(), output_path=str(tmp_path / "b.md"), include_content_in_response=True,
+            overwrite=False, tool_kind=KIND_MARKDOWN_SINGLE, source_tool="get_youtube_video_info",
+        )
+        assert out["transcript_info"]["transcript_summary"] == "summary"
 
     def test_empty_string_output_path_is_noop(self, tmp_path):
         """Regression: ``output_path=""`` must behave identically to
@@ -777,6 +822,7 @@ class TestFinalizeStructuredJson:
             "success": True,
             "query": "python",
             "results": [{"title": "t", "url": "u", "snippet": "s"}] * 50,
+            "extra_results": {"news": [{"title": "n", "url": "u"}] * 20},
         }
         out = finalize_tool_response(
             r,
@@ -788,6 +834,18 @@ class TestFinalizeStructuredJson:
         )
         loaded = json.loads((tmp_path / "s.json").read_text())
         assert len(loaded["results"]) == 50
+        assert len(loaded["extra_results"]["news"]) == 20
         # Response strips results (user reads from file)
         assert "results" not in out
+        assert "extra_results" not in out
         assert out["query"] == "python"
+
+    def test_search_json_keeps_results_when_requested(self, tmp_path):
+        r = {"success": True, "query": "q", "results": [{"url": "u"}],
+             "extra_results": {"news": [{"url": "n"}]}}
+        out = finalize_tool_response(
+            r, output_path=str(tmp_path / "s.json"), include_content_in_response=True,
+            overwrite=False, tool_kind=KIND_SEARCH_JSON, source_tool="search_web",
+        )
+        assert out["results"] == [{"url": "u"}]
+        assert out["extra_results"] == {"news": [{"url": "n"}]}

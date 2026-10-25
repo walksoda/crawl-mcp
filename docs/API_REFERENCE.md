@@ -313,13 +313,14 @@ Parameters:
 - `summary_length` (str): Summary length, 'short', 'medium' or 'long' (default: 'medium')
 - `include_timestamps` (bool): Include timestamps in transcript output (default: True)
 - `timezone` (str): IANA timezone name (e.g. 'Asia/Tokyo', 'America/New_York') used to convert the publish time returned under `published_at` (default: 'UTC')
-- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.md` file with video info + transcript)
+- `output_path`, `include_content_in_response`, `overwrite`: see [Result Persistence](#result-persistence-output_path) (saves a single `.md` file with the channel, publish time, duration, views, description, available transcript languages and, with `summarize_transcript=True`, the transcript summary). The slimmed response also leaves out `transcript_info.transcript_summary`
 
 Returns:
 - Available transcript languages
 - Manual/auto-generated distinction
 - Translatable language information
 - Publish time as `published_at` (converted to `timezone`; `published_at.original` keeps YouTube's offset)
+- `metadata` with `description`, `channel_name`, `duration`, `duration_seconds` and `view_count`, read from the video details YouTube embeds in the page (`extraction_source: video_details`; `description` is an empty string when the video has none). When the page has no video details, the fields are guessed from the page text (`extraction_source: page_crawl`) and can be wrong or null
 
 ## Search Tools
 

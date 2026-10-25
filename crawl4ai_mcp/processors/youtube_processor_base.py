@@ -11,6 +11,23 @@ from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, No
 from youtube_transcript_api.formatters import TextFormatter
 
 
+def format_duration(seconds: float) -> str:
+    """Format a duration in seconds as e.g. "1h 2m 3s"."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+
+    parts = []
+    if hours > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0:
+        parts.append(f"{minutes}m")
+    if secs > 0 or not parts:
+        parts.append(f"{secs}s")
+
+    return " ".join(parts)
+
+
 class YouTubeProcessorBase:
     """Base class with utility methods for YouTube processing"""
 
@@ -65,19 +82,7 @@ class YouTubeProcessorBase:
 
     def _format_duration(self, seconds: float) -> str:
         """Format duration in human readable format"""
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-
-        parts = []
-        if hours > 0:
-            parts.append(f"{hours}h")
-        if minutes > 0:
-            parts.append(f"{minutes}m")
-        if secs > 0 or not parts:
-            parts.append(f"{secs}s")
-
-        return " ".join(parts)
+        return format_duration(seconds)
 
     def _get_error_suggestion(self, error_message: str) -> str:
         """Get helpful suggestion based on error type"""

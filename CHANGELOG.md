@@ -11,6 +11,12 @@
 - `tools/list` adds `additionalProperties: false` to each input schema. Unknown arguments were already rejected.
 - The HTTP+SSE transport (`--transport sse`) is deprecated in MCP 2026-07-28. It still works.
 
+### Fixed
+- `extract_youtube_comments` with `output_path` returned the comment text in `content` and `markdown` although `content_included_in_response` was false. Both are now removed from the response like `extracted_data.comments`.
+- `get_youtube_video_info` with `output_path` wrote a file with frontmatter only. The file now holds the channel, publish time, duration, views, description, transcript languages (or why they could not be listed) and, with `summarize_transcript=True`, the transcript summary, which is left out of the slimmed response.
+- `get_youtube_video_info` returned page navigation text as `metadata.description` and null `channel_name` and `duration`. These now come from the video details YouTube embeds in the page, with `duration_seconds` and `view_count` added. `extract_youtube_transcript` fills `channel_name`, `duration` and `view_count` from the same source when it enriches metadata.
+- `search_web` with `output_path` returned `extra_results` in full. It is now removed from the response like `results`.
+
 ### Dependencies
 - Bump fastmcp to `>=4.1,<5`, which brings the `mcp` SDK 2.x.
 

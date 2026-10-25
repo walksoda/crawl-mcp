@@ -95,6 +95,8 @@ _STRIP_PATHS: Dict[str, List[str]] = {
         "cleaned_html",
         "raw_content",
         "archive_contents",
+        # get_youtube_video_info writes the summary into the file body
+        "transcript_info.transcript_summary",
     ],
     KIND_MARKDOWN_BATCH_DICT: [
         # deep_crawl_site also returns all pages merged at the top level
@@ -128,10 +130,14 @@ _STRIP_PATHS: Dict[str, List[str]] = {
         "final_summary",
     ],
     KIND_YOUTUBE_COMMENTS: [
+        # the rendered comment text is returned at the top level too
+        "content",
+        "markdown",
         "extracted_data.comments",
     ],
     KIND_SEARCH_JSON: [
         "results",
+        "extra_results",
     ],
 }
 
