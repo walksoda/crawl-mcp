@@ -256,7 +256,7 @@ name = "crawl-mcp"
 requires-python = ">=3.11"
 dependencies = [
     "crawl4ai>=0.9.5,<0.10",
-    "fastmcp>=2.14.7,<3",
+    "fastmcp>=4.1,<5",
     "playwright==1.64.1",
     # ...
 ]

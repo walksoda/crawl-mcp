@@ -4,13 +4,13 @@ This guide covers running the Crawl4AI MCP Server over HTTP and calling its tool
 
 ## Overview
 
-The server is a [FastMCP](https://gofastmcp.com) application. The transport is chosen with the `--transport` flag of `python -m crawl4ai_mcp.server` (or the `crawl-mcp` entry point):
+The server is a [FastMCP](https://gofastmcp.com) application. It supports MCP protocol 2026-07-28 and the earlier versions back to 2024-11-05, and picks the version per request or connection. The transport is chosen with the `--transport` flag of `python -m crawl4ai_mcp.server` (or the `crawl-mcp` entry point):
 
 | `--transport` | Endpoint | Notes |
 |---------------|----------|-------|
 | `stdio` (default) | stdin/stdout | For MCP clients that launch the server as a subprocess |
 | `streamable-http` (alias: `http`) | `http://<host>:<port>/mcp` | Use this for HTTP. Current MCP Streamable HTTP transport |
-| `sse` | `http://<host>:<port>/sse` | Legacy MCP SSE transport, for older clients only |
+| `sse` | `http://<host>:<port>/sse` | Legacy MCP SSE transport, for older clients only. Deprecated in MCP 2026-07-28 |
 
 Other flags: `--host` (default `127.0.0.1`) and `--port` (default `8000`). Transport, host, and port are set only by these flags; no environment variables control them. `--help` lists the flags, and an invalid value exits with status 2 and an error on stderr.
 
@@ -62,7 +62,39 @@ The server must already be running; the client only connects to the URL.
 
 ### Calling Tools with curl
 
-A session takes three steps: `initialize`, then the `notifications/initialized` notification, then `tools/call`. Every request must send `Accept: application/json, text/event-stream`. After `initialize`, every request must also send the `mcp-session-id` header returned by the server. Responses come back as Server-Sent Events (`event: message` / `data: {...}`).
+The server accepts two request formats on the same `/mcp` endpoint. Requests that send the `MCP-Protocol-Version: 2026-07-28` header use the stateless format of MCP 2026-07-28. Other requests use the session format of earlier protocol versions. Every request must send `Accept: application/json, text/event-stream`.
+
+#### Protocol 2026-07-28
+
+There is no handshake and no session. Each request sends the `MCP-Protocol-Version` and `Mcp-Method` headers, and `tools/call` also sends `Mcp-Name` with the tool name. The `params._meta` object carries the protocol version and the client capabilities. A response comes back as JSON, or as Server-Sent Events when the call runs longer than about 15 seconds or the server sends a notification during it, so read the `Content-Type` header.
+
+```bash
+BASE=http://127.0.0.1:8000/mcp
+META='"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}'
+
+# List the tools
+curl -s -X POST "$BASE" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/list" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{'"$META"'}}'
+
+# Call a tool
+curl -s -X POST "$BASE" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/call" \
+  -H "Mcp-Name: crawl_url" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"crawl_url","arguments":{"url":"https://example.com","content_limit":2000},'"$META"'}}'
+```
+
+`server/discover` (with the header `Mcp-Method: server/discover`) returns the supported protocol versions, the capabilities, and the server name and version.
+
+#### Earlier protocol versions
+
+A session takes three steps: `initialize`, then the `notifications/initialized` notification, then `tools/call`. After `initialize`, every request must also send the `mcp-session-id` header returned by the server. Responses come back as Server-Sent Events (`event: message` / `data: {...}`).
 
 ```bash
 BASE=http://127.0.0.1:8000/mcp
@@ -159,7 +191,7 @@ async def main():
 asyncio.run(main())
 ```
 
-The official `mcp` Python SDK (`mcp.client.streamable_http.streamablehttp_client`) and the TypeScript SDK (`@modelcontextprotocol/sdk`, `StreamableHTTPClientTransport`) work the same way.
+The official `mcp` Python SDK (`mcp.client.streamable_http.streamable_http_client`) and the TypeScript SDK (`@modelcontextprotocol/sdk`, `StreamableHTTPClientTransport`) work the same way.
 
 ## Docker
 
@@ -203,7 +235,7 @@ STDIO carries newline-delimited JSON-RPC messages. While the server runs over ST
 | Feature | Streamable HTTP | SSE (legacy) | STDIO |
 |---------|-----------------|--------------|-------|
 | Endpoint | `/mcp` | `/sse` | stdin/stdout |
-| Message format | JSON-RPC (SSE-framed responses) | JSON-RPC over SSE | Newline-delimited JSON-RPC |
+| Message format | JSON-RPC (2026-07-28: JSON, or SSE for long calls; earlier versions: SSE-framed responses) | JSON-RPC over SSE | Newline-delimited JSON-RPC |
 | Process management | Run the server yourself | Run the server yourself | Client launches the server |
 | Shared by multiple clients | Yes | Yes | No |
 
@@ -222,7 +254,9 @@ kill <PID>
 
 HTTP 406 Not Acceptable means the request is missing `Accept: application/json, text/event-stream`.
 
-For "Missing session ID" or HTTP 400, send the `mcp-session-id` header returned by `initialize` on every later request.
+For "Missing session ID" or HTTP 400, send the `mcp-session-id` header returned by `initialize` on every later request. A 2026-07-28 request without the `MCP-Protocol-Version: 2026-07-28` header gets the same error, because the server treats it as a session request.
+
+Error -32020 ("mcp-method header does not match") means the `Mcp-Method` or `Mcp-Name` header is missing or differs from the request body. Error -32602 about `params._meta` means the request lacks `io.modelcontextprotocol/protocolVersion` or `io.modelcontextprotocol/clientCapabilities`.
 
 If the connection is refused:
 

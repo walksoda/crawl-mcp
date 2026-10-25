@@ -75,7 +75,7 @@ def register_crawl_tools(mcp, get_modules):
 
         return fallback_dict
 
-    @mcp.tool()
+    @mcp.tool(title="Crawl URL")
     async def crawl_url(
         url: Annotated[str, Field(description="URL to crawl")],
         css_selector: Annotated[Optional[str], Field(description="CSS selector for extraction")] = None,
@@ -237,7 +237,7 @@ def register_crawl_tools(mcp, get_modules):
                     "suggested_fix": "Try increasing timeout or using wait_for_js=true for JavaScript-heavy pages"
                 }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Deep Crawl Site", annotations=READONLY_ANNOTATIONS)
     async def deep_crawl_site(
         url: Annotated[str, Field(description="Starting URL")],
         max_depth: Annotated[int, Field(description="Link depth, 1-2 (default: 2). Values outside the range return an error.")] = 2,
@@ -384,7 +384,7 @@ def register_crawl_tools(mcp, get_modules):
                 "error": f"Deep crawl error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Crawl URL with Fallback", annotations=READONLY_ANNOTATIONS)
     async def crawl_url_with_fallback(
         url: Annotated[str, Field(description="URL to crawl")],
         css_selector: Annotated[Optional[str], Field(description="CSS selector")] = None,

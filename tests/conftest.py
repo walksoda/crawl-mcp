@@ -3,7 +3,7 @@ Central pytest configuration and fixtures for Crawl4AI MCP Server tests.
 
 This module provides:
 - Project root and venv auto-detection
-- MCP client fixture using FastMCP 2.0
+- MCP client fixture using the FastMCP client
 - Sample URLs and test data fixtures
 - Custom markers registration
 """
@@ -56,7 +56,7 @@ async def mcp_client(project_root: Path, venv_python: Path):
     """
     Create and manage an MCP client connection for each test.
 
-    Uses FastMCP 2.0 StdioTransport to connect to the MCP server.
+    Uses the FastMCP StdioTransport to connect to the MCP server.
     """
     from fastmcp.client.transports import StdioTransport
     from fastmcp import Client

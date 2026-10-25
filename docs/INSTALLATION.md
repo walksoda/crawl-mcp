@@ -71,7 +71,7 @@ crawl-mcp
 
 Use this method to install into an existing Python environment.
 
-`pyproject.toml` defines the dependencies with constrained versions (for example `crawl4ai>=0.9.5,<0.10`, `fastmcp>=2.14.7,<3`, `playwright==1.64.1`). `requirements.txt` mirrors them for Docker builds. The Anthropic SDK (`anthropic>=0.40.0`) is a regular dependency, so Anthropic summarization also works in UVX installs.
+`pyproject.toml` defines the dependencies with constrained versions (for example `crawl4ai>=0.9.5,<0.10`, `fastmcp>=4.1,<5`, `playwright==1.64.1`). `requirements.txt` mirrors them for Docker builds. The Anthropic SDK (`anthropic>=0.40.0`) is a regular dependency, so Anthropic summarization also works in UVX installs.
 
 ### Setup Scripts (Traditional)
 

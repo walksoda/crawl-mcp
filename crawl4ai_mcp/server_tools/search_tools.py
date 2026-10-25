@@ -173,14 +173,14 @@ def register_search_tools(mcp, get_modules):
                 "error": f"Web search error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Search Web", annotations=READONLY_ANNOTATIONS)
     async def search_web(
         request: Annotated[Dict[str, Any], Field(description=_SEARCH_REQUEST_DESC)]
     ) -> Dict[str, Any]:
         """Search the web with Google Custom Search, Brave, Exa or SearXNG (engine key, or the server default). Optional search_genre filtering (file types or language; see get_search_genres). Supply output_path in the request to persist the full unsliced result set to disk as JSON and receive a slim response."""
         return await _search_web(request, "search_web")
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Search Google", annotations=READONLY_ANNOTATIONS)
     async def search_google(
         request: Annotated[Dict[str, Any], Field(description=_SEARCH_REQUEST_DESC)]
     ) -> Dict[str, Any]:
@@ -226,21 +226,21 @@ def register_search_tools(mcp, get_modules):
                 "error": f"Batch search error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Batch Search Web", annotations=READONLY_ANNOTATIONS)
     async def batch_search_web(
         request: Annotated[Dict[str, Any], Field(description=_BATCH_REQUEST_DESC)]
     ) -> Dict[str, Any]:
         """Perform multiple web searches. Max 3 queries per call. Supply output_path in the request to persist the full result set to disk as JSON and receive a slim response."""
         return await _batch_search_web(request, "batch_search_web")
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Batch Search Google", annotations=READONLY_ANNOTATIONS)
     async def batch_search_google(
         request: Annotated[Dict[str, Any], Field(description=_BATCH_REQUEST_DESC)]
     ) -> Dict[str, Any]:
         """Deprecated alias of batch_search_web (same request keys and results). Use batch_search_web."""
         return await _batch_search_web(request, "batch_search_google")
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Search and Crawl", annotations=READONLY_ANNOTATIONS)
     async def search_and_crawl(
         request: Annotated[Dict[str, Any], Field(description="Dict with: search_query (required), crawl_top_results, " + _GENRE_DESC + ", " + _ENGINE_DESC + ", " + _RESULT_TYPE_DESC + ", recent_days, generate_markdown, max_content_per_page. Optional persistence keys: output_path (absolute directory — per-page .md files + index.json, the full page bodies are written BEFORE max_content_per_page truncation; dot-containing dir names are fine), include_content_in_response (bool, default False — when True keeps crawled_pages in the response too, still subject to max_content_per_page truncation), overwrite (bool, default False). Failed pages appear in index.json with file=null.")]
     ) -> Dict[str, Any]:
@@ -418,7 +418,7 @@ def register_search_tools(mcp, get_modules):
                 "error": f"Search and crawl error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_CLOSED_ANNOTATIONS)
+    @mcp.tool(title="Get Search Genres", annotations=READONLY_CLOSED_ANNOTATIONS)
     async def get_search_genres() -> Dict[str, Any]:
         """Get available search genres for targeted searching."""
         modules = get_modules()

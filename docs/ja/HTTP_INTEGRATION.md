@@ -4,13 +4,13 @@
 
 ## 概要
 
-このサーバーは [FastMCP](https://gofastmcp.com) アプリケーションです。トランスポートは `python -m crawl4ai_mcp.server`（または `crawl-mcp` エントリポイント）の `--transport` フラグで選びます。
+このサーバーは [FastMCP](https://gofastmcp.com) アプリケーションです。MCP プロトコル 2026-07-28 と、2024-11-05 以降のそれより前のバージョンに対応し、リクエストまたは接続ごとにバージョンを選びます。トランスポートは `python -m crawl4ai_mcp.server`（または `crawl-mcp` エントリポイント）の `--transport` フラグで選びます。
 
 | `--transport` | エンドポイント | 備考 |
 |---------------|----------------|------|
 | `stdio`（デフォルト） | stdin/stdout | サーバーをサブプロセスとして起動するMCPクライアント向け |
 | `streamable-http`（別名: `http`） | `http://<host>:<port>/mcp` | HTTPで使うならこちら。現行のMCP Streamable HTTPトランスポート |
-| `sse` | `http://<host>:<port>/sse` | 旧来のMCP SSEトランスポート。古いクライアント向け |
+| `sse` | `http://<host>:<port>/sse` | 旧来のMCP SSEトランスポート。古いクライアント向け。MCP 2026-07-28 で廃止予定 |
 
 その他のフラグは `--host`（デフォルト `127.0.0.1`）と `--port`（デフォルト `8000`）です。トランスポート、ホスト、ポートはフラグでしか指定できず、環境変数では設定できません。`--help` でフラグの一覧が出ます。値が間違っていると、エラーをstderrに出して終了コード2で終わります。
 
@@ -62,7 +62,39 @@ claude mcp add --transport http crawl4ai http://127.0.0.1:8000/mcp
 
 ### curlでツールを呼び出す
 
-セッションは `initialize`、`notifications/initialized` 通知、`tools/call` の3段階で進めます。すべてのリクエストに `Accept: application/json, text/event-stream` ヘッダーが必要です。`initialize` 以降のリクエストには、サーバーが返した `mcp-session-id` ヘッダーも付けます。レスポンスはServer-Sent Events形式（`event: message` / `data: {...}`）で返ります。
+同じ `/mcp` エンドポイントで2種類のリクエスト形式を受け付けます。`MCP-Protocol-Version: 2026-07-28` ヘッダーを付けたリクエストは MCP 2026-07-28 のステートレス形式、付けないリクエストはそれより前のプロトコルのセッション形式として扱います。どちらもすべてのリクエストに `Accept: application/json, text/event-stream` ヘッダーが必要です。
+
+#### プロトコル 2026-07-28
+
+ハンドシェイクもセッションもありません。リクエストごとに `MCP-Protocol-Version` と `Mcp-Method` ヘッダーを付け、`tools/call` ではツール名を `Mcp-Name` ヘッダーにも入れます。`params._meta` にはプロトコルバージョンとクライアントの capability を入れます。レスポンスは通常JSONで返りますが、処理が15秒ほどを超えたときや、処理中にサーバーが通知を送ったときはServer-Sent Events形式になります。`Content-Type` ヘッダーを見て読み分けてください。
+
+```bash
+BASE=http://127.0.0.1:8000/mcp
+META='"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}'
+
+# ツールの一覧
+curl -s -X POST "$BASE" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/list" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{'"$META"'}}'
+
+# ツールを呼び出す
+curl -s -X POST "$BASE" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/call" \
+  -H "Mcp-Name: crawl_url" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"crawl_url","arguments":{"url":"https://example.com","content_limit":2000},'"$META"'}}'
+```
+
+`server/discover`（ヘッダーは `Mcp-Method: server/discover`）を送ると、対応するプロトコルバージョン、capability、サーバー名とバージョンが返ります。
+
+#### それより前のプロトコル
+
+セッションは `initialize`、`notifications/initialized` 通知、`tools/call` の3段階で進めます。`initialize` 以降のリクエストには、サーバーが返した `mcp-session-id` ヘッダーも付けます。レスポンスはServer-Sent Events形式（`event: message` / `data: {...}`）で返ります。
 
 ```bash
 BASE=http://127.0.0.1:8000/mcp
@@ -154,7 +186,7 @@ async def main():
 asyncio.run(main())
 ```
 
-公式の `mcp` Python SDK（`mcp.client.streamable_http.streamablehttp_client`）やTypeScript SDK（`@modelcontextprotocol/sdk` の `StreamableHTTPClientTransport`）も同じように使えます。
+公式の `mcp` Python SDK（`mcp.client.streamable_http.streamable_http_client`）やTypeScript SDK（`@modelcontextprotocol/sdk` の `StreamableHTTPClientTransport`）も同じように使えます。
 
 ## Docker
 
@@ -198,7 +230,7 @@ STDIOでは改行区切りのJSON-RPCメッセージをやり取りします。�
 | 項目 | Streamable HTTP | SSE（旧来） | STDIO |
 |------|-----------------|-------------|-------|
 | エンドポイント | `/mcp` | `/sse` | stdin/stdout |
-| メッセージ形式 | JSON-RPC（レスポンスはSSE形式） | SSE上のJSON-RPC | 改行区切りのJSON-RPC |
+| メッセージ形式 | JSON-RPC（2026-07-28 はJSON、時間のかかる呼び出しはSSE形式。それより前のバージョンはSSE形式） | SSE上のJSON-RPC | 改行区切りのJSON-RPC |
 | プロセス管理 | サーバーを自分で起動 | サーバーを自分で起動 | クライアントがサーバーを起動 |
 | 複数クライアントでの共有 | 可 | 可 | 不可 |
 
@@ -216,7 +248,9 @@ kill <PID>
 
 HTTP 406 Not Acceptable が返るのは、`Accept: application/json, text/event-stream` ヘッダーが付いていないときです。
 
-「Missing session ID」や HTTP 400 が返る場合は、`initialize` で返された `mcp-session-id` ヘッダーを以降のすべてのリクエストに付けてください。
+「Missing session ID」や HTTP 400 が返る場合は、`initialize` で返された `mcp-session-id` ヘッダーを以降のすべてのリクエストに付けてください。2026-07-28 のリクエストに `MCP-Protocol-Version: 2026-07-28` ヘッダーがないときも、セッション形式として扱われて同じエラーになります。
+
+エラー -32020（「mcp-method header does not match」）は、`Mcp-Method` か `Mcp-Name` ヘッダーがないか、リクエスト本文と食い違っているときに返ります。`params._meta` についての -32602 は、`io.modelcontextprotocol/protocolVersion` か `io.modelcontextprotocol/clientCapabilities` がないときに返ります。
 
 接続を拒否される場合は、次の点を確認します。
 - サーバーが起動しているか、ホストとポートが合っているか

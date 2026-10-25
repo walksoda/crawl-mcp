@@ -54,8 +54,8 @@ async def _tool_schemas() -> dict[str, dict]:
     sys.path.insert(0, str(ROOT))
     from crawl4ai_mcp.server import mcp
 
-    tools = await mcp.get_tools()
-    return {name: tool.parameters for name, tool in tools.items()}
+    tools = await mcp.list_tools()
+    return {tool.name: tool.parameters for tool in tools}
 
 
 def request_keys(description: str) -> list[str]:

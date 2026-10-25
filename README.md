@@ -18,7 +18,7 @@ A Model Context Protocol (MCP) server that wraps crawl4ai. It extracts content f
 
 ### Prerequisites (Required First)
 
-- Python 3.11 or later (FastMCP requires Python 3.11+)
+- Python 3.11 or later
 
 Install the system dependencies for Playwright.
 
@@ -112,6 +112,8 @@ For Docker in HTTP mode:
   }
 }
 ```
+
+The server supports MCP protocol 2026-07-28 and the earlier versions back to 2024-11-05 over both stdio and HTTP, so clients built for either can connect. The HTTP+SSE transport (`--transport sse`) is deprecated in MCP 2026-07-28. See the [HTTP Integration Guide](docs/HTTP_INTEGRATION.md).
 
 ## Documentation
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Support for MCP protocol 2026-07-28 (stateless requests, `server/discover`) over stdio and Streamable HTTP. Clients that use the `initialize` handshake of earlier versions, back to 2024-11-05, still connect.
+
+### Changed
+- Each tool has a display title (`title`), such as `Crawl URL` and `Extract YouTube Transcript`. Without one, FastMCP 4 would derive `Crawl Url` from the name.
+- The server reports the crawl-mcp version in its server info. It previously reported the FastMCP version.
+- `tools/list` adds `additionalProperties: false` to each input schema. Unknown arguments were already rejected.
+- The HTTP+SSE transport (`--transport sse`) is deprecated in MCP 2026-07-28. It still works.
+
+### Dependencies
+- Bump fastmcp to `>=4.1,<5`, which brings the `mcp` SDK 2.x.
+
 ## [0.4.2] - 2026-10-25
 
 ### Dependencies

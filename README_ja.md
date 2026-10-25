@@ -18,7 +18,7 @@ crawl4aiをラップしたModel Context Protocol（MCP）サーバーで、Web�
 
 ### 前提条件
 
-- Python 3.11 以上（FastMCP が Python 3.11+ を要求）
+- Python 3.11 以上
 
 先にPlaywright用のシステム依存パッケージを入れます。
 
@@ -111,6 +111,8 @@ DockerのHTTPモードを使う場合:
   }
 }
 ```
+
+サーバーは stdio と HTTP のどちらでも、MCP プロトコル 2026-07-28 と、2024-11-05 以降のそれより前のバージョンに対応しています。どちらの世代のクライアントからも接続できます。HTTP+SSE トランスポート（`--transport sse`）は MCP 2026-07-28 で廃止予定です。詳しくは [HTTP統合ガイド](docs/ja/HTTP_INTEGRATION.md) を参照してください。
 
 ## ドキュメント
 

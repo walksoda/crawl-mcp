@@ -1,8 +1,8 @@
 """
-Crawl4AI MCP Server - FastMCP 2.0 Version
+Crawl4AI MCP Server entry point (FastMCP).
 
-Uses FastMCP 2.0.0 which doesn't have banner output issues.
-Clean STDIO transport compatible for perfect MCP communication.
+Serves both MCP protocol eras: 2026-07-28 clients use the stateless
+per-request envelope, older clients use the initialize handshake.
 """
 
 import argparse
@@ -11,9 +11,7 @@ import sys
 import warnings
 
 # Set environment variables before any imports
-os.environ["FASTMCP_QUIET"] = "true"
-os.environ["FASTMCP_NO_BANNER"] = "true"
-os.environ["FASTMCP_SILENT"] = "true"
+os.environ["FASTMCP_SHOW_SERVER_BANNER"] = "false"
 os.environ["PYTHONWARNINGS"] = "ignore"
 os.environ["TERM"] = "dumb"
 os.environ["SHELL"] = "/bin/sh"
@@ -55,13 +53,12 @@ def _configure_logging() -> None:
 
 _configure_logging()
 
-# Import FastMCP 2.0 - no banner output!
 from fastmcp import FastMCP
 
+from . import __version__
 from .server_tools import register_all_tools
 
-# Create MCP server with clean initialization
-mcp = FastMCP("Crawl4AI")
+mcp = FastMCP("Crawl4AI", version=__version__)
 
 # Tool module loading state (owned by server.py)
 _tools_imported = False

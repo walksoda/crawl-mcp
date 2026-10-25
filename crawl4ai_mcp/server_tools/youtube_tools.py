@@ -20,7 +20,7 @@ from ._shared import (
 def register_youtube_tools(mcp, get_modules):
     """Register YouTube-related MCP tools."""
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Extract YouTube Transcript", annotations=READONLY_ANNOTATIONS)
     async def extract_youtube_transcript(
         url: Annotated[str, Field(description="YouTube video URL")],
         languages: Annotated[Optional[Union[List[str], str]], Field(description="Language codes in preference order")] = ["ja", "en"],
@@ -122,7 +122,7 @@ def register_youtube_tools(mcp, get_modules):
                 "error": f"YouTube transcript error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Batch Extract YouTube Transcripts", annotations=READONLY_ANNOTATIONS)
     async def batch_extract_youtube_transcripts(
         request: Annotated[Dict[str, Any], Field(description="Dict with: urls (max 3), languages, include_timestamps, timezone (IANA name e.g. 'Asia/Tokyo' for converting each video's publish time under metadata.published_at; defaults to 'UTC'). Optional persistence keys: output_path (absolute directory — per-video .md files + index.json; dot-containing dir names are fine), include_content_in_response (bool; default False — when True, per-video transcripts stay in the response as well), overwrite (bool; default False — existing files rejected). Failed items (success=False) are recorded in index.json with file=null but no .md is written.")]
     ) -> Dict[str, Any]:
@@ -177,7 +177,7 @@ def register_youtube_tools(mcp, get_modules):
                 "error": f"Batch YouTube extraction error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Get YouTube Video Info", annotations=READONLY_ANNOTATIONS)
     async def get_youtube_video_info(
         video_url: Annotated[str, Field(description="YouTube video URL")],
         summarize_transcript: Annotated[bool, Field(description="Summarize transcript")] = False,
@@ -237,7 +237,7 @@ def register_youtube_tools(mcp, get_modules):
                 "error": f"YouTube video info error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Extract YouTube Comments", annotations=READONLY_ANNOTATIONS)
     async def extract_youtube_comments(
         url: Annotated[str, Field(description="YouTube video URL")],
         sort_by: Annotated[str, Field(description="'popular'|'recent'")] = "popular",

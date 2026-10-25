@@ -43,7 +43,7 @@ def _maybe_persist(
 def register_extraction_tools(mcp, get_modules):
     """Register extraction-related MCP tools."""
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Intelligent Extract", annotations=READONLY_ANNOTATIONS)
     async def intelligent_extract(
         url: Annotated[str, Field(description="Target URL")],
         extraction_goal: Annotated[str, Field(description="Data to extract")],
@@ -147,7 +147,7 @@ def register_extraction_tools(mcp, get_modules):
                 "error": f"Intelligent extraction error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Extract Entities", annotations=READONLY_ANNOTATIONS)
     async def extract_entities(
         url: Annotated[str, Field(description="Target URL")],
         entity_types: Annotated[List[str], Field(description="Regex types: emails, phones, urls, dates, ips, prices, credit_cards, coordinates (singular forms like email/phone are accepted), plus any custom_patterns keys. Without use_llm, other types are listed under unsupported_entity_types with a warning. With use_llm=True any type name works (e.g. people, organizations, locations, products, events).")],
@@ -282,7 +282,7 @@ def register_extraction_tools(mcp, get_modules):
                 "error": f"Entity extraction error: {str(e)}"
             }
 
-    @mcp.tool(annotations=READONLY_ANNOTATIONS)
+    @mcp.tool(title="Extract Structured Data", annotations=READONLY_ANNOTATIONS)
     async def extract_structured_data(
         url: Annotated[str, Field(description="Target URL")],
         extraction_type: Annotated[str, Field(description="'css'|'llm'|'table'")] = "css",

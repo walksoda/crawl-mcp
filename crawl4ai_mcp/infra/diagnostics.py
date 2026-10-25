@@ -6,6 +6,7 @@ and environment issues.
 
 import glob
 import platform
+from importlib.metadata import version
 from pathlib import Path
 
 from .browser import _load_heavy_imports
@@ -20,10 +21,10 @@ def get_system_diagnostics() -> dict:
     cache_dirs = glob.glob(cache_pattern)
 
     return {
-        "status": "FastMCP 2.0 Server - Clean STDIO communication",
+        "status": "FastMCP server",
         "platform": platform.system(),
         "python_version": platform.python_version(),
-        "fastmcp_version": "2.0.0",
+        "fastmcp_version": version("fastmcp"),
         "browser_cache_found": len(cache_dirs) > 0,
         "cache_directories": cache_dirs,
         "recommendations": [

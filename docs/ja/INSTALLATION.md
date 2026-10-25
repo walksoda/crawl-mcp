@@ -69,7 +69,7 @@ crawl-mcp
 
 既存の Python 環境に入れるときの方法です。
 
-依存関係は `pyproject.toml` でバージョン範囲を制約して定義しています（`crawl4ai>=0.9.5,<0.10`、`fastmcp>=2.14.7,<3`、`playwright==1.64.1` など）。`requirements.txt` は Docker ビルド用に同じ内容を写したものです。Anthropic の SDK（`anthropic>=0.40.0`）も通常の依存関係に入っているため、UVX でインストールした環境でも Anthropic による要約が使えます。
+依存関係は `pyproject.toml` でバージョン範囲を制約して定義しています（`crawl4ai>=0.9.5,<0.10`、`fastmcp>=4.1,<5`、`playwright==1.64.1` など）。`requirements.txt` は Docker ビルド用に同じ内容を写したものです。Anthropic の SDK（`anthropic>=0.40.0`）も通常の依存関係に入っているため、UVX でインストールした環境でも Anthropic による要約が使えます。
 
 ### セットアップスクリプト（従来方式）
 
