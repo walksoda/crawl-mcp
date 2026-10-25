@@ -8,6 +8,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
 import pytest
 
 from crawl4ai_mcp.core.search import recent_days_to_int
@@ -578,7 +579,7 @@ class TestSearXNG:
         monkeypatch.setenv("SEARXNG_ENGINES", " bing, ,duckduckgo ")
         params = SearXNGSearchClient().build_params("q", 2, "EN", "uk", False, 5)
         assert params == {
-            "q": "q", "format": "json", "categories": "general", "safesearch": 0, "pageno": 2,
+            "q": "q", "format": "json", "safesearch": 0, "pageno": 2,
             "engines": "bing,duckduckgo", "language": "en-GB", "time_range": "week",
         }
 
@@ -586,8 +587,16 @@ class TestSearXNG:
         monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
         params = SearXNGSearchClient().build_params("q")
         assert "engines" not in params  # the instance's default engines
+        assert params["categories"] == "general"
         assert "language" not in params and "time_range" not in params
         assert params["safesearch"] == 1
+
+    @pytest.mark.parametrize("language,region,expected", [
+        ("en", "us", "en-US"), ("EN", "uk", "en-GB"), ("ja", None, "ja"),
+        ("en", "all", "en"), ("zh-tw", "us", "zh-tw"), ("zh_TW", "jp", "zh-tw"),
+    ])
+    def test_language_param(self, language, region, expected):
+        assert searxng.language_param(language, region) == expected
 
     @pytest.mark.asyncio
     async def test_not_configured(self):
@@ -637,6 +646,34 @@ class TestSearXNG:
         assert result["total_results"] == 1
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("later", [
+        asyncio.TimeoutError(), aiohttp.ClientConnectionError("reset"), (200, None),
+    ])
+    async def test_later_page_failure_keeps_earlier_results(self, monkeypatch, later):
+        """A timeout, connection error or non-JSON body on page 2 keeps page 1."""
+        monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+
+        def fail(kwargs):
+            raise later
+        _install(monkeypatch, searxng, [
+            (200, _searx_page(["https://a.com/1"])),
+            later if isinstance(later, tuple) else fail,
+        ])
+        result = await SearXNGSearchClient().search("q", num_results=5)
+        assert result["success"] is True
+        assert result["total_results"] == 1
+
+    @pytest.mark.asyncio
+    async def test_first_page_timeout_is_network_failure(self, monkeypatch):
+        monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+
+        def fail(kwargs):
+            raise asyncio.TimeoutError()
+        _install(monkeypatch, searxng, [fail])
+        result = await SearXNGSearchClient().search("q")
+        assert result["failure_kind"] == "network"
+
+    @pytest.mark.asyncio
     async def test_unresponsive_engines_reported(self, monkeypatch):
         monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
         _install(monkeypatch, searxng, [(200, _searx_page(["https://a.com/1"], [["google", "Suspended: access denied"]]))])
@@ -646,11 +683,24 @@ class TestSearXNG:
 
     @pytest.mark.asyncio
     async def test_all_engines_unresponsive_is_server_failure(self, monkeypatch):
-        """Zero results because every engine failed must let auto move on."""
+        """Zero results because every SEARXNG_ENGINES engine failed must let auto move on."""
         monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+        monkeypatch.setenv("SEARXNG_ENGINES", "google,bing")
         _install(monkeypatch, searxng, [(200, _searx_page([], [["google", "timeout"], ["bing", "CAPTCHA"]]))])
         result = await SearXNGSearchClient().search("q")
         assert result["failure_kind"] == "server"
+        assert result["unresponsive_engines"] == ["google: timeout", "bing: CAPTCHA"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("engines", [None, "google,bing,duckduckgo"])
+    async def test_some_engines_unresponsive_is_zero_results(self, monkeypatch, engines):
+        """Without SEARXNG_ENGINES, or with an engine that answered, zero results stay no_results."""
+        monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+        if engines:
+            monkeypatch.setenv("SEARXNG_ENGINES", engines)
+        _install(monkeypatch, searxng, [(200, _searx_page([], [["google", "timeout"], ["bing", "CAPTCHA"]]))])
+        result = await SearXNGSearchClient().search("q")
+        assert result["failure_kind"] == "no_results"
         assert result["unresponsive_engines"] == ["google: timeout", "bing: CAPTCHA"]
 
     @pytest.mark.asyncio

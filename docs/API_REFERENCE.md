@@ -342,14 +342,14 @@ How the common keys map to each engine:
 
 | Key | `google_custom` | `brave` | `exa` | `searxng` |
 |---|---|---|---|---|
-| `language` | `hl` | `search_lang` | not used | `language`, combined with `region` (for example `en-US`) |
+| `language` | `hl` | `search_lang` | not used | `language`, combined with a two-letter `region` (for example `en-US`). A language that already has a region part (`zh-tw`) or a region such as `all` sends the language alone |
 | `region` | `gl` | `country` (`uk` becomes `GB`; codes Brave does not list become `ALL`) | `userLocation` | part of `language` (`uk` becomes `GB`) |
 | `recent_days` | `dateRestrict` | `freshness` (see below) | `startPublishedDate`, exactly N days before now | `time_range` (see below) |
 | `safe_search` | `safe=active` | `safesearch=moderate` | `moderation` | `safesearch=1` |
 
 For `brave`, `recent_days` of 1, 7, 31 and 365 use Brave's rolling windows (`pd`, `pw`, `pm`, `py`: the past 24 hours, 7 days, 31 days and 365 days). Other values become a date range in UTC from N days ago through today. Whole days are counted, so results can be up to one day older than N days.
 
-For `searxng`, `recent_days` becomes the smallest SearXNG `time_range` that covers it: 1 is `day`, 2-7 `week`, 8-31 `month`, 32-365 `year`. Values over 365 apply no date filter. The range used is returned as `time_range`. When some of the engines behind SearXNG fail, the response lists them in `unresponsive_engines` (for example `"google: timeout"`). When all of them fail and nothing is returned, the result is a failure that `auto` moves past, not zero results.
+For `searxng`, `recent_days` becomes the smallest SearXNG `time_range` that covers it: 1 is `day`, 2-7 `week`, 8-31 `month`, 32-365 `year`. Values over 365 apply no date filter. The range used is returned as `time_range`. When some of the engines behind SearXNG fail, the response lists them in `unresponsive_engines` (for example `"google: timeout"`). Zero results are `no_results` even when some engines are listed there. Only when `SEARXNG_ENGINES` is set and every engine in it is unresponsive is the result a failure that `auto` moves past.
 
 ### `search_web`
 

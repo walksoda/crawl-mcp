@@ -36,6 +36,21 @@ def time_range_for(recent_days: Optional[int]) -> Optional[str]:
     return None
 
 
+def language_param(language: str, region: Optional[str]) -> str:
+    """
+    SearXNG locale: 'en' plus a two-letter region gives 'en-US'.
+
+    SearXNG answers HTTP 400 for locales such as 'en-ALL' or 'zh-tw-US', so a
+    language that already has a region part, or a region that is not a
+    two-letter country code, sends the language alone.
+    """
+    lang = str(language).strip().lower().replace('_', '-')
+    country = normalize_region(region)
+    if '-' not in lang and country and len(country) == 2 and country.isalpha():
+        return f'{lang}-{country}'
+    return lang
+
+
 def _read_base_url() -> Optional[str]:
     """SEARXNG_URL when it is an http(s) URL with a host, else None."""
     raw = os.getenv('SEARXNG_URL', '').strip()
@@ -96,20 +111,39 @@ class SearXNGSearchClient:
         params: Dict[str, Any] = {
             'q': query,
             'format': 'json',
-            'categories': 'general',
             'safesearch': 1 if safe_search else 0,
             'pageno': page,
         }
+        # SearXNG searches the union of categories and engines, so the
+        # category is sent only when no engine list restricts the search.
         if self.engines:
             params['engines'] = self.engines
+        else:
+            params['categories'] = 'general'
         if language:
-            lang = str(language).strip().lower()
-            country = normalize_region(region)
-            params['language'] = f'{lang}-{country}' if country else lang
+            params['language'] = language_param(language, region)
         time_range = time_range_for(recent_days)
         if time_range:
             params['time_range'] = time_range
         return params
+
+    async def _fetch_page(self, session, params):
+        """(data, None) for one result page, or (None, failure dict)."""
+        try:
+            async with session.get(f'{self.base_url}/search', params=params) as response:
+                if response.status != 200:
+                    return None, _searxng_error(response.status)
+                try:
+                    data = await response.json(content_type=None)
+                except Exception:
+                    data = None
+        except asyncio.TimeoutError:
+            return None, failure('network', 'SearXNG timed out')
+        except aiohttp.ClientError as e:
+            return None, failure('network', f'Network error: {e}')
+        if not isinstance(data, dict) or not isinstance(data.get('results', []), list):
+            return None, failure('error', 'SearXNG returned an unexpected response shape')
+        return data, None
 
     async def search(
         self,
@@ -128,24 +162,23 @@ class SearXNGSearchClient:
         results: List[Dict[str, Any]] = []
         seen = set()
         unresponsive: List[str] = []
+        unresponsive_names = set()
         try:
             async with aiohttp.ClientSession(timeout=self.timeout) as session:
                 for page in range(1, MAX_PAGES + 1):
                     params = self.build_params(query, page, language, region, safe_search, recent_days)
-                    async with session.get(f'{self.base_url}/search', params=params) as response:
-                        if response.status != 200:
-                            if results:
-                                break  # keep the results of the earlier pages
-                            return _searxng_error(response.status)
-                        try:
-                            data = await response.json(content_type=None)
-                        except Exception:
-                            data = None
-
-                    if not isinstance(data, dict) or not isinstance(data.get('results', []), list):
-                        return failure('error', 'SearXNG returned an unexpected response shape')
+                    data, error = await self._fetch_page(session, params)
+                    if error:
+                        if results:
+                            break  # keep the results of the earlier pages
+                        return error
                     for entry in data.get('unresponsive_engines') or []:
-                        label = ': '.join(str(x) for x in entry) if isinstance(entry, (list, tuple)) else str(entry)
+                        if isinstance(entry, (list, tuple)):
+                            label = ': '.join(str(x) for x in entry)
+                            name = str(entry[0]) if entry else ''
+                        else:
+                            label = name = str(entry)
+                        unresponsive_names.add(name)
                         if label not in unresponsive:
                             unresponsive.append(label)
 
@@ -169,19 +202,17 @@ class SearXNGSearchClient:
                             break
                     if len(results) >= num_results or added == 0:
                         break
-        except asyncio.TimeoutError:
-            return failure('network', 'SearXNG timed out')
-        except aiohttp.ClientError as e:
-            return failure('network', f'Network error: {e}')
         except Exception as e:
             return failure('error', f'SearXNG error: {e}')
 
         if not results:
-            if unresponsive:
-                # Every engine behind SearXNG failed, so auto mode should try the next engine.
+            extra = {'query': query, 'unresponsive_engines': unresponsive or None}
+            # Only with SEARXNG_ENGINES is the full engine list known. When all of
+            # them failed, auto mode should try the next engine.
+            if self.engines and set(self.engines.split(',')) <= unresponsive_names:
                 return failure('server', 'All SearXNG engines failed: ' + '; '.join(unresponsive),
-                               query=query, unresponsive_engines=unresponsive)
-            return failure('no_results', 'No search results found', query=query)
+                               **extra)
+            return failure('no_results', 'No search results found', **extra)
 
         out: Dict[str, Any] = {
             'success': True,

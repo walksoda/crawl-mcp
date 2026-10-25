@@ -354,14 +354,14 @@ YouTube動画のメタデータと、トランスクリプトがどの言語で�
 
 | キー | `google_custom` | `brave` | `exa` | `searxng` |
 |---|---|---|---|---|
-| `language` | `hl` | `search_lang` | 使わない | `language`（`region` と組み合わせる。例: `en-US`） |
+| `language` | `hl` | `search_lang` | 使わない | `language`（2文字の `region` と組み合わせる。例: `en-US`。`zh-tw` のように地域を含む言語や、`all` などの地域では言語だけを送る） |
 | `region` | `gl` | `country`（`uk` は `GB` に変える。Brave の一覧にないコードは `ALL`） | `userLocation` | `language` の一部（`uk` は `GB` に変える） |
 | `recent_days` | `dateRestrict` | `freshness`（下記を参照） | `startPublishedDate`（ちょうど N 日前の時刻） | `time_range`（下記を参照） |
 | `safe_search` | `safe=active` | `safesearch=moderate` | `moderation` | `safesearch=1` |
 
 `brave` では、`recent_days` が 1、7、31、365 のとき Brave の固定期間（`pd`、`pw`、`pm`、`py`。それぞれ直近24時間、7日、31日、365日）を使う。それ以外の値は、N 日前から今日までの UTC の日付範囲になる。日単位で数えるため、N 日より最大1日古い結果まで入ることがある。
 
-`searxng` では、`recent_days` を、それを含む最小の SearXNG の `time_range` に変える。1 は `day`、2〜7 は `week`、8〜31 は `month`、32〜365 は `year` で、365 を超える値では日付で絞り込まない。使った範囲はレスポンスの `time_range` に入る。SearXNG の裏のエンジンの一部が失敗すると、レスポンスの `unresponsive_engines` にそれを並べる（例: `"google: timeout"`）。すべて失敗して結果がないときは、0件ではなく失敗として扱い、`auto` は次のエンジンへ進む。
+`searxng` では、`recent_days` を、それを含む最小の SearXNG の `time_range` に変える。1 は `day`、2〜7 は `week`、8〜31 は `month`、32〜365 は `year` で、365 を超える値では日付で絞り込まない。使った範囲はレスポンスの `time_range` に入る。SearXNG の裏のエンジンの一部が失敗すると、レスポンスの `unresponsive_engines` にそれを並べる（例: `"google: timeout"`）。一部のエンジンがここに並んでいても、結果が0件なら `no_results` になる。`SEARXNG_ENGINES` を設定していて、その全エンジンが応答しなかったときだけ失敗として扱い、`auto` は次のエンジンへ進む。
 
 ### `search_web`
 
