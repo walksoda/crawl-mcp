@@ -23,7 +23,7 @@ def register_file_tools(mcp, get_modules):
 
     @mcp.tool(title="Process File", annotations=READONLY_ANNOTATIONS)
     async def process_file(
-        url: Annotated[str, Field(description="File URL or local path (PDF, Office, ZIP). Supports http/https URLs, file:// URIs, and absolute paths.")],
+        url: Annotated[str, Field(description="File URL or local path (PDF, Office, ZIP). Supports http/https URLs (no file extension needed; Speaker Deck and Docswell deck pages and arXiv abstract pages lead to their PDF), file:// URIs, and absolute paths.")],
         max_size_mb: Annotated[int, Field(description="Max file size in MB")] = 100,
         extract_all_from_zip: Annotated[bool, Field(description="Extract ZIP contents")] = True,
         include_metadata: Annotated[bool, Field(description="Include metadata")] = True,
@@ -38,7 +38,7 @@ def register_file_tools(mcp, get_modules):
         include_content_in_response: Annotated[bool, Field(description="When True (with output_path set), keep content in the response too. Note: the response copy is still subject to content_limit/content_offset slicing; only the on-disk file holds the full unsliced payload. Defaults to False.")] = False,
         overwrite: Annotated[bool, Field(description="Overwrite an existing output file at output_path. Defaults to False.")] = False,
     ) -> dict:
-        """Convert PDF, Word, Excel, PowerPoint, ZIP to markdown. Use output_path to persist the full unsliced converted markdown to disk and receive a slim response."""
+        """Convert PDF, Word, Excel, PowerPoint, ZIP to markdown. A refused download is retried in a headless browser; error_code download_blocked means the site serves the file to neither, and not_a_document means the URL is a web page (use crawl_url). Use output_path to persist the full unsliced converted markdown to disk and receive a slim response."""
         # Output path validation (Guard A)
         output_error = validate_output_path(output_path, overwrite)
         if output_error:

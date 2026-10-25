@@ -144,8 +144,9 @@ class TestIsSupportedFileLocal:
     def test_http_url_unchanged(self):
         assert self.fp.is_supported_file("https://example.com/doc.pdf") is True
 
-    def test_http_url_no_ext_unchanged(self):
-        assert self.fp.is_supported_file("https://example.com/page") is False
+    def test_http_url_no_ext_passes(self):
+        # The type of an extensionless URL is decided after download
+        assert self.fp.is_supported_file("https://example.com/page") is True
 
 
 class TestReadLocalFile:
@@ -210,7 +211,7 @@ class TestHttpRegression:
         assert self.fp.is_supported_file("https://example.com/doc.pdf") is True
 
     def test_is_supported_file_http_no_ext(self):
-        assert self.fp.is_supported_file("https://example.com/page") is False
+        assert self.fp.is_supported_file("https://example.com/download") is True
 
     def test_get_extension_for_url_http(self):
         assert self.fp.get_extension_for_url("https://example.com/doc.pdf") == ".pdf"

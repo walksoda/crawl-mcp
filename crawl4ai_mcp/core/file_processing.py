@@ -235,6 +235,8 @@ async def process_file(
                 success=False,
                 url=url,
                 error=result.get('error'),
+                error_code=result.get('error_code'),
+                suggestion=result.get('suggestion'),
                 file_type=result.get('file_type')
             )
 

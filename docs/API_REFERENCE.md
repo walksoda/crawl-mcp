@@ -223,6 +223,14 @@ Supported formats:
 
 `process_file` converts `.html`/`.htm` as files, while `crawl_url` and `crawl_url_with_fallback` render remote `.html`/`.htm` URLs in the browser.
 
+Remote URLs:
+- The URL does not need a file extension. The type is decided after download: the content first (the PDF and RTF signatures, and the entries of a ZIP, which tell Word, Excel, PowerPoint and EPUB files from a plain archive), then for text formats the extension of the final URL after redirects, of the given URL or of the downloaded file name, then the Content-Type. So `/download`, `?id=...` and `application/octet-stream` URLs that serve a PDF are converted.
+- When the server refuses the download (HTTP 403, 429 or 503) or returns a web page for a document URL, the file is downloaded again in a headless browser. `metadata.downloaded_with` is then `browser`. If the browser also gets no file, for example because the site shows a human check, the result has `error_code: download_blocked`, the page title in `error`, and a `suggestion`.
+- A Speaker Deck or Docswell deck page, or an arXiv abstract page (`/abs/<id>`), is followed to its PDF, which is converted; `metadata.document_url` holds the PDF URL.
+- Any other URL that returns a web page gets `error_code: not_a_document`. Use `crawl_url` for web pages.
+- `error_code: unsupported_format` means the downloaded file is of a type MarkItDown does not convert here, and `error_code: file_too_large` means the file exceeds `max_size_mb`; a browser download is cancelled as soon as it passes that size.
+- `crawl_url` passes `error_code` and `suggestion` in `extracted_data` when a document URL fails.
+
 ### `get_supported_file_formats`
 
 Returns the list of supported file formats and their capabilities. No parameters required.

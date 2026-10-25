@@ -20,6 +20,8 @@ class FileProcessRequest(BaseRequest):
 class FileProcessResponse(BaseResponse):
     """Response model for file processing operations."""
     url: Optional[str] = None
+    error_code: Optional[str] = None
+    suggestion: Optional[str] = None
     filename: Optional[str] = None
     file_type: Optional[str] = None
     size_bytes: Optional[int] = None

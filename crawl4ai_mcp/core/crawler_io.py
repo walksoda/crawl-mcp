@@ -129,11 +129,15 @@ async def _handle_file_url(request: CrawlRequest) -> Optional[CrawlResponse]:
             response = await _check_and_summarize_if_needed(response, request)
             return _process_response_content(response, request.include_cleaned_html)
         else:
+            extracted = {"processing_method": "markitdown"}
+            for key in ("error_code", "suggestion"):
+                if file_result.get(key):
+                    extracted[key] = file_result[key]
             return CrawlResponse(
                 success=False,
                 url=request.url,
                 error=f"File processing failed: {file_result.get('error')}",
-                extracted_data={"processing_method": "markitdown"}
+                extracted_data=extracted
             )
     except Exception as e:
         return CrawlResponse(

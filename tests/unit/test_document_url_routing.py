@@ -55,6 +55,17 @@ class TestHandleFileUrl:
         assert result.success is False
         assert result.extracted_data == {"processing_method": "markitdown"}
 
+    async def test_failure_carries_error_code(self, monkeypatch):
+        async def blocked(url, max_size_mb=100):
+            return {"success": False, "error": "Download blocked", "error_code": "download_blocked",
+                    "suggestion": "Look for another copy"}
+
+        monkeypatch.setattr(crawler_io.file_processor, "process_file_from_url", blocked)
+        result = await crawler_io._handle_file_url(CrawlRequest(url="https://example.com/a.pdf"))
+
+        assert result.extracted_data["error_code"] == "download_blocked"
+        assert result.extracted_data["suggestion"] == "Look for another copy"
+
 
 class TestNoBrowserFallbackForDocuments:
     def test_trigger_skipped_for_file_processing_failure(self):

@@ -235,6 +235,14 @@ Microsoft MarkItDownでPDF、Word、Excel、PowerPoint、ZIPなどをMarkdownに
 
 `process_file` は `.html`/`.htm` をファイルとして変換しますが、`crawl_url` と `crawl_url_with_fallback` はリモートの `.html`/`.htm` URLをブラウザでレンダリングします。
 
+**リモートのURL:**
+- URLに拡張子は要りません。種類はダウンロードした後に決めます。まず中身を見ます（PDFとRTFのシグネチャ、ZIPの場合は中のファイルで、Word、Excel、PowerPoint、EPUBと通常のアーカイブを区別）。テキスト系の形式は、リダイレクト後の最終URL、渡されたURL、ダウンロードしたファイル名の順に拡張子を見て、それでも決まらなければContent-Typeを見ます。`/download` や `?id=...` の形のURLや、`application/octet-stream` で返されるPDFも変換できます。
+- サーバーがダウンロードを拒否した場合（HTTP 403、429、503）や、文書のURLなのにウェブページが返った場合は、ヘッドレスブラウザで取り直します。このとき `metadata.downloaded_with` は `browser` になります。人間確認の画面が出るなどしてブラウザでも取れなかったときは、`error_code: download_blocked` を返します。`error` にはそのページのタイトルが入り、`suggestion` に代わりの手段が入ります。
+- Speaker DeckとDocswellのスライドのページ、arXivの要旨のページ（`/abs/<id>`）は、ページ内のPDFをたどって変換します。PDFのURLは `metadata.document_url` に入ります。
+- それ以外のURLでウェブページが返った場合は `error_code: not_a_document` です。ウェブページには `crawl_url` を使ってください。
+- `error_code: unsupported_format` は、ダウンロードしたファイルがここで変換できない種類だったことを表します。`error_code: file_too_large` はファイルが `max_size_mb` を超えたことを表し、ブラウザでのダウンロードはその大きさを超えた時点で中止します。
+- `crawl_url` も、文書のURLで失敗したときは `extracted_data` に `error_code` と `suggestion` を入れます。
+
 ### `get_supported_file_formats`
 
 対応しているファイル形式と、形式ごとの機能を返します。パラメータはありません。

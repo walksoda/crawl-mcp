@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `process_file` follows a Speaker Deck or Docswell deck page, or an arXiv abstract page, to its PDF and converts it (`metadata.document_url`).
 - Support for MCP protocol 2026-07-28 (stateless requests, `server/discover`) over stdio and Streamable HTTP. Clients that use the `initialize` handshake of earlier versions, back to 2024-11-05, still connect.
 
 ### Changed
@@ -12,6 +13,9 @@
 - The HTTP+SSE transport (`--transport sse`) is deprecated in MCP 2026-07-28. It still works.
 
 ### Fixed
+- `process_file` rejected remote URLs without a file extension before downloading them, so `/download`, `?id=...` and `.cfm` links to PDFs failed with "Unsupported file format". The type is now decided from the downloaded bytes and the Content-Type, and a PDF sent as `application/octet-stream` is recognized.
+- `process_file` and `crawl_url` retry a document download in a headless browser when the server refuses it (HTTP 403, 429, 503) or returns a web page instead. When the browser gets no file either, the result has `error_code: download_blocked` with the page title and a `suggestion`. A web page passed to `process_file` returns `error_code: not_a_document` instead of a conversion error.
+- File downloads no longer block the server's event loop.
 - `extract_youtube_comments` with `output_path` returned the comment text in `content` and `markdown` although `content_included_in_response` was false. Both are now removed from the response like `extracted_data.comments`.
 - `get_youtube_video_info` with `output_path` wrote a file with frontmatter only. The file now holds the channel, publish time, duration, views, description, transcript languages (or why they could not be listed) and, with `summarize_transcript=True`, the transcript summary, which is left out of the slimmed response.
 - `get_youtube_video_info` returned page navigation text as `metadata.description` and null `channel_name` and `duration`. These now come from the video details YouTube embeds in the page, with `duration_seconds` and `view_count` added. `extract_youtube_transcript` fills `channel_name`, `duration` and `view_count` from the same source when it enriches metadata.
@@ -19,6 +23,7 @@
 
 ### Dependencies
 - Bump fastmcp to `>=4.1,<5`, which brings the `mcp` SDK 2.x.
+- Declare `requests>=2.32.4`, which was used without being listed (it came in through crawl4ai). File downloads now stream with aiohttp and read proxy and CA settings from the environment as requests does.
 
 ## [0.4.2] - 2026-10-25
 
