@@ -5,20 +5,20 @@ How to install the Crawl4AI MCP Server and connect it to an MCP client.
 ## Prerequisites
 
 - Python 3.11 or later (`requires-python = ">=3.11"`; tested on 3.11 and 3.12)
-- Playwright Chromium and its system libraries. The project pins `playwright==1.55.0`. Install the browser build that matches that version before first use.
+- Playwright Chromium and its system libraries. The project pins `playwright==1.64.1`. Install the browser build that matches that version before first use.
 
 ### Install Chromium for Playwright
 
 On Linux, this installs the browser and the system libraries and requires sudo:
 
 ```bash
-uvx --from playwright==1.55.0 playwright install --with-deps chromium
+uvx --from playwright==1.64.1 playwright install --with-deps chromium
 ```
 
 On macOS and Windows:
 
 ```bash
-uvx --from playwright==1.55.0 playwright install chromium
+uvx --from playwright==1.64.1 playwright install chromium
 ```
 
 If you already have an environment with the package installed (see Methods 2 and 3), you can run the same command inside it instead: `python -m playwright install --with-deps chromium` (Linux) or `python -m playwright install chromium`.
@@ -71,7 +71,7 @@ crawl-mcp
 
 Use this method to install into an existing Python environment.
 
-`pyproject.toml` defines the dependencies with constrained versions (for example `crawl4ai>=0.9.4,<0.10`, `fastmcp>=2.14.2,<3`, `playwright==1.55.0`). `requirements.txt` mirrors them for Docker builds. The Anthropic SDK (`anthropic>=0.40.0`) is a regular dependency, so Anthropic summarization also works in UVX installs.
+`pyproject.toml` defines the dependencies with constrained versions (for example `crawl4ai>=0.9.5,<0.10`, `fastmcp>=2.14.7,<3`, `playwright==1.64.1`). `requirements.txt` mirrors them for Docker builds. The Anthropic SDK (`anthropic>=0.40.0`) is a regular dependency, so Anthropic summarization also works in UVX installs.
 
 ### Setup Scripts (Traditional)
 
@@ -128,7 +128,7 @@ macOS:
 
 ### Common Installation Issues
 
-1. Browser not found, or executable doesn't exist: re-run the Chromium install command above with `playwright==1.55.0`. A different Playwright version downloads a different Chromium build.
+1. Browser not found, or executable doesn't exist: re-run the Chromium install command above with `playwright==1.64.1`. A different Playwright version downloads a different Chromium build.
 2. Missing system libraries on Linux: use `--with-deps`, or install the libraries manually (see Prerequisites).
 3. Permission errors: `--with-deps` needs sudo on Linux.
 4. If UVX fails, try Method 2 or Method 3.

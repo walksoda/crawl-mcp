@@ -33,20 +33,20 @@ sudo apt update && sudo apt install -y \
   fonts-noto-color-emoji fonts-unifont python3-venv python3-pip
 
 python3 -m venv venv && source venv/bin/activate
-pip install playwright==1.55.0 && playwright install chromium
+pip install playwright==1.64.1 && playwright install chromium
 sudo playwright install-deps
 ```
 
 Other Linux distributions (installs Chromium and its system libraries):
 
 ```bash
-uvx --from playwright==1.55.0 playwright install --with-deps chromium
+uvx --from playwright==1.64.1 playwright install --with-deps chromium
 ```
 
 macOS / Windows:
 
 ```bash
-uvx --from playwright==1.55.0 playwright install chromium
+uvx --from playwright==1.64.1 playwright install chromium
 ```
 
 If Playwright is already installed in a Python environment, `python -m playwright install --with-deps chromium` (Linux) or `playwright install chromium` (macOS/Windows) works as well.

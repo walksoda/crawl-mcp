@@ -32,18 +32,18 @@ sudo apt update && sudo apt install -y \
   fonts-noto-color-emoji fonts-unifont python3-venv python3-pip
 
 python3 -m venv venv && source venv/bin/activate
-pip install playwright==1.55.0 && playwright install chromium
+pip install playwright==1.64.1 && playwright install chromium
 sudo playwright install-deps
 ```
 
 その他のLinuxでは、Chromiumとシステムライブラリをまとめて入れます。
 ```bash
-uvx --from playwright==1.55.0 playwright install --with-deps chromium
+uvx --from playwright==1.64.1 playwright install --with-deps chromium
 ```
 
 macOSとWindowsの場合:
 ```bash
-uvx --from playwright==1.55.0 playwright install chromium
+uvx --from playwright==1.64.1 playwright install chromium
 ```
 
 Python環境にPlaywrightがインストール済みの場合は、`python -m playwright install --with-deps chromium`（Linux）または `playwright install chromium`（macOS/Windows）でもかまいません。

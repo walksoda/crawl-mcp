@@ -5,18 +5,18 @@ Crawl4AI MCPサーバーのインストール手順を、方法ごとに説明�
 ## 前提条件
 
 - Python 3.11 以上（`requires-python = ">=3.11"`、3.11 と 3.12 で動作確認）
-- Playwright の Chromium とシステムライブラリ。このプロジェクトは `playwright==1.55.0` に固定しています。初回利用の前に、このバージョンに対応するブラウザをインストールしてください。
+- Playwright の Chromium とシステムライブラリ。このプロジェクトは `playwright==1.64.1` に固定しています。初回利用の前に、このバージョンに対応するブラウザをインストールしてください。
 
 ### Playwright 用 Chromium のインストール
 
 Linux ではブラウザとシステムライブラリをまとめて入れます（sudo が必要です）。
 ```bash
-uvx --from playwright==1.55.0 playwright install --with-deps chromium
+uvx --from playwright==1.64.1 playwright install --with-deps chromium
 ```
 
 macOS と Windows ではブラウザだけを入れます。
 ```bash
-uvx --from playwright==1.55.0 playwright install chromium
+uvx --from playwright==1.64.1 playwright install chromium
 ```
 
 パッケージをインストール済みの環境がある場合（方法2・方法3）は、その環境内で同じ処理を実行してもかまいません。Linux では `python -m playwright install --with-deps chromium`、それ以外では `python -m playwright install chromium` です。
@@ -69,7 +69,7 @@ crawl-mcp
 
 既存の Python 環境に入れるときの方法です。
 
-依存関係は `pyproject.toml` でバージョン範囲を制約して定義しています（`crawl4ai>=0.9.4,<0.10`、`fastmcp>=2.14.2,<3`、`playwright==1.55.0` など）。`requirements.txt` は Docker ビルド用に同じ内容を写したものです。Anthropic の SDK（`anthropic>=0.40.0`）も通常の依存関係に入っているため、UVX でインストールした環境でも Anthropic による要約が使えます。
+依存関係は `pyproject.toml` でバージョン範囲を制約して定義しています（`crawl4ai>=0.9.5,<0.10`、`fastmcp>=2.14.7,<3`、`playwright==1.64.1` など）。`requirements.txt` は Docker ビルド用に同じ内容を写したものです。Anthropic の SDK（`anthropic>=0.40.0`）も通常の依存関係に入っているため、UVX でインストールした環境でも Anthropic による要約が使えます。
 
 ### セットアップスクリプト（従来方式）
 
@@ -122,7 +122,7 @@ macOS:
 
 ### よくあるインストールの問題
 
-1. ブラウザや実行ファイルが見つからないと言われたら、上の Chromium のインストールコマンドを `playwright==1.55.0` で再実行してください。Playwright のバージョンが違うと、ダウンロードされる Chromium のビルドも変わります。
+1. ブラウザや実行ファイルが見つからないと言われたら、上の Chromium のインストールコマンドを `playwright==1.64.1` で再実行してください。Playwright のバージョンが違うと、ダウンロードされる Chromium のビルドも変わります。
 2. Linux でシステムライブラリが足りない場合は、`--with-deps` を使うか、前提条件の手順で手動インストールします。
 3. Linux で `--with-deps` を使うには sudo が必要です。
 4. UVX でうまくいかなければ、方法2か方法3を試してください。

@@ -254,9 +254,9 @@ build-backend = "hatchling.build"
 name = "crawl-mcp"
 requires-python = ">=3.11"
 dependencies = [
-    "crawl4ai>=0.9.4,<0.10",
-    "fastmcp>=2.14.2,<3",
-    "playwright==1.55.0",
+    "crawl4ai>=0.9.5,<0.10",
+    "fastmcp>=2.14.7,<3",
+    "playwright==1.64.1",
     # ...
 ]
 

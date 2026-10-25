@@ -1,7 +1,7 @@
 # Fixed versions to prevent unintended behavior changes
-crawl4ai>=0.9.4,<0.10
+crawl4ai>=0.9.5,<0.10
 litellm>=1.83.7,!=1.82.7,!=1.82.8
-fastmcp>=2.14.2,<3
+fastmcp>=2.14.7,<3
 pydantic>=2.0.0
 asyncio
 typing-extensions
@@ -20,7 +20,7 @@ openpyxl>=3.1.5
 python-pptx==1.0.2
 xlrd>=2.0.1
 
-aiohttp>=3.8.0
+aiohttp>=3.14.5
 beautifulsoup4>=4.12.0
 
 # YouTube transcript extraction - fixed version
@@ -30,7 +30,7 @@ youtube-transcript-api==1.2.3
 youtube-comment-downloader==0.1.78
 
 # Playwright for lightweight browser automation - fixed version
-playwright==1.55.0
+playwright==1.64.1
 
 # Date utilities for time parsing functionality
 python-dateutil>=2.9.0.post0
@@ -42,4 +42,4 @@ tiktoken>=0.5.0
 anthropic>=0.40.0
 
 # Security: urllib3 2.6.x has known CVEs (CVE-2026-44431, CVE-2026-44432)
-urllib3>=2.7.0
+urllib3>=2.8.0

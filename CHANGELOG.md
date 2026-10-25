@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Dependencies
+- Bump playwright to 1.64.1 (Chromium 156). Run `playwright install chromium` after upgrading. The previous pin bundled Chromium 140, which has known security issues and which crawl4ai launches with `--no-sandbox`
+- Raise the minimum versions of crawl4ai to 0.9.5, fastmcp to 2.14.7, aiohttp to 3.14.5 and urllib3 to 2.8.0, which fix known vulnerabilities
+
 ## [0.4.1] - 2026-10-25
 
 ### Added
