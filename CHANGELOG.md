@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.2] - 2026-10-25
 
 ### Dependencies
 - Bump playwright to 1.64.1 (Chromium 156). Run `playwright install chromium` after upgrading. The previous pin bundled Chromium 140, which has known security issues and which crawl4ai launches with `--no-sandbox`
