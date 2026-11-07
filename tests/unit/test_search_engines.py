@@ -14,19 +14,20 @@ import pytest
 from crawl4ai_mcp.core.search import recent_days_to_int
 from crawl4ai_mcp.middleware.cache import _get_search_cache_key
 from crawl4ai_mcp.processors import web_search
-from crawl4ai_mcp.processors.search_engines import brave, exa, google_custom, searxng
+from crawl4ai_mcp.processors.search_engines import brave, exa, google_custom, searxng, tinyfish
 from crawl4ai_mcp.processors.search_engines.brave import BraveSearchClient
 from crawl4ai_mcp.processors.search_engines.common import failure
 from crawl4ai_mcp.processors.search_engines.exa import ExaSearchClient, split_site_operators
 from crawl4ai_mcp.processors.search_engines.google_custom import CustomSearchAPIClient
 from crawl4ai_mcp.processors.search_engines.searxng import SearXNGSearchClient
+from crawl4ai_mcp.processors.search_engines.tinyfish import TinyFishSearchClient
 from crawl4ai_mcp.processors.web_search import WebSearchProcessor
 from crawl4ai_mcp.server_tools.search_tools import register_search_tools
 
 ENGINE_ENV = (
     "SEARCH_ENGINE", "SEARCH_ENGINE_ORDER", "GOOGLE_SEARCH_MODE",
     "GOOGLE_SEARCH_API_KEY", "GOOGLE_SEARCH_ENGINE_ID", "BRAVE_SEARCH_API_KEY", "EXA_API_KEY",
-    "SEARXNG_URL", "SEARXNG_ENGINES", "SEARXNG_TIMEOUT",
+    "SEARXNG_URL", "SEARXNG_ENGINES", "SEARXNG_TIMEOUT", "TINYFISH_API_KEY",
 )
 
 
@@ -503,6 +504,232 @@ class TestExa:
 
 
 # ---------------------------------------------------------------------------
+# TinyFish
+# ---------------------------------------------------------------------------
+
+
+def _tf_page(n: int, start: int = 0, prefix: str = "ex", **fields) -> Dict[str, Any]:
+    return {"query": "q", "page": 0, "total_results": n, "results": [
+        {"position": i + 1, "site_name": f"{prefix}{i}.com", "title": f"T{i}",
+         "snippet": f"s{i}", "url": f"https://{prefix}{i}.com/p", **fields}
+        for i in range(start, start + n)
+    ]}
+
+
+def _tf_server(total: int, per_page: int = 10):
+    """Answer like TinyFish: page is a page index of about 10 results."""
+    def respond(kwargs):
+        start = kwargs["params"]["page"] * per_page
+        return 200, _tf_page(max(0, min(per_page, total - start)), start)
+    return respond
+
+
+class TestTinyFish:
+    def test_build_params(self):
+        params = TinyFishSearchClient().build_params("q", "web", 2, "JA", "uk", 7)
+        assert params == {"query": "q", "page": 2, "language": "ja", "location": "GB", "recency_minutes": 7 * 1440}
+
+    def test_build_params_news_and_recency_cap(self):
+        params = TinyFishSearchClient().build_params("q", "news", 0, None, None, 10000)
+        assert params["domain_type"] == "news"
+        assert params["recency_minutes"] == tinyfish.MAX_RECENCY_MINUTES
+        assert "language" not in params and "location" not in params
+
+    def test_research_paper_recent_days_become_min_year(self, monkeypatch):
+        from datetime import datetime as real_datetime, timezone
+
+        class FrozenDatetime(real_datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return real_datetime(2026, 1, 20, tzinfo=timezone.utc).astimezone(tz)
+        monkeypatch.setattr(tinyfish, "datetime", FrozenDatetime)
+        params = TinyFishSearchClient().build_params("q", "research_paper", 0, None, None, 30)
+        # The API rejects recency filters for papers.
+        assert "recency_minutes" not in params
+        assert params["domain_type"] == "research_paper"
+        assert params["pub_year_min"] == 2025
+
+    @pytest.mark.asyncio
+    async def test_not_configured(self):
+        result = await TinyFishSearchClient().search("q")
+        assert result["failure_kind"] == "not_configured"
+
+    @pytest.mark.asyncio
+    async def test_parses_and_pages(self, monkeypatch):
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+        session = _install(monkeypatch, tinyfish, [_tf_server(100)] * 3)
+        result = await TinyFishSearchClient().search("q", num_results=25, language="ja", region="jp")
+
+        assert result["success"] is True
+        assert result["processing_method"] == "tinyfish_search_api"
+        assert result["total_results"] == 25
+        assert [c["params"]["page"] for c in session.calls] == [0, 1, 2]
+        assert session.calls[0]["headers"]["X-API-Key"] == "k"
+        assert session.calls[0]["params"]["location"] == "JP"
+        assert "domain_type" not in session.calls[0]["params"]
+        assert [r["rank"] for r in result["results"]] == list(range(1, 26))
+        first = result["results"][0]
+        assert (first["title"], first["snippet"], first["domain"]) == ("T0", "s0", "ex0.com")
+        assert "extra_results" not in result
+
+    @pytest.mark.asyncio
+    async def test_stops_on_empty_or_repeated_page(self, monkeypatch):
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+        session = _install(monkeypatch, tinyfish, [(200, _tf_page(10)), (200, _tf_page(10))])
+        result = await TinyFishSearchClient().search("q", num_results=50)
+        assert len(session.calls) == 2
+        assert result["total_results"] == 10
+
+        session = _install(monkeypatch, tinyfish, [(200, _tf_page(7)), (200, _tf_page(0))])
+        result = await TinyFishSearchClient().search("q", num_results=50)
+        assert len(session.calls) == 2
+        assert result["total_results"] == 7
+
+    @pytest.mark.asyncio
+    async def test_stops_after_last_page(self, monkeypatch):
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+        # 9 results a page never reach 100, so paging ends at page 10, the API's last page.
+        session = _install(monkeypatch, tinyfish, [_tf_server(1000, per_page=9)] * 12)
+        result = await TinyFishSearchClient().search("q", num_results=100)
+        assert [c["params"]["page"] for c in session.calls] == list(range(11))
+        assert result["total_results"] == 99
+
+    @pytest.mark.asyncio
+    async def test_research_paper_fields(self, monkeypatch):
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+        page = _tf_page(2, authors=["A B", None, "C D"], venue="arXiv", year=2025,
+                        cited_by_count=75, pdf_url="https://arxiv.org/pdf/1")
+        session = _install(monkeypatch, tinyfish, [(200, page)])
+        result = await TinyFishSearchClient().search("q", num_results=2, result_types=("research_paper",))
+
+        assert session.calls[0]["params"]["domain_type"] == "research_paper"
+        assert result["result_type"] == "research_paper"
+        paper = result["results"][0]
+        assert paper["authors"] == ["A B", "C D"]
+        assert (paper["venue"], paper["year"], paper["cited_by_count"]) == ("arXiv", 2025, 75)
+        assert paper["pdf_url"] == "https://arxiv.org/pdf/1"
+
+    @pytest.mark.asyncio
+    async def test_web_and_news_requests(self, monkeypatch):
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+        news = _tf_page(2, prefix="news", date="Fri, 06 Nov 2026 16:22:49 GMT", publisher="CNBC")
+        # A short page does not end the series; the empty one after it does.
+        session = _install(monkeypatch, tinyfish, [(200, _tf_page(3)), (200, news), (200, _tf_page(0))])
+        # web is the main type even when listed second.
+        result = await TinyFishSearchClient().search("q", num_results=3, result_types=("news", "web"))
+
+        assert [c["params"].get("domain_type") for c in session.calls] == [None, "news", "news"]
+        assert [c["params"]["page"] for c in session.calls] == [0, 0, 1]
+        assert result["result_type"] == "web"
+        assert result["total_results"] == 3
+        item = result["extra_results"]["news"][0]
+        assert item["source"] == "CNBC"
+        assert item["published_date"] == "Fri, 06 Nov 2026 16:22:49 GMT"
+
+    @pytest.mark.asyncio
+    async def test_extra_type_failure_keeps_main(self, monkeypatch):
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+        _install(monkeypatch, tinyfish, [
+            (200, _tf_page(3)),
+            (400, {"error": {"code": "INVALID_INPUT", "message": "bad filter"}}),
+        ])
+        result = await TinyFishSearchClient().search("q", num_results=3, result_types=("web", "research_paper"))
+        assert result["success"] is True
+        assert result["extra_results"] == {"research_paper": []}
+        assert "bad filter" in result["extra_errors"]["research_paper"]
+
+    @pytest.mark.asyncio
+    async def test_extra_type_timeout_keeps_main(self, monkeypatch):
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+
+        def timeout(kwargs):
+            raise asyncio.TimeoutError()
+        _install(monkeypatch, tinyfish, [(200, _tf_page(3)), timeout])
+        result = await TinyFishSearchClient().search("q", num_results=3, result_types=("web", "research_paper"))
+        assert result["success"] is True
+        assert result["total_results"] == 3
+        assert result["extra_errors"] == {"research_paper": "TinyFish Search API timed out"}
+
+    @pytest.mark.asyncio
+    async def test_extra_type_failure_without_results_keeps_its_kind(self, monkeypatch):
+        """Empty web plus a 402 on news must not read as zero results, so auto moves on."""
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+        _install(monkeypatch, tinyfish, [
+            (200, _tf_page(0)),
+            (402, {"error": {"code": "INSUFFICIENT_CREDITS", "message": "m"}}),
+        ])
+        result = await TinyFishSearchClient().search("q", result_types=("web", "news"))
+        assert result["success"] is False
+        assert result["failure_kind"] == "quota"
+
+    @pytest.mark.asyncio
+    async def test_missing_results_key_is_an_error(self, monkeypatch):
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+        _install(monkeypatch, tinyfish, [(200, {})])
+        result = await TinyFishSearchClient().search("q")
+        assert result["failure_kind"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_no_results(self, monkeypatch):
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+        _install(monkeypatch, tinyfish, [(200, _tf_page(0))])
+        result = await TinyFishSearchClient().search("q", result_types=("news",))
+        assert result["failure_kind"] == "no_results"
+        assert result["error"] == "No news results found"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status,code,kind", [
+        (401, "INVALID_API_KEY", "auth"),
+        (402, "INSUFFICIENT_CREDITS", "quota"),
+        (402, "FREE_ALLOWANCE_EXHAUSTED", "quota"),
+        (400, "INVALID_INPUT", "bad_request"),
+        (503, None, "server"),
+    ])
+    async def test_errors(self, monkeypatch, status, code, kind):
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+        body = {"error": {"code": code, "message": "m"}} if code else None
+        _install(monkeypatch, tinyfish, [(status, body)])
+        result = await TinyFishSearchClient().search("q")
+        assert result["success"] is False
+        assert result["failure_kind"] == kind
+        assert result["status_code"] == status
+        if code:
+            assert result["api_error_code"] == code
+        if status == 402:
+            assert "00:00 UTC" in result["suggestion"]
+
+    @pytest.mark.asyncio
+    async def test_short_rate_limit_is_retried(self, monkeypatch):
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+        session = _install(monkeypatch, tinyfish, [(429, None, {"Retry-After": "2"}), (200, _tf_page(3))])
+        result = await TinyFishSearchClient().search("q", num_results=3)
+        assert result["success"] is True
+        assert len(session.calls) == 2
+        tinyfish.asyncio.sleep.assert_awaited_once_with(2.0)
+
+    @pytest.mark.asyncio
+    async def test_long_rate_limit_is_reported(self, monkeypatch):
+        monkeypatch.setenv("TINYFISH_API_KEY", "k")
+        session = _install(monkeypatch, tinyfish, [(429, None, {"Retry-After": "40"})])
+        result = await TinyFishSearchClient().search("q")
+        assert result["failure_kind"] == "rate_limited"
+        assert "30 requests per minute" in result["suggestion"]
+        assert len(session.calls) == 1
+
+    def test_retry_after_from_reset_epoch(self, monkeypatch):
+        from datetime import datetime as real_datetime, timezone
+        now = real_datetime(2026, 11, 7, tzinfo=timezone.utc)
+
+        class FrozenDatetime(real_datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return now.astimezone(tz)
+        monkeypatch.setattr(tinyfish, "datetime", FrozenDatetime)
+        assert tinyfish._retry_after({"X-RateLimit-Reset": str(now.timestamp() + 3)}) == pytest.approx(3.0)
+        assert tinyfish._retry_after({}) is None
+
+
+# ---------------------------------------------------------------------------
 # Google Custom Search
 # ---------------------------------------------------------------------------
 
@@ -726,6 +953,7 @@ class TestSearXNG:
     (exa, ExaSearchClient, {"EXA_API_KEY": "k"}),
     (google_custom, CustomSearchAPIClient, {"GOOGLE_SEARCH_API_KEY": "k", "GOOGLE_SEARCH_ENGINE_ID": "cx"}),
     (searxng, SearXNGSearchClient, {"SEARXNG_URL": "http://searx.local"}),
+    (tinyfish, TinyFishSearchClient, {"TINYFISH_API_KEY": "k"}),
 ])
 @pytest.mark.parametrize("body", [None, ["not", "an", "object"]])
 async def test_malformed_200_is_an_error_not_zero_results(monkeypatch, module, client_cls, env, body):
@@ -759,10 +987,11 @@ class TestEngineConfig:
         assert web_search.resolve_default_engine() == expected
 
     @pytest.mark.parametrize("raw,expected", [
-        (None, ("google_custom", "brave", "exa", "searxng")),
+        (None, ("google_custom", "brave", "exa", "searxng", "tinyfish")),
         ("exa, brave", ("exa", "brave")),
         ("brave,bogus,brave", ("brave",)),
-        ("bogus", ("google_custom", "brave", "exa", "searxng")),
+        ("bogus", ("google_custom", "brave", "exa", "searxng", "tinyfish")),
+        ("tinyfish,brave", ("tinyfish", "brave")),
         ("searxng,brave", ("searxng", "brave")),
     ])
     def test_auto_order(self, monkeypatch, raw, expected):
@@ -800,6 +1029,7 @@ def _processor(engine="auto", order=None, **clients) -> WebSearchProcessor:
         "brave": clients.get("brave", StubClient(configured=False)),
         "exa": clients.get("exa", StubClient(configured=False)),
         "searxng": clients.get("searxng", StubClient(configured=False)),
+        "tinyfish": clients.get("tinyfish", StubClient(configured=False)),
     }
     return proc
 
@@ -983,6 +1213,55 @@ class TestWebSearchProcessor:
             "q", result_type="web,faq", engine="google_custom")
         assert result["error_code"] == "unsupported_result_type"
         assert "faq" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_research_paper_auto_uses_tinyfish_only(self):
+        b = StubClient(result=_ok())
+        t = StubClient(result=_ok())
+        result = await _processor(brave=b, tinyfish=t).search("q", result_type="research_paper")
+        assert result["engine"] == "tinyfish"
+        assert b.calls == []
+        # tinyfish: (query, num_results, language, region, safe_search, recent_days, result_type)
+        assert t.calls[0][6] == ("research_paper",)
+
+    @pytest.mark.asyncio
+    async def test_news_auto_falls_back_from_brave_to_tinyfish(self):
+        g = StubClient(result=_ok())
+        b = StubClient(result=failure("quota", "no credits"))
+        t = StubClient(result=_ok())
+        result = await _processor(google_custom=g, brave=b, tinyfish=t).search("q", result_type="news")
+        assert result["engine"] == "tinyfish"
+        assert [a["engine"] for a in result["fallback_info"]["attempts"]] == ["brave", "tinyfish"]
+        assert g.calls == []
+
+    @pytest.mark.asyncio
+    async def test_mixed_types_no_engine_returns_all(self):
+        proc = _processor(brave=StubClient(result=_ok()), tinyfish=StubClient(result=_ok()))
+        result = await proc.search("q", result_type="discussions,research_paper")
+        assert result["error_code"] == "unsupported_result_type"
+        assert "discussions, research_paper" in result["error"]
+        assert result["suggestion"] == "Request the types in separate searches"
+
+    @pytest.mark.asyncio
+    async def test_research_paper_without_tinyfish_suggests_its_key(self):
+        result = await _processor(brave=StubClient(result=_ok())).search("q", result_type="research_paper")
+        assert result["error_code"] == "search_engine_not_configured"
+        assert result["suggestion"] == "Set TINYFISH_API_KEY"
+
+    @pytest.mark.asyncio
+    async def test_research_paper_on_brave_suggests_tinyfish(self):
+        result = await _processor(brave=StubClient(result=_ok())).search(
+            "q", result_type="research_paper", engine="brave")
+        assert result["error_code"] == "unsupported_result_type"
+        assert "research_paper" in result["error"]
+        assert result["suggestion"] == "Use engine tinyfish or auto, or result_type web"
+
+    @pytest.mark.asyncio
+    async def test_tinyfish_gets_genre_operator(self):
+        t = StubClient(result=_ok())
+        result = await _processor(tinyfish=t).search("q", search_genre="pdf", engine="tinyfish")
+        assert t.calls[0][0] == "q (filetype:pdf)"
+        assert result["search_metadata"]["search_params"]["enhanced_query"] == "q (filetype:pdf)"
 
     @pytest.mark.asyncio
     async def test_invalid_result_type(self):
@@ -1169,7 +1448,7 @@ class TestSearchToolsEngine:
         search.search_web = search.batch_search_web = search.search_and_crawl = boom
         result = await _tools(search)[tool](request=request_dict)
         assert result["error_code"] == "invalid_search_engine"
-        assert result["valid_engines"] == ["auto", "google_custom", "brave", "exa", "searxng"]
+        assert result["valid_engines"] == ["auto", "google_custom", "brave", "exa", "searxng", "tinyfish"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("tool,request_dict", [
@@ -1183,7 +1462,7 @@ class TestSearchToolsEngine:
         search.search_web = search.batch_search_web = search.search_and_crawl = boom
         result = await _tools(search)[tool](request=request_dict)
         assert result["error_code"] == "invalid_result_type"
-        assert result["valid_result_types"] == ["web", "discussions", "faq", "videos", "news"]
+        assert result["valid_result_types"] == ["web", "discussions", "faq", "videos", "news", "research_paper"]
 
     @pytest.mark.asyncio
     async def test_search_and_crawl_passes_result_type(self):

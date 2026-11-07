@@ -10,7 +10,7 @@ Crawl4AI MCPサーバーの全19ツールのパラメータと動作をまとめ
 |-------------|---------------------|------------------|
 | 単一ページ | `crawl_url` | 基本クローリング、JS対応 |
 | 複数ページ（最大10） | `deep_crawl_site` | サイトマッピング、リンクフォロー |
-| Web検索 | `search_web` | Google Custom Search、Brave、Exa、SearXNG で検索 |
+| Web検索 | `search_web` | Google Custom Search、Brave、Exa、SearXNG、TinyFish で検索 |
 | 検索+クローリング | `search_and_crawl` | Web検索+自動クロール |
 | 取得しにくいサイト | `crawl_url_with_fallback` | 複数のリトライ戦略 |
 | 構造化データ | `extract_structured_data` | CSS/LLMスキーマ |
@@ -344,7 +344,7 @@ YouTube動画のメタデータと、トランスクリプトがどの言語で�
 
 ## 検索ツール
 
-検索ツールは検索エンジンのAPIを呼び出します。対応しているエンジンは4つです。
+検索ツールは検索エンジンのAPIを呼び出します。対応しているエンジンは5つです。
 
 | エンジン | `engine` の値 | APIキー | 備考 |
 |---|---|---|---|
@@ -352,25 +352,28 @@ YouTube動画のメタデータと、トランスクリプトがどの言語で�
 | Brave Search API | `brave` | `BRAVE_SEARCH_API_KEY` | クエリに検索演算子（`site:`、`filetype:`、`lang:`）を書ける。1リクエストで返るのは20件まで。`num_results` がそれより多いと、20件ごとに1リクエストを送る。リクエストは1本ずつ送り、HTTP 429 の `X-RateLimit-Reset` が2秒以下ならその秒数待って再試行する（2回まで） |
 | Exa | `exa` | `EXA_API_KEY` | クエリを自然文として読む。`site:` と `-site:` はドメインの絞り込みとして送り、それ以外の演算子はクエリの文字列に残る。Exa が返せば、結果に `published_date` と `author` が付く |
 | SearXNG（セルフホストのメタ検索） | `searxng` | 不要。`SEARXNG_URL`（`http://` か `https://` のURL）を設定する | クエリを検索演算子ごと、インスタンスのエンジン（`SEARXNG_ENGINES`。デフォルトはインスタンスの設定）に送る。`num_results` に届くまで結果ページを5ページまで読み、重複するURLは除く。SearXNG が返せば、結果に `source_engines`、`score`、`published_date` が付く。インスタンスで `json` 形式を許可しておく必要がある（`settings.yml` の `search.formats`）。許可していないと HTTP 403 になり、エラーに `suggestion` が付く |
+| [TinyFish Search API](https://docs.tinyfish.ai/search-api/index) | `tinyfish` | `TINYFISH_API_KEY` | クエリに検索演算子（`site:`、`filetype:`、`lang:`）を書ける。1日12,000回まで無料で、回数は 00:00 UTC にリセットされる。それを超えると TinyFish のウォレットに残高が要り、足りなければ HTTP 402 になって `auto` は次のエンジンへ進む。レート制限はアカウントごとに毎分30リクエスト。HTTP 429 の `Retry-After` か `X-RateLimit-Reset` が5秒以下なら、その秒数待って1回だけ再試行する。それより長ければ `rate_limited` を返し、`auto` は次のエンジンへ進む。1リクエストで返るのは10件ほど。`num_results` がそれより多いとページを11ページまで読み、重複するURLは除き、新しい結果のないページで止める。結果には TinyFish が書いたままの `published_date`（`4 days ago`、`Nov 4, 2023`、ニュースでは RFC 1123 形式の日時）が付く |
 
 エンジンの選び方:
 - リクエストの `engine` キーで、その呼び出しのエンジンを選ぶ。指定がなければ環境変数 `SEARCH_ENGINE` に従う（デフォルト: `auto`）
-- `auto` は、設定済みのエンジンを `SEARCH_ENGINE_ORDER` の順（デフォルト: `google_custom,brave,exa,searxng`）に試す。レート制限、キーの拒否、クレジット切れ、通信エラー、5xx で失敗したら次のエンジンへ進む。0件は正しい応答として扱い、次へは進まない。試した経過はレスポンスの `fallback_info.attempts` に入る
+- `auto` は、設定済みのエンジンを `SEARCH_ENGINE_ORDER` の順（デフォルト: `google_custom,brave,exa,searxng,tinyfish`）に試す。レート制限、キーの拒否、クレジット切れ、通信エラー、5xx で失敗したら次のエンジンへ進む。0件は正しい応答として扱い、次へは進まない。試した経過はレスポンスの `fallback_info.attempts` に入る
 - 設定されていないエンジンを名指しすると、通信の前に `error_code: search_engine_not_configured` を返す。`engine` に未知の値を渡すと `error_code: invalid_search_engine` を返し、`valid_engines` に指定できる値を並べる
 - レスポンスの `engine` キーに、実際に応答したエンジンが入る
 
 共通のキーとエンジンごとのパラメータの対応:
 
-| キー | `google_custom` | `brave` | `exa` | `searxng` |
-|---|---|---|---|---|
-| `language` | `hl` | `search_lang` | 使わない | `language`（2文字の `region` と組み合わせる。例: `en-US`。`zh-tw` のように地域を含む言語や、`all` などの地域では言語だけを送る） |
-| `region` | `gl` | `country`（`uk` は `GB` に変える。Brave の一覧にないコードは `ALL`） | `userLocation` | `language` の一部（`uk` は `GB` に変える） |
-| `recent_days` | `dateRestrict` | `freshness`（下記を参照） | `startPublishedDate`（ちょうど N 日前の時刻） | `time_range`（下記を参照） |
-| `safe_search` | `safe=active` | `safesearch=moderate` | `moderation` | `safesearch=1` |
+| キー | `google_custom` | `brave` | `exa` | `searxng` | `tinyfish` |
+|---|---|---|---|---|---|
+| `language` | `hl` | `search_lang` | 使わない | `language`（2文字の `region` と組み合わせる。例: `en-US`。`zh-tw` のように地域を含む言語や、`all` などの地域では言語だけを送る） | `language` |
+| `region` | `gl` | `country`（`uk` は `GB` に変える。Brave の一覧にないコードは `ALL`） | `userLocation` | `language` の一部（`uk` は `GB` に変える） | `location`（`uk` は `GB` に変える） |
+| `recent_days` | `dateRestrict` | `freshness`（下記を参照） | `startPublishedDate`（ちょうど N 日前の時刻） | `time_range`（下記を参照） | `recency_minutes`（下記を参照） |
+| `safe_search` | `safe=active` | `safesearch=moderate` | `moderation` | `safesearch=1` | 使わない（API に該当する絞り込みがない） |
 
 `brave` では、`recent_days` が 1、7、31、365 のとき Brave の固定期間（`pd`、`pw`、`pm`、`py`。それぞれ直近24時間、7日、31日、365日）を使う。それ以外の値は、N 日前から今日までの UTC の日付範囲になる。日単位で数えるため、N 日より最大1日古い結果まで入ることがある。
 
 `searxng` では、`recent_days` を、それを含む最小の SearXNG の `time_range` に変える。1 は `day`、2〜7 は `week`、8〜31 は `month`、32〜365 は `year` で、365 を超える値では日付で絞り込まない。使った範囲はレスポンスの `time_range` に入る。SearXNG の裏のエンジンの一部が失敗すると、レスポンスの `unresponsive_engines` にそれを並べる（例: `"google: timeout"`）。一部のエンジンがここに並んでいても、結果が0件なら `no_results` になる。`SEARXNG_ENGINES` を設定していて、その全エンジンが応答しなかったときだけ失敗として扱い、`auto` は次のエンジンへ進む。
+
+`tinyfish` では、`recent_days` を `recency_minutes`（N × 1440。上限は3650日分）に変える。`research_paper` は期間の絞り込みを受け付けないので、`recent_days` を `pub_year_min` に変え、N 日前の日付の年を入れる。その年をまるごと含むため、同じ年のもっと前に出た論文も入ることがある。
 
 ### `search_web`
 
@@ -381,8 +384,8 @@ Web検索を実行し、タイトル、スニペット、URL、メタデータ�
   - `query` (str, 必須): 検索クエリ文字列
   - `num_results` (int): 返す結果数 1-100（デフォルト: 10）
   - `search_genre` (Optional[str]): ジャンルフィルタ。`pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` のいずれか（デフォルト: None）
-  - `engine` (Optional[str]): `auto`、`google_custom`、`brave`、`exa`、`searxng` のいずれか（デフォルト: `SEARCH_ENGINE` の設定）
-  - `result_type` (str または List[str]): `web`、`discussions`、`faq`、`videos`、`news` のいずれか。複数をリストかカンマ区切りの文字列で指定できる（デフォルト: "web"）。下記を参照
+  - `engine` (Optional[str]): `auto`、`google_custom`、`brave`、`exa`、`searxng`、`tinyfish` のいずれか（デフォルト: `SEARCH_ENGINE` の設定）
+  - `result_type` (str または List[str]): `web`、`discussions`、`faq`、`videos`、`news`、`research_paper` のいずれか。複数をリストかカンマ区切りの文字列で指定できる（デフォルト: "web"）。下記を参照
   - `language` (str): 検索言語（デフォルト: "en"）
   - `region` (str): 検索地域（デフォルト: "us"）
   - `recent_days` (Optional[int]): 直近N日間に限定（デフォルト: None）
@@ -393,12 +396,15 @@ Web検索を実行し、タイトル、スニペット、URL、メタデータ�
 
 **機能:**
 - 各結果には `rank`、`url`、`domain`、`title`、`snippet` と、URLの種類を示す `type`（`academic`、`documentation`、`video` など）が入る
-- 検索ジャンルは6つあり、`pdf`、`documents`、`presentations`、`spreadsheets` はファイル形式で、`japanese` と `english` は言語で絞る。`google_custom`、`brave`、`searxng` ではジャンルの検索演算子をクエリに付ける（SearXNG はそれをエンジンに渡す）。`exa` にはファイル形式の絞り込みがないので、`exa` を名指ししてファイル形式のジャンルを指定すると `error_code: unsupported_search_genre` を返し、`auto` ではそのジャンルのとき `exa` を飛ばす。`exa` で `japanese` を指定すると地域を JP にし、`english` は何もしない
+- 検索ジャンルは6つあり、`pdf`、`documents`、`presentations`、`spreadsheets` はファイル形式で、`japanese` と `english` は言語で絞る。`google_custom`、`brave`、`searxng`、`tinyfish` ではジャンルの検索演算子をクエリに付ける（SearXNG はそれをエンジンに渡す）。`exa` にはファイル形式の絞り込みがないので、`exa` を名指ししてファイル形式のジャンルを指定すると `error_code: unsupported_search_genre` を返し、`auto` ではそのジャンルのとき `exa` を飛ばす。`exa` で `japanese` を指定すると地域を JP にし、`english` は何もしない
 - `search_genre` は大文字と小文字を区別せずに照合する。一覧にない値を渡すと、通信を始める前に `success: false` と `error_code: invalid_search_genre` を返し、`valid_genres` に指定できる値を並べる。`batch_search_web` と `search_and_crawl` も `search_genre` と `engine` を同じように検査する
 - エンジンが0件を返したときは、短くしたクエリの候補を `alternative_queries` に入れる
 - セーフサーチはデフォルトで有効
-- `result_type` で、Web の結果のほかに Brave の結果枠を受け取れる。`discussions` は Reddit のスレッドや GitHub Issues などの掲示板の投稿で、`forum_name`、`num_answers`、`score`、`question`、`top_comment` が付く。`faq` はページ内の Q&A の抜粋で、`question` と、回答を入れた `snippet` が付く。`videos` には `duration`、`creator`、`publisher`、`news` には `source` と `age` が付く。`web`、`discussions`、`faq`、`videos` は Brave の Web 検索1回でまとめて取る。`news` だけは Brave の News Search へ別にリクエストを送る（1回で50件まで）。Web 検索の news 枠は、具体的な出来事や概念を書いたクエリではほとんど空になるためである。News Search は日付のある記事全般を返すので、ブログやドキュメントのページも混ざる。日本のニュースを取るときは `region: jp` を指定する。`results` には、`web` を指定していれば Web の結果、指定していなければ先頭に書いた枠が入り、ほかの枠は `extra_results` に枠の名前ごとに入る（Brave が返さなかった枠は空のリスト）。掲示板の投稿と回答の本文は1,000文字で切る。`news` を追加の枠として指定し、そのリクエストだけが失敗したときは、ほかの結果を返し、エラーを `extra_errors` に入れる。`extra_results` の空のリストは、Brave がその枠に何も返さなかったことを表す。リクエストの失敗は必ず `extra_errors` に出る
-- `web` 以外の枠を返せるのは `brave` だけなので、`auto` では Brave だけを使い、`google_custom`、`exa`、`searxng` を名指しすると `error_code: unsupported_result_type` を返す。Brave が `discussions`、`faq`、`videos` を返すのは一部のクエリだけで、`num_results` では減らすことしかできず、20件を超えるページ送りで増えるのは Web の結果だけになる。指定した枠がどれも空なら `success: false` になり、言い換えるか `web` を使うよう案内する。未知の枠を渡すと、通信の前に `error_code: invalid_result_type` を返す
+- `result_type` で、Web の結果のほかに別の種類の結果を受け取れる。`discussions`、`faq`、`videos` は Brave の結果枠、`research_paper` は TinyFish の結果で、`news` は Brave と TinyFish のどちらでも取れる
+- Brave の枠。`discussions` は Reddit のスレッドや GitHub Issues などの掲示板の投稿で、`forum_name`、`num_answers`、`score`、`question`、`top_comment` が付く。`faq` はページ内の Q&A の抜粋で、`question` と、回答を入れた `snippet` が付く。`videos` には `duration`、`creator`、`publisher`、`news` には `source` と `age` が付く。`web`、`discussions`、`faq`、`videos` は Brave の Web 検索1回でまとめて取る。`news` だけは Brave の News Search へ別にリクエストを送る（1回で50件まで）。Web 検索の news 枠は、具体的な出来事や概念を書いたクエリではほとんど空になるためである。News Search は日付のある記事全般を返すので、ブログやドキュメントのページも混ざる。日本のニュースを取るときは `region: jp` を指定する。掲示板の投稿と回答の本文は1,000文字で切る。Brave が `discussions`、`faq`、`videos` を返すのは一部のクエリだけで、`num_results` では減らすことしかできず、20件を超えるページ送りで増えるのは Web の結果だけになる
+- TinyFish の種類。`news` には発行元を表す `source` が付く。`research_paper` は学術論文で、`authors`（リスト）、`venue`、`year`、`cited_by_count`、`pdf_url` が付く。種類ごとに別のリクエストを送り、Web の結果と同じようにページを送る
+- `results` には、`web` を指定していれば Web の結果、指定していなければ先頭に書いた種類が入り、ほかの種類は `extra_results` に種類の名前ごとに入る（エンジンが返さなかった種類は空のリスト）。追加の種類のリクエストだけが失敗したときは、ほかの結果を返し、エラーを `extra_errors` に入れる。`extra_results` の空のリストは、エンジンがその種類に何も返さなかったことを表す。リクエストの失敗は必ず `extra_errors` に出る
+- `auto` は、指定したすべての種類を返せるエンジンだけを使う。`research_paper` なら TinyFish だけ、`news` なら Brave と TinyFish を `SEARCH_ENGINE_ORDER` の順に試し、`discussions`、`faq`、`videos` なら Brave だけを使う。`web,discussions,research_paper` のように、どのエンジンも返せない組み合わせは、通信の前に `error_code: unsupported_result_type` を返すので、呼び出しを分ける。返せるエンジンがあっても設定されていなければ `error_code: search_engine_not_configured` を返し、`suggestion` にはそのエンジンのキーだけを書く。指定した種類を返せないエンジンを名指しすると `error_code: unsupported_result_type` を返し、`suggestion` に返せるエンジンを書く。指定した種類がどれも空なら `success: false` になり、言い換えるか `web` を使うよう案内する。未知の種類を渡すと、通信の前に `error_code: invalid_result_type` を返す
 
 ### `search_google`
 
@@ -454,7 +460,7 @@ Web検索を実行し、上位の結果をそのままクロールします。
 **レスポンスのキー:**
 - `genres`: ジャンル名と説明の対応
 - `query_operators`: ジャンル名と、クエリに付ける検索演算子の対応
-- `configuration`: `default_engine`、`auto_order`、`configured_engines`（APIキー、`searxng` の場合は `SEARXNG_URL` が設定されたエンジン）、`engines`、`result_types`、`genre_support`（エンジンごとのジャンルの扱い）、対応する言語と地域
+- `configuration`: `default_engine`、`auto_order`、`configured_engines`（APIキー、`searxng` の場合は `SEARXNG_URL` が設定されたエンジン）、`engines`、`result_types`（種類ごとに、それを返すエンジン）、`genre_support`（エンジンごとのジャンルの扱い）、対応する言語と地域
 - `total_genres`、`usage_example`、`notes`
 
 ## バッチ操作ツール

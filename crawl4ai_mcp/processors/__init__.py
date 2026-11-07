@@ -13,6 +13,7 @@ from .search_engines import (
     RateLimiter,
     SearchRequest,
     SearXNGSearchClient,
+    TinyFishSearchClient,
 )
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "CustomSearchAPIClient",
     "ExaSearchClient",
     "SearXNGSearchClient",
+    "TinyFishSearchClient",
     "SearchRequest",
     "RateLimiter",
 ]

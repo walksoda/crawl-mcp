@@ -6,7 +6,7 @@ crawl4aiをラップしたModel Context Protocol（MCP）サーバーで、Web�
 
 ## 主な機能
 
-- Google Custom Search、Brave、Exa、セルフホストの SearXNG でWeb検索でき、エンジン間で自動的にフォールバックします。結果は6つのジャンル（ファイル形式と言語）で絞り込めます
+- Google Custom Search、Brave、Exa、TinyFish、セルフホストの SearXNG でWeb検索でき、エンジン間で自動的にフォールバックします。結果は6つのジャンル（ファイル形式と言語）で絞り込めます
 - JavaScriptを実行するWebクローリング、指定した深さでのサイト巡回、エンティティ抽出
 - Webページ、PDF、Word、Excel、PowerPoint、ZIPアーカイブからのコンテンツ抽出
 - LLMによる要約は `auto_summarize=true` を指定したときだけ動きます。指定しない場合、大きなレスポンスは約25000トークンで切り詰められ、全文は `output_path` で保存できます
@@ -155,11 +155,11 @@ DockerのHTTPモードを使う場合:
 - `get_search_genres` - 利用可能な検索ジャンルとエンジン設定の取得
 - `search_google`、`batch_search_google` - `search_web` と `batch_search_web` の非推奨エイリアス
 
-検索ツールを使うには、少なくとも1つのエンジンの設定が要ります。`GOOGLE_SEARCH_API_KEY` と `GOOGLE_SEARCH_ENGINE_ID`（Google Custom Search。新規受付は終了しており、2027-01-01 に提供が終わる）、`BRAVE_SEARCH_API_KEY`、`EXA_API_KEY`、`SEARXNG_URL`（セルフホストの [SearXNG](https://docs.searxng.org/)。APIキーは不要）のいずれかです。既定のエンジンは `SEARCH_ENGINE` で決めます。`auto` にすると、設定済みのエンジンを `SEARCH_ENGINE_ORDER`（デフォルト `google_custom,brave,exa,searxng`）の順に試します。リクエストの `engine` キーを指定すれば、その呼び出しだけエンジンを変えられます。詳しくは[APIリファレンス](docs/ja/API_REFERENCE.md#検索ツール)を参照してください。
+検索ツールを使うには、少なくとも1つのエンジンの設定が要ります。`GOOGLE_SEARCH_API_KEY` と `GOOGLE_SEARCH_ENGINE_ID`（Google Custom Search。新規受付は終了しており、2027-01-01 に提供が終わる）、`BRAVE_SEARCH_API_KEY`、`EXA_API_KEY`、`SEARXNG_URL`（セルフホストの [SearXNG](https://docs.searxng.org/)。APIキーは不要）、`TINYFISH_API_KEY`（[TinyFish Search API](https://docs.tinyfish.ai/search-api/index)。1日12,000回まで無料）のいずれかです。既定のエンジンは `SEARCH_ENGINE` で決めます。`auto` にすると、設定済みのエンジンを `SEARCH_ENGINE_ORDER`（デフォルト `google_custom,brave,exa,searxng,tinyfish`）の順に試します。リクエストの `engine` キーを指定すれば、その呼び出しだけエンジンを変えられます。詳しくは[APIリファレンス](docs/ja/API_REFERENCE.md#検索ツール)を参照してください。
 
 `search_web`、`batch_search_web`、`search_and_crawl` の `search_genre` に指定できる値は共通で、`pdf`、`documents`、`presentations`、`spreadsheets`、`japanese`、`english` です。大文字と小文字は区別しません。それ以外の値を渡すと、検索を始める前に `invalid_search_genre` エラーが返ります。Exa はファイル形式で絞り込めないため、`auto` ではファイル形式のジャンルのとき Exa を飛ばします。
 
-`result_type` を使うと、検索に Brave の結果枠を加えられます。`discussions` は掲示板の投稿（掲示板名、回答数、スコア付き）、`faq` はページ内の Q&A の抜粋で、ほかに `videos` と `news` があります。`["web", "discussions", "faq"]` のように複数を指定でき、追加の枠は `extra_results` に入ります。`brave` エンジンが必要です。`discussions`、`faq`、`videos` は Brave への1回のリクエストでまとめて取り、返るのは一部のクエリだけです。`news` は Brave の News Search へ別にリクエストを送ります。
+`result_type` を使うと、検索に別の種類の結果を加えられます。`discussions` は掲示板の投稿（掲示板名、回答数、スコア付き）、`faq` はページ内の Q&A の抜粋、`research_paper` は学術論文（著者、掲載先、年、被引用数、PDFのURL付き）で、ほかに `videos` と `news` があります。`["web", "discussions", "faq"]` のように複数を指定でき、追加の種類は `extra_results` に入ります。`discussions`、`faq`、`videos` には `brave` エンジンが必要で、Brave への1回のリクエストでまとめて取り、返るのは一部のクエリだけです。`research_paper` には `tinyfish` エンジンが必要です。`news` は `brave`（Brave の News Search）か `tinyfish` へ別にリクエストを送ります。`auto` は、指定したすべての種類を返せるエンジンだけを使います。
 
 ### ファイル処理 (3)
 - `process_file` - PDF、Word、Excel、PowerPoint、ZIPをMarkdownに変換

@@ -40,12 +40,15 @@ _ENGINE_DESC = (
 
 # Text for the result_type key in the request descriptions.
 _RESULT_TYPE_DESC = (
-    "result_type (optional; default web; one of web, discussions, faq, videos, news, or several as a list or a"
-    " comma-separated string; everything except web runs on brave only; news is a separate Brave News Search request;"
+    "result_type (optional; default web; one of web, discussions, faq, videos, news, research_paper, or several"
+    " as a list or a comma-separated string; discussions, faq and videos run on brave only, research_paper on"
+    " tinyfish only, news on brave or tinyfish, and auto picks an engine that returns every requested type;"
+    " news is a separate request on both engines;"
     " results holds web when requested, else the first type, and the other types go to extra_results;"
     " discussions are forum posts with the forum name, answer count, post score, question and top comment;"
     " faq are question and answer excerpts; Brave returns these sections for some queries only,"
-    " and num_results only shortens them)"
+    " and num_results only shortens them; research_paper results carry authors, venue, year, cited_by_count"
+    " and pdf_url, and recent_days becomes a minimum publication year for them)"
 )
 
 _SEARCH_REQUEST_DESC = (
@@ -177,7 +180,7 @@ def register_search_tools(mcp, get_modules):
     async def search_web(
         request: Annotated[Dict[str, Any], Field(description=_SEARCH_REQUEST_DESC)]
     ) -> Dict[str, Any]:
-        """Search the web with Google Custom Search, Brave, Exa or SearXNG (engine key, or the server default). Optional search_genre filtering (file types or language; see get_search_genres). Supply output_path in the request to persist the full unsliced result set to disk as JSON and receive a slim response."""
+        """Search the web with Google Custom Search, Brave, Exa, SearXNG or TinyFish (engine key, or the server default). Optional search_genre filtering (file types or language; see get_search_genres). Supply output_path in the request to persist the full unsliced result set to disk as JSON and receive a slim response."""
         return await _search_web(request, "search_web")
 
     @mcp.tool(title="Search Google", annotations=READONLY_ANNOTATIONS)

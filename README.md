@@ -2,11 +2,11 @@
 
 > This is an unofficial MCP server for the [crawl4ai](https://github.com/unclecode/crawl4ai) library. It is not affiliated with the crawl4ai project.
 
-A Model Context Protocol (MCP) server that wraps crawl4ai. It extracts content from web pages, PDFs, Office documents, YouTube videos, and web search results (Google Custom Search, Brave, Exa, or a self-hosted SearXNG). To keep token usage low, it can summarize content with an LLM (`auto_summarize`, opt-in) and write full results to disk (`output_path`).
+A Model Context Protocol (MCP) server that wraps crawl4ai. It extracts content from web pages, PDFs, Office documents, YouTube videos, and web search results (Google Custom Search, Brave, Exa, TinyFish, or a self-hosted SearXNG). To keep token usage low, it can summarize content with an LLM (`auto_summarize`, opt-in) and write full results to disk (`output_path`).
 
 ## Key Features
 
-- Web search through Google Custom Search, Brave, Exa, or a self-hosted SearXNG instance, with automatic fallback between engines and 6 genres (file type and language filters)
+- Web search through Google Custom Search, Brave, Exa, TinyFish, or a self-hosted SearXNG instance, with automatic fallback between engines and 6 genres (file type and language filters)
 - Web crawling with JavaScript rendering, recursive site crawls, and entity extraction
 - Content extraction from web pages, PDFs, Word, Excel, PowerPoint, and ZIP archives
 - LLM summarization when `auto_summarize=true`. Without it, large responses are truncated at about 25000 tokens, and `output_path` saves the full content
@@ -156,11 +156,11 @@ The server supports MCP protocol 2026-07-28 and the earlier versions back to 202
 - `get_search_genres` - Get available search genres and the engine configuration
 - `search_google`, `batch_search_google` - Deprecated aliases of `search_web` and `batch_search_web`
 
-The search tools need at least one configured engine: `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID` (Google Custom Search, closed to new customers and ending on 2027-01-01), `BRAVE_SEARCH_API_KEY`, `EXA_API_KEY`, or `SEARXNG_URL` (a self-hosted [SearXNG](https://docs.searxng.org/) instance, no API key). `SEARCH_ENGINE` sets the default engine (`auto` tries the configured engines in `SEARCH_ENGINE_ORDER`, default `google_custom,brave,exa,searxng`), and the `engine` request key overrides it for one call. See the [API Reference](docs/API_REFERENCE.md#search-tools).
+The search tools need at least one configured engine: `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID` (Google Custom Search, closed to new customers and ending on 2027-01-01), `BRAVE_SEARCH_API_KEY`, `EXA_API_KEY`, `SEARXNG_URL` (a self-hosted [SearXNG](https://docs.searxng.org/) instance, no API key), or `TINYFISH_API_KEY` ([TinyFish Search API](https://docs.tinyfish.ai/search-api/index), free up to 12,000 searches per day). `SEARCH_ENGINE` sets the default engine (`auto` tries the configured engines in `SEARCH_ENGINE_ORDER`, default `google_custom,brave,exa,searxng,tinyfish`), and the `engine` request key overrides it for one call. See the [API Reference](docs/API_REFERENCE.md#search-tools).
 
 `search_web`, `batch_search_web` and `search_and_crawl` accept the same `search_genre` values: `pdf`, `documents`, `presentations`, `spreadsheets`, `japanese`, `english`. Matching is case-insensitive. Any other value returns an `invalid_search_genre` error before the search runs. Exa cannot filter by file type, so `auto` skips Exa for the file type genres.
 
-`result_type` adds Brave result sections to a search: `discussions` (forum posts with forum name, answer count and score), `faq` (question and answer excerpts), `videos` and `news`. Several can be requested at once, for example `["web", "discussions", "faq"]`; the extra sections come back in `extra_results`. They need the `brave` engine. `discussions`, `faq` and `videos` share one Brave request and appear for some queries only; `news` is a separate request to Brave News Search.
+`result_type` adds other result types to a search: `discussions` (forum posts with forum name, answer count and score), `faq` (question and answer excerpts), `videos`, `news`, and `research_paper` (academic papers with authors, venue, year, citation count and PDF URL). Several can be requested at once, for example `["web", "discussions", "faq"]`; the extra types come back in `extra_results`. `discussions`, `faq` and `videos` need the `brave` engine, share one Brave request and appear for some queries only. `research_paper` needs the `tinyfish` engine. `news` comes from `brave` (Brave News Search) or `tinyfish`, as a separate request. `auto` uses only the engines that return every requested type.
 
 ### File Processing (3)
 - `process_file` - Convert PDF, Word, Excel, PowerPoint, ZIP to markdown

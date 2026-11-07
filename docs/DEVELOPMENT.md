@@ -27,7 +27,7 @@ crawl-mcp/
 │   │   └── batch_tools.py       # batch_crawl, multi_url_crawl
 │   ├── tools/                   # Backward-compatible re-export facade (no logic)
 │   ├── core/                    # Business logic (crawl, fallback, extraction, YouTube, search, files, batch)
-│   ├── processors/              # YouTube, web search (search_engines/: Google Custom Search, Brave, Exa, SearXNG), and file conversion processors
+│   ├── processors/              # YouTube, web search (search_engines/: Google Custom Search, Brave, Exa, SearXNG, TinyFish), and file conversion processors
 │   ├── infra/                   # Browser config, fallback strategies, fingerprint, sessions, strategy/content cache
 │   ├── utils/                   # LLM client, token counting, time parsing
 │   ├── models/                  # Pydantic request/response models
@@ -187,12 +187,13 @@ export AZURE_OPENAI_API_KEY="your-key"
 export AZURE_OPENAI_ENDPOINT="https://resource.openai.azure.com"
 
 # Web search (at least one configured engine)
-export SEARCH_ENGINE=auto                   # auto (default) | google_custom | brave | exa | searxng
+export SEARCH_ENGINE=auto                   # auto (default) | google_custom | brave | exa | searxng | tinyfish
 export GOOGLE_SEARCH_API_KEY="..."
 export GOOGLE_SEARCH_ENGINE_ID="..."
 export BRAVE_SEARCH_API_KEY="..."
 export EXA_API_KEY="..."
 export SEARXNG_URL="http://localhost:8080"  # self-hosted SearXNG, no key
+export TINYFISH_API_KEY="..."
 ```
 
 ### Local MCP Client Configuration

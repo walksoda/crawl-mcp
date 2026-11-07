@@ -179,12 +179,13 @@ DEFAULT_CRAWL_CACHE_TTL_SECONDS = 3600
 # by validators.validate_search_genre.
 # Search engine APIs selectable with SEARCH_ENGINE or the engine request key
 # ("auto" tries the configured ones in SEARCH_ENGINE_ORDER).
-SEARCH_ENGINES = ("google_custom", "brave", "exa", "searxng")
+SEARCH_ENGINES = ("google_custom", "brave", "exa", "searxng", "tinyfish")
 
-# result_type values of the search tools. Every engine returns "web"; the
-# other types are Brave result sections (forum posts, FAQ excerpts, videos,
-# news) and only the brave engine returns them.
-SEARCH_RESULT_TYPES = ("web", "discussions", "faq", "videos", "news")
+# result_type values of the search tools. Every engine returns "web".
+# discussions, faq and videos are Brave result sections, research_paper is a
+# TinyFish domain_type, and news comes from both (see
+# processors.web_search.ENGINE_RESULT_TYPES).
+SEARCH_RESULT_TYPES = ("web", "discussions", "faq", "videos", "news", "research_paper")
 
 SEARCH_GENRES: Dict[str, Dict[str, str]] = {
     "pdf": {

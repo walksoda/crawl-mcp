@@ -66,7 +66,7 @@ class TestSearchWeb:
         assert_tool_success(result)
         data = parse_mcp_json(result)
         assert data["success"] is True
-        assert data["engine"] in ("google_custom", "brave", "exa", "searxng")
+        assert data["engine"] in ("google_custom", "brave", "exa", "searxng", "tinyfish")
 
     @pytest.mark.asyncio
     async def test_search_with_genre(self, mcp_client, search_test_queries):

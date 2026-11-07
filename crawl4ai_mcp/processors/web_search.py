@@ -1,7 +1,8 @@
 """
 Web Search Processing Module
 
-Runs a query on one search engine (Google Custom Search, Brave, Exa, SearXNG) or,
+Runs a query on one search engine (Google Custom Search, Brave, Exa, SearXNG,
+TinyFish) or,
 in auto mode, on the configured engines in order until one answers.
 """
 
@@ -13,21 +14,30 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..constants import SEARCH_ENGINES, SEARCH_GENRES
 from .search_engines import (
     BraveSearchClient, CustomSearchAPIClient, ExaSearchClient, RateLimiter, SearXNGSearchClient,
+    TinyFishSearchClient,
 )
 from .search_engines.common import failure, main_result_type, parse_result_types
 from .web_search_analysis import WebSearchAnalysisMixin
 
-DEFAULT_AUTO_ORDER = ('google_custom', 'brave', 'exa', 'searxng')
+DEFAULT_AUTO_ORDER = ('google_custom', 'brave', 'exa', 'searxng', 'tinyfish')
 ENGINE_ENV_VARS = {
     'google_custom': 'GOOGLE_SEARCH_API_KEY, GOOGLE_SEARCH_ENGINE_ID',
     'brave': 'BRAVE_SEARCH_API_KEY',
     'exa': 'EXA_API_KEY',
     'searxng': 'SEARXNG_URL',
+    'tinyfish': 'TINYFISH_API_KEY',
 }
 # Genres made of filetype: operators. Exa has no file type filter.
 FILE_TYPE_GENRES = frozenset({'pdf', 'documents', 'presentations', 'spreadsheets'})
-# Engines that can return result types other than web (Brave result sections).
-NON_WEB_RESULT_ENGINES = frozenset({'brave'})
+# Result types each engine returns; engines not listed return web only.
+ENGINE_RESULT_TYPES = {
+    'brave': ('web', 'discussions', 'faq', 'videos', 'news'),
+    'tinyfish': ('web', 'news', 'research_paper'),
+}
+
+
+def engine_result_types(name: str) -> Tuple[str, ...]:
+    return ENGINE_RESULT_TYPES.get(name, ('web',))
 
 
 def resolve_default_engine() -> str:
@@ -65,7 +75,7 @@ def resolve_auto_order() -> Tuple[str, ...]:
 
 
 class WebSearchProcessor(WebSearchAnalysisMixin):
-    """Run web searches on Google Custom Search, Brave, Exa or SearXNG."""
+    """Run web searches on Google Custom Search, Brave, Exa, SearXNG or TinyFish."""
 
     def __init__(self):
         self.rate_limiter = RateLimiter()
@@ -74,6 +84,7 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
             'brave': BraveSearchClient(),
             'exa': ExaSearchClient(),
             'searxng': SearXNGSearchClient(),
+            'tinyfish': TinyFishSearchClient(),
         }
         self.default_engine = resolve_default_engine()
         self.auto_order = resolve_auto_order()
@@ -133,10 +144,11 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
     @staticmethod
     def _unsupported(name: str, genre: Optional[str], result_types: Tuple[str, ...]) -> Optional[Tuple[str, str, str]]:
         """(failure_kind, error_code, message) when the engine cannot serve the request."""
-        non_web = [t for t in result_types if t != 'web']
-        if non_web and name not in NON_WEB_RESULT_ENGINES:
+        missing = [t for t in result_types if t not in engine_result_types(name)]
+        if missing:
             return ('unsupported_result_type', 'unsupported_result_type',
-                    f"result_type {', '.join(non_web)} is not supported by {name} (brave only)")
+                    f"result_type {', '.join(missing)} is not supported by {name} "
+                    f"(it returns {', '.join(engine_result_types(name))})")
         if name == 'exa' and genre in FILE_TYPE_GENRES:
             return ('unsupported_genre', 'unsupported_search_genre',
                     f"search_genre '{genre}' is not supported by exa (no file type filter)")
@@ -172,9 +184,13 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
             unsupported = self._unsupported(requested, genre, result_types)
             if unsupported:
                 _, code, message = unsupported
-                suggestion = ('Use engine brave or google_custom, or omit search_genre'
-                              if code == 'unsupported_search_genre'
-                              else 'Use engine brave or auto, or result_type web')
+                if code == 'unsupported_search_genre':
+                    suggestion = 'Use engine brave, google_custom or tinyfish, or omit search_genre'
+                else:
+                    capable = [n for n in SEARCH_ENGINES
+                               if all(t in engine_result_types(n) for t in result_types)]
+                    suggestion = (f"Use engine {' or '.join(capable)} or auto, or result_type web" if capable
+                                  else 'Request the types in separate searches')
                 return [], [], {
                     'success': False,
                     'error': message,
@@ -197,8 +213,19 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
             engines.append(name)
 
         if not engines:
+            candidates = self.auto_order
             if result_types != ('web',):
+                capable = [n for n in SEARCH_ENGINES if all(t in engine_result_types(n) for t in result_types)]
+                if not capable:
+                    # No engine returns this combination, so a key would not help.
+                    return [], skipped, {
+                        'success': False,
+                        'error': f"No engine returns result_type {', '.join(result_types)} in one search",
+                        'error_code': 'unsupported_result_type',
+                        'suggestion': 'Request the types in separate searches',
+                    }
                 error = f"No configured engine supports result_type {', '.join(result_types)}"
+                candidates = tuple(capable)
             elif skipped:
                 error = f"No configured engine supports search_genre '{genre}'"
             else:
@@ -207,7 +234,8 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
                 'success': False,
                 'error': error,
                 'error_code': 'search_engine_not_configured',
-                'suggestion': 'Set one of: ' + '; '.join(ENGINE_ENV_VARS[n] for n in self.auto_order),
+                'suggestion': (f"Set {ENGINE_ENV_VARS[candidates[0]]}" if len(candidates) == 1
+                               else 'Set one of: ' + '; '.join(ENGINE_ENV_VARS[n] for n in candidates)),
                 'configured_engines': self.configured_engines(),
             }
         return engines, skipped, None
@@ -228,7 +256,7 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
         Search with the requested engine, or the configured engines in auto order.
 
         result_type is a string ("web", "web,discussions") or a list; types
-        other than web are Brave result sections (see parse_result_types).
+        other than web come from brave or tinyfish (see ENGINE_RESULT_TYPES).
         """
         try:
             validation = self.validate_query(query)
@@ -344,7 +372,7 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
             return await client.search(query, num_results, region, safe_search, recent_days)
 
         enhanced_query = self._enhance_query_with_genre(query, search_genre)
-        if name == 'brave':
+        if name in ENGINE_RESULT_TYPES:
             result = await client.search(enhanced_query, num_results, language, region, safe_search, recent_days,
                                          result_types)
         else:

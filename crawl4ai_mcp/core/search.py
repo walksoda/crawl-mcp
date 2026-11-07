@@ -37,8 +37,9 @@ async def search_web(
     Run a web search on the selected engine and return structured results.
 
     Request keys: query, num_results, search_genre, language, region,
-    safe_search, recent_days, engine (auto, google_custom, brave, exa, searxng),
-    result_type (web, discussions, faq, videos, news; a string or a list).
+    safe_search, recent_days, engine (auto, google_custom, brave, exa, searxng,
+    tinyfish), result_type (web, discussions, faq, videos, news, research_paper;
+    a string or a list).
     """
     try:
         query = request.get('query', '')
@@ -299,12 +300,16 @@ async def get_search_genres() -> Dict[str, Any]:
                     "discussions": "forum posts with forum name, answer count and score (brave only)",
                     "faq": "question and answer excerpts from pages (brave only)",
                     "videos": "videos with duration and creator (brave only)",
-                    "news": "news articles (brave only)",
+                    "news": "news articles with source (brave and tinyfish)",
+                    "research_paper": (
+                        "academic papers with authors, venue, year, citation count and PDF URL (tinyfish only)"
+                    ),
                 },
                 "genre_support": {
                     "google_custom": "all genres (operators added to the query)",
                     "brave": "all genres (operators added to the query)",
                     "searxng": "all genres (operators added to the query and passed to the SearXNG engines)",
+                    "tinyfish": "all genres (operators added to the query)",
                     "exa": (
                         "japanese (sets userLocation=JP) and english (no effect); "
                         + ", ".join(sorted(FILE_TYPE_GENRES))
