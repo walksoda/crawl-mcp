@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.0] - 2026-11-07
 
 ### Added
 - TinyFish engine (`tinyfish`) for the [TinyFish Search API](https://docs.tinyfish.ai/search-api/index), configured with `TINYFISH_API_KEY`. Search is free up to 12,000 requests per day (resets at 00:00 UTC); beyond that requests need a positive TinyFish wallet balance, and HTTP 402 is a quota failure that `auto` moves past. The limit is 30 requests per minute per account: an HTTP 429 with a wait of 5 seconds or less is retried once, otherwise the engine reports `rate_limited`. It is last in the default `SEARCH_ENGINE_ORDER`. Genre operators are added to the query, `language` and `region` become `language` and `location`, `recent_days` becomes `recency_minutes`, and `safe_search` has no effect. Larger `num_results` values page through up to 11 pages of about 10 results. Results carry `published_date` as TinyFish writes it.
