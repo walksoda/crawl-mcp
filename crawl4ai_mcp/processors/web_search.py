@@ -2,7 +2,7 @@
 Web Search Processing Module
 
 Runs a query on one search engine (Google Custom Search, Brave, Exa, SearXNG,
-TinyFish) or,
+TinyFish, Keenable) or,
 in auto mode, on the configured engines in order until one answers.
 """
 
@@ -13,12 +13,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..constants import SEARCH_ENGINES, SEARCH_GENRES
 from .search_engines import (
-    BraveSearchClient, CustomSearchAPIClient, ExaSearchClient, RateLimiter, SearXNGSearchClient,
-    TinyFishSearchClient,
+    BraveSearchClient, CustomSearchAPIClient, ExaSearchClient, KeenableSearchClient, RateLimiter,
+    SearXNGSearchClient, TinyFishSearchClient,
 )
 from .search_engines.common import failure, main_result_type, parse_result_types
 from .web_search_analysis import WebSearchAnalysisMixin
 
+# keenable is opt-in: it runs when named (SEARCH_ENGINE or the engine key) or when
+# SEARCH_ENGINE_ORDER lists it, never in the default order.
 DEFAULT_AUTO_ORDER = ('google_custom', 'brave', 'exa', 'searxng', 'tinyfish')
 ENGINE_ENV_VARS = {
     'google_custom': 'GOOGLE_SEARCH_API_KEY, GOOGLE_SEARCH_ENGINE_ID',
@@ -26,6 +28,7 @@ ENGINE_ENV_VARS = {
     'exa': 'EXA_API_KEY',
     'searxng': 'SEARXNG_URL',
     'tinyfish': 'TINYFISH_API_KEY',
+    'keenable': 'KEENABLE_API_KEY (or KEENABLE_KEYLESS=true)',
 }
 # Genres made of filetype: operators. Exa has no file type filter.
 FILE_TYPE_GENRES = frozenset({'pdf', 'documents', 'presentations', 'spreadsheets'})
@@ -75,7 +78,7 @@ def resolve_auto_order() -> Tuple[str, ...]:
 
 
 class WebSearchProcessor(WebSearchAnalysisMixin):
-    """Run web searches on Google Custom Search, Brave, Exa, SearXNG or TinyFish."""
+    """Run web searches on Google Custom Search, Brave, Exa, SearXNG, TinyFish or Keenable."""
 
     def __init__(self):
         self.rate_limiter = RateLimiter()
@@ -85,6 +88,7 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
             'exa': ExaSearchClient(),
             'searxng': SearXNGSearchClient(),
             'tinyfish': TinyFishSearchClient(),
+            'keenable': KeenableSearchClient(),
         }
         self.default_engine = resolve_default_engine()
         self.auto_order = resolve_auto_order()
@@ -152,6 +156,9 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
         if name == 'exa' and genre in FILE_TYPE_GENRES:
             return ('unsupported_genre', 'unsupported_search_genre',
                     f"search_genre '{genre}' is not supported by exa (no file type filter)")
+        if name == 'keenable' and genre:
+            return ('unsupported_genre', 'unsupported_search_genre',
+                    f"search_genre '{genre}' is not supported by keenable (no file type or language filter)")
         return None
 
     def plan_engines(
@@ -366,6 +373,8 @@ class WebSearchProcessor(WebSearchAnalysisMixin):
     ) -> Dict[str, Any]:
         """Run one engine, applying search_genre the way that engine supports."""
         client = self.clients[name]
+        if name == 'keenable':
+            return await client.search(query, num_results, safe_search, recent_days)
         if name == 'exa':
             if _normalize_genre(search_genre) == 'japanese':
                 region = 'jp'

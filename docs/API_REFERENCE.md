@@ -332,7 +332,7 @@ Returns:
 
 ## Search Tools
 
-The search tools call a search engine API. Five engines are supported:
+The search tools call a search engine API. Six engines are supported:
 
 | Engine | `engine` value | API key | Notes |
 |---|---|---|---|
@@ -341,6 +341,7 @@ The search tools call a search engine API. Five engines are supported:
 | Exa | `exa` | `EXA_API_KEY` | Reads the query as natural language. `site:` and `-site:` terms are sent as domain filters; other operators stay in the query text. Results include `published_date` and `author` when Exa returns them |
 | SearXNG (self-hosted metasearch) | `searxng` | none; set `SEARXNG_URL` (an `http://` or `https://` URL) | Sends the query, with any operators, to the instance's engines (`SEARXNG_ENGINES`, default: the instance's own). Reads up to 5 result pages to reach `num_results` and drops duplicate URLs. Results include `source_engines`, `score` and `published_date` when SearXNG returns them. The instance must allow the `json` format (`search.formats` in `settings.yml`); otherwise it answers HTTP 403 and the error has a `suggestion` |
 | [TinyFish Search API](https://docs.tinyfish.ai/search-api/index) | `tinyfish` | `TINYFISH_API_KEY` | Accepts query operators (`site:`, `filetype:`, `lang:`). Free up to 12,000 searches per day (the count resets at 00:00 UTC); beyond that a request needs a positive TinyFish wallet balance, otherwise HTTP 402 makes `auto` move to the next engine. The limit is 30 requests per minute per account: an HTTP 429 whose `Retry-After` or `X-RateLimit-Reset` is 5 seconds or less is retried once after that wait, otherwise the engine reports `rate_limited` and `auto` moves on. One request returns about 10 results; larger `num_results` values read up to 11 pages, drop duplicate URLs, and stop at a page with no new results. Results include `published_date` as TinyFish writes it (`4 days ago`, `Nov 4, 2023`, or an RFC 1123 date for news) |
+| [Keenable](https://docs.keenable.ai/api-reference/search) (opt-in) | `keenable` | `KEENABLE_API_KEY`, or `KEENABLE_KEYLESS=true` for the keyless endpoint (rate limited per IP, see [rate limits](https://docs.keenable.ai/rate-limits)) | Not in the default `SEARCH_ENGINE_ORDER`: it runs only when named (`SEARCH_ENGINE` or the `engine` key) or listed in `SEARCH_ENGINE_ORDER`. Reads the query as natural language. One `site:` term is sent as `site`, `-site:` terms as `exclude_domains`. `num_results` up to 50 in one request; `recent_days` becomes `published_after` (`Nd`); `safe_search` sends `moderation: moderate`; `language` and `region` are not used, and no `search_genre` is supported. Results include `published_date` when Keenable returns it. Keyed and keyless requests are both logged under Keenable's default policy ([data privacy](https://docs.keenable.ai/data-privacy)) |
 
 Engine selection:
 - The `engine` request key picks the engine for one call. Without it, the `SEARCH_ENGINE` environment variable decides (default `auto`).

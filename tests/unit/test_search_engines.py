@@ -1,4 +1,4 @@
-"""Search engine clients (Google Custom Search, Brave, Exa, SearXNG), engine selection
+"""Search engine clients (Google Custom Search, Brave, Exa, SearXNG, Keenable), engine selection
 and auto fallback. HTTP is replaced with a fake aiohttp session."""
 
 from __future__ import annotations
@@ -14,11 +14,12 @@ import pytest
 from crawl4ai_mcp.core.search import recent_days_to_int
 from crawl4ai_mcp.middleware.cache import _get_search_cache_key
 from crawl4ai_mcp.processors import web_search
-from crawl4ai_mcp.processors.search_engines import brave, exa, google_custom, searxng, tinyfish
+from crawl4ai_mcp.processors.search_engines import brave, exa, google_custom, keenable, searxng, tinyfish
 from crawl4ai_mcp.processors.search_engines.brave import BraveSearchClient
 from crawl4ai_mcp.processors.search_engines.common import failure
 from crawl4ai_mcp.processors.search_engines.exa import ExaSearchClient, split_site_operators
 from crawl4ai_mcp.processors.search_engines.google_custom import CustomSearchAPIClient
+from crawl4ai_mcp.processors.search_engines.keenable import KeenableSearchClient
 from crawl4ai_mcp.processors.search_engines.searxng import SearXNGSearchClient
 from crawl4ai_mcp.processors.search_engines.tinyfish import TinyFishSearchClient
 from crawl4ai_mcp.processors.web_search import WebSearchProcessor
@@ -28,6 +29,7 @@ ENGINE_ENV = (
     "SEARCH_ENGINE", "SEARCH_ENGINE_ORDER", "GOOGLE_SEARCH_MODE",
     "GOOGLE_SEARCH_API_KEY", "GOOGLE_SEARCH_ENGINE_ID", "BRAVE_SEARCH_API_KEY", "EXA_API_KEY",
     "SEARXNG_URL", "SEARXNG_ENGINES", "SEARXNG_TIMEOUT", "TINYFISH_API_KEY",
+    "KEENABLE_API_KEY", "KEENABLE_KEYLESS",
 )
 
 
@@ -954,6 +956,7 @@ class TestSearXNG:
     (google_custom, CustomSearchAPIClient, {"GOOGLE_SEARCH_API_KEY": "k", "GOOGLE_SEARCH_ENGINE_ID": "cx"}),
     (searxng, SearXNGSearchClient, {"SEARXNG_URL": "http://searx.local"}),
     (tinyfish, TinyFishSearchClient, {"TINYFISH_API_KEY": "k"}),
+    (keenable, KeenableSearchClient, {"KEENABLE_API_KEY": "k"}),
 ])
 @pytest.mark.parametrize("body", [None, ["not", "an", "object"]])
 async def test_malformed_200_is_an_error_not_zero_results(monkeypatch, module, client_cls, env, body):
@@ -993,6 +996,7 @@ class TestEngineConfig:
         ("bogus", ("google_custom", "brave", "exa", "searxng", "tinyfish")),
         ("tinyfish,brave", ("tinyfish", "brave")),
         ("searxng,brave", ("searxng", "brave")),
+        ("keenable,brave", ("keenable", "brave")),
     ])
     def test_auto_order(self, monkeypatch, raw, expected):
         if raw is not None:
@@ -1030,6 +1034,7 @@ def _processor(engine="auto", order=None, **clients) -> WebSearchProcessor:
         "exa": clients.get("exa", StubClient(configured=False)),
         "searxng": clients.get("searxng", StubClient(configured=False)),
         "tinyfish": clients.get("tinyfish", StubClient(configured=False)),
+        "keenable": clients.get("keenable", StubClient(configured=False)),
     }
     return proc
 
@@ -1448,7 +1453,7 @@ class TestSearchToolsEngine:
         search.search_web = search.batch_search_web = search.search_and_crawl = boom
         result = await _tools(search)[tool](request=request_dict)
         assert result["error_code"] == "invalid_search_engine"
-        assert result["valid_engines"] == ["auto", "google_custom", "brave", "exa", "searxng", "tinyfish"]
+        assert result["valid_engines"] == ["auto", "google_custom", "brave", "exa", "searxng", "tinyfish", "keenable"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("tool,request_dict", [
@@ -1489,3 +1494,127 @@ class TestSearchToolsEngine:
         search.search_and_crawl = AsyncMock(return_value={"success": True})
         await _tools(search)["search_and_crawl"](request={"search_query": "x", "engine": "brave"})
         assert search.search_and_crawl.await_args.kwargs["engine"] == "brave"
+
+
+# ---------------------------------------------------------------------------
+# Keenable
+# ---------------------------------------------------------------------------
+
+
+class TestKeenable:
+    def test_not_configured_by_default(self):
+        assert KeenableSearchClient().is_configured() is False
+
+    @pytest.mark.parametrize("env,endpoint", [
+        ({"KEENABLE_API_KEY": "k"}, "https://api.keenable.ai/v1/search"),
+        ({"KEENABLE_KEYLESS": "true"}, "https://api.keenable.ai/v1/search/public"),
+        ({"KEENABLE_API_KEY": "k", "KEENABLE_KEYLESS": "1"}, "https://api.keenable.ai/v1/search"),
+    ])
+    def test_configured(self, monkeypatch, env, endpoint):
+        for k, v in env.items():
+            monkeypatch.setenv(k, v)
+        client = KeenableSearchClient()
+        assert client.is_configured() is True
+        assert client.endpoint == endpoint
+
+    def test_build_body(self):
+        body = KeenableSearchClient().build_body("llm site:arxiv.org -site:example.com", 80, True, 7)
+        assert body == {
+            "query": "llm", "site": "arxiv.org", "exclude_domains": ["example.com"],
+            "max_results": 50, "moderation": "moderate", "published_after": "7d",
+        }
+
+    def test_build_body_plain(self):
+        body = KeenableSearchClient().build_body("site:a.com site:b.com", 5, False, None)
+        assert body == {"query": "site:a.com site:b.com", "max_results": 5}
+
+    @pytest.mark.asyncio
+    async def test_keyed_request_and_results(self, monkeypatch):
+        monkeypatch.setenv("KEENABLE_API_KEY", "k")
+        session = _install(monkeypatch, keenable, [(200, {"results": [
+            {"title": "A", "url": "https://arxiv.org/abs/1", "snippet": "one\n two", "published_at": "2026-01-01"},
+            {"title": None, "url": "https://b.com", "snippet": None, "description": "desc"},
+            {"title": "dup", "url": "https://b.com"},
+        ]})])
+        result = await KeenableSearchClient().search("q", num_results=3)
+
+        call = session.calls[0]
+        assert call["method"] == "POST"
+        assert call["url"] == "https://api.keenable.ai/v1/search"
+        assert call["headers"]["X-API-Key"] == "k"
+        assert "X-Keenable-Title" not in call["headers"]
+        assert result["success"] is True
+        assert result["processing_method"] == "keenable_search_api"
+        a, b = result["results"]
+        assert a["snippet"] == "one two"
+        assert a["published_date"] == "2026-01-01"
+        assert b["title"] == "No title"
+        assert b["snippet"] == "desc"
+
+    @pytest.mark.asyncio
+    async def test_keyless_request(self, monkeypatch):
+        monkeypatch.setenv("KEENABLE_KEYLESS", "true")
+        session = _install(monkeypatch, keenable, [(200, {"results": [{"title": "A", "url": "https://a.com"}]})])
+        result = await KeenableSearchClient().search("q")
+        call = session.calls[0]
+        assert call["url"] == "https://api.keenable.ai/v1/search/public"
+        assert call["headers"]["X-Keenable-Title"] == "crawl-mcp"
+        assert "X-API-Key" not in call["headers"]
+        assert result["processing_method"] == "keenable_search_public"
+
+    @pytest.mark.asyncio
+    async def test_not_configured(self):
+        result = await KeenableSearchClient().search("q")
+        assert result["failure_kind"] == "not_configured"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status,kind", [(401, "auth"), (402, "quota"), (429, "rate_limited"), (503, "server")])
+    async def test_errors(self, monkeypatch, status, kind):
+        monkeypatch.setenv("KEENABLE_API_KEY", "k")
+        _install(monkeypatch, keenable, [(status, {"message": "nope", "code": "x", "fix": "do y"})])
+        result = await KeenableSearchClient().search("q")
+        assert result["success"] is False
+        assert result["failure_kind"] == kind
+        assert result["status_code"] == status
+        assert result["suggestion"] == "do y"
+
+    @pytest.mark.asyncio
+    async def test_no_results(self, monkeypatch):
+        monkeypatch.setenv("KEENABLE_API_KEY", "k")
+        _install(monkeypatch, keenable, [(200, {"results": []})])
+        result = await KeenableSearchClient().search("q")
+        assert result["failure_kind"] == "no_results"
+
+    def test_not_in_default_auto_order(self):
+        assert "keenable" not in web_search.DEFAULT_AUTO_ORDER
+
+    @pytest.mark.asyncio
+    async def test_auto_skips_configured_keenable_by_default(self):
+        k = StubClient(result=_ok())
+        b = StubClient(result=_ok())
+        proc = _processor(keenable=k, brave=b)
+        proc.auto_order = web_search.DEFAULT_AUTO_ORDER
+        result = await proc.search("q")
+        assert result["engine"] == "brave"
+        assert k.calls == []
+
+    @pytest.mark.asyncio
+    async def test_named_engine(self):
+        k = StubClient(result=_ok())
+        result = await _processor(keenable=k).search("q", engine="keenable", recent_days=3)
+        assert result["engine"] == "keenable"
+        # query, num_results, safe_search, recent_days: no genre operators added.
+        assert k.calls == [("q", 10, True, 3)]
+
+    @pytest.mark.asyncio
+    async def test_named_engine_not_configured(self):
+        result = await _processor().search("q", engine="keenable")
+        assert result["error_code"] == "search_engine_not_configured"
+        assert "KEENABLE_API_KEY" in result["suggestion"]
+
+    @pytest.mark.asyncio
+    async def test_genre_unsupported(self):
+        k = StubClient(result=_ok())
+        result = await _processor(keenable=k).search("q", engine="keenable", search_genre="pdf")
+        assert result["error_code"] == "unsupported_search_genre"
+        assert k.calls == []
