@@ -179,7 +179,8 @@ DEFAULT_CRAWL_CACHE_TTL_SECONDS = 3600
 # by validators.validate_search_genre.
 # Search engine APIs selectable with SEARCH_ENGINE or the engine request key
 # ("auto" tries the configured ones in SEARCH_ENGINE_ORDER).
-SEARCH_ENGINES = ("google_custom", "brave", "exa", "searxng", "tinyfish")
+# keenable is opt-in and not in the default SEARCH_ENGINE_ORDER.
+SEARCH_ENGINES = ("google_custom", "brave", "exa", "searxng", "tinyfish", "keenable")
 
 # result_type values of the search tools. Every engine returns "web".
 # discussions, faq and videos are Brave result sections, research_paper is a

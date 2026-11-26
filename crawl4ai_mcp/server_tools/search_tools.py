@@ -180,7 +180,7 @@ def register_search_tools(mcp, get_modules):
     async def search_web(
         request: Annotated[Dict[str, Any], Field(description=_SEARCH_REQUEST_DESC)]
     ) -> Dict[str, Any]:
-        """Search the web with Google Custom Search, Brave, Exa, SearXNG or TinyFish (engine key, or the server default). Optional search_genre filtering (file types or language; see get_search_genres). Supply output_path in the request to persist the full unsliced result set to disk as JSON and receive a slim response."""
+        """Search the web with Google Custom Search, Brave, Exa, SearXNG, TinyFish or Keenable (engine key, or the server default). Optional search_genre filtering (file types or language; see get_search_genres). Supply output_path in the request to persist the full unsliced result set to disk as JSON and receive a slim response."""
         return await _search_web(request, "search_web")
 
     @mcp.tool(title="Search Google", annotations=READONLY_ANNOTATIONS)

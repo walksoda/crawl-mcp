@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Keenable engine (`keenable`) for the [Keenable search API](https://docs.keenable.ai/api-reference/search), configured with `KEENABLE_API_KEY`, or `KEENABLE_KEYLESS=true` for the keyless endpoint. It is opt-in and not in the default `SEARCH_ENGINE_ORDER`, so `auto` is unchanged unless it is listed there. One `site:` term becomes `site` and `-site:` terms become `exclude_domains`, `recent_days` becomes `published_after`, `safe_search` sends `moderation: moderate`, and `language`, `region` and `search_genre` are not supported.
+
 ## [0.5.0] - 2026-11-07
 
 ### Added

@@ -38,7 +38,7 @@ async def search_web(
 
     Request keys: query, num_results, search_genre, language, region,
     safe_search, recent_days, engine (auto, google_custom, brave, exa, searxng,
-    tinyfish), result_type (web, discussions, faq, videos, news, research_paper;
+    tinyfish, keenable), result_type (web, discussions, faq, videos, news, research_paper;
     a string or a list).
     """
     try:
@@ -315,6 +315,7 @@ async def get_search_genres() -> Dict[str, Any]:
                         + ", ".join(sorted(FILE_TYPE_GENRES))
                         + " are not supported, auto mode skips exa for them"
                     ),
+                    "keenable": "no genres (no file type or language filter), auto mode skips keenable for them",
                 },
                 "rate_limiting_enabled": True,
                 "supported_languages": ["en", "ja", "es", "fr", "de", "it", "pt", "ru", "zh", "ko"],
